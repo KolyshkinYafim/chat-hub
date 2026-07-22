@@ -1256,6 +1256,24 @@ button {
   line-height: 1;
 }
 
+.onboard-strip {
+  position: fixed;
+  top: 0;
+  left: var(--sidebar-w);
+  right: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  background: rgba(240, 180, 41, 0.12);
+  border-bottom: 1px solid rgba(240, 180, 41, 0.35);
+  color: #f0c14b;
+  font-size: 12.5px;
+  -webkit-app-region: no-drag;
+}
+
 .chip.select-chip select {
   border: none;
   outline: none;
