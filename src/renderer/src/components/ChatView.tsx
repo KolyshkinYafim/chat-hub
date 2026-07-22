@@ -246,23 +246,12 @@ export function ChatView({
           />
           <div className="composer-toolbar">
             <div className="composer-chips">
-              <label className="chip select-chip">
+              {/* Session-bound agent — not the global "default for new" */}
+              <span className="chip select-chip locked" title="Agent for this session">
                 <span className="chip-ico">✦</span>
-                <select
-                  value={provider}
-                  onChange={(e) =>
-                    onProviderChange(e.target.value as ProviderId)
-                  }
-                  aria-label="Provider"
-                >
-                  {providers.map((p) => (
-                    <option key={p.id} value={p.id} disabled={!p.available}>
-                      {p.label}
-                      {!p.available ? " (install CLI)" : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                {providers.find((p) => p.id === session.provider)?.label ??
+                  session.provider}
+              </span>
               {models.length > 0 ? (
                 <label
                   className="chip select-chip"
@@ -285,7 +274,9 @@ export function ChatView({
                     ))}
                   </select>
                 </label>
-              ) : null}
+              ) : (
+                <span className="chip muted">default model</span>
+              )}
               <label
                 className={`chip select-chip perm-chip perm-${permissionMode}`}
                 title={PERMISSION_HINTS[permissionMode]}

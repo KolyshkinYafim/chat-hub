@@ -43,6 +43,8 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [sending, setSending] = useState(false)
   const [git, setGit] = useState<GitCheckoutInfo | null>(null)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [onboardDismissed, setOnboardDismissed] = useState(false)
 
   const applyEvent = useCallback((event: HubEvent) => {
     switch (event.type) {
@@ -387,66 +389,93 @@ export default function App() {
       .filter((s) => s.id !== "mock")
       .every((s) => !s.installed)
 
+  const showOnboard =
+    !onboardDismissed && (noneInstalled || needsAuth) && !settingsOpen
+
   return (
-    <div className="app">
-      {noneInstalled || needsAuth ? (
-        <div className="onboard-strip">
-          <span>
-            {noneInstalled
-              ? "No agent CLIs found on PATH."
-              : "Some agents need login."}{" "}
-            Open Settings to connect accounts and pick default models.
-          </span>
-          <button type="button" className="tb-btn" onClick={() => setSettingsOpen(true)}>
-            Open Settings
-          </button>
-        </div>
-      ) : null}
+    <div className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""}`}>
       <Sidebar
         sessions={sessions}
         activeId={activeId}
         providers={providers}
         provider={provider}
         busy={busy}
+        collapsed={sidebarCollapsed}
+        onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
         onProviderChange={setProvider}
         onCreate={(project) => openNewSession(project)}
         onSelect={(id) => void selectSession(id)}
         onDelete={(id) => void deleteSession(id)}
         onOpenSettings={() => setSettingsOpen(true)}
-      />
-      <ChatView
-        session={activeSession}
-        messages={messages}
-        providers={providers}
-        provider={provider}
-        models={sessionModels}
-        permissionMode={permissionMode}
-        git={git}
-        error={error}
-        sending={sending}
-        onProviderChange={setProvider}
-        onModelChange={(m) => void changeModel(m)}
-        onPermissionChange={(m) => void changePermission(m)}
-        onSend={sendMessage}
-        onAbort={() => void abortSession()}
-        onCreate={() => openNewSession()}
-        onOpenFolder={() => void openFolder()}
-        onOpenEditor={() => void openEditor()}
-        onCommit={() => void commit()}
-        onRename={() => void renameSession()}
-      />
-      <SettingsModal
-        open={settingsOpen}
-        onClose={() => {
-          setSettingsOpen(false)
-          void window.chatHub.getSettings().then((s) => {
-            setProviderStatuses(s.statuses)
-            setPermissionMode(s.permissionMode)
+        onOpenProject={(cwd) => {
+          void window.chatHub.openPath(cwd).catch((err) => {
+            setError(err instanceof Error ? err.message : String(err))
           })
         }}
-        permissionMode={permissionMode}
-        onPermissionChange={(m) => void changePermission(m)}
       />
+      <div className="main-column">
+        {showOnboard ? (
+          <div className="onboard-strip">
+            <span>
+              {noneInstalled
+                ? "No agent CLIs found on PATH."
+                : "Some agents need login."}{" "}
+              Open Settings to connect accounts and pick default models.
+            </span>
+            <div className="onboard-actions">
+              <button
+                type="button"
+                className="tb-btn primary"
+                onClick={() => setSettingsOpen(true)}
+              >
+                Open Settings
+              </button>
+              <button
+                type="button"
+                className="tb-btn"
+                onClick={() => setOnboardDismissed(true)}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        ) : null}
+        <ChatView
+          session={activeSession}
+          messages={messages}
+          providers={providers}
+          provider={provider}
+          models={sessionModels}
+          permissionMode={permissionMode}
+          git={git}
+          error={error}
+          sending={sending}
+          onProviderChange={setProvider}
+          onModelChange={(m) => void changeModel(m)}
+          onPermissionChange={(m) => void changePermission(m)}
+          onSend={sendMessage}
+          onAbort={() => void abortSession()}
+          onCreate={() => openNewSession()}
+          onOpenFolder={() => void openFolder()}
+          onOpenEditor={() => void openEditor()}
+          onCommit={() => void commit()}
+          onRename={() => void renameSession()}
+        />
+      </div>
+      {settingsOpen ? (
+        <SettingsModal
+          open={settingsOpen}
+          onClose={() => {
+            setSettingsOpen(false)
+            void window.chatHub.getSettings().then((s) => {
+              setProviderStatuses(s.statuses)
+              setPermissionMode(s.permissionMode)
+            })
+          }}
+          permissionMode={permissionMode}
+          onPermissionChange={(m) => void changePermission(m)}
+        />
+      ) : null}
       <NewSessionDialog
         open={newSessionOpen}
         providers={providers}

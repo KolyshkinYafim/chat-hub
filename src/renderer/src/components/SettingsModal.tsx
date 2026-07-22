@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useState } from "react"
 import type { ProviderId } from "@shared/types"
 import type { PermissionMode } from "@shared/permission"
-import type { ProviderStatus, SettingsSnapshot } from "@shared/settings-types"
+import type {
+  ProviderConfig,
+  ProviderStatus,
+  SettingsSnapshot,
+} from "@shared/settings-types"
+
+type Tab =
+  | "general"
+  | "providers"
+  | "connections"
+  | "advanced"
 
 type Props = {
   open: boolean
@@ -13,17 +23,24 @@ type Props = {
 function authBadge(auth: ProviderStatus["auth"]): { text: string; cls: string } {
   switch (auth) {
     case "connected":
-      return { text: "Connected", cls: "ok" }
+      return { text: "Authenticated", cls: "ok" }
     case "needs_login":
       return { text: "Needs login", cls: "warn" }
     case "not_installed":
       return { text: "Not installed", cls: "err" }
     case "n/a":
-      return { text: "N/A", cls: "muted" }
+      return { text: "Built-in", cls: "muted" }
     default:
-      return { text: "Unknown", cls: "muted" }
+      return { text: "Installed · auth unverified", cls: "warn" }
   }
 }
+
+const NAV: { id: Tab; label: string; icon: string }[] = [
+  { id: "general", label: "General", icon: "◎" },
+  { id: "providers", label: "Providers", icon: "⬡" },
+  { id: "connections", label: "Connections", icon: "⚭" },
+  { id: "advanced", label: "Advanced", icon: "…" },
+]
 
 export function SettingsModal({
   open,
@@ -31,18 +48,30 @@ export function SettingsModal({
   permissionMode,
   onPermissionChange,
 }: Props) {
-  const [tab, setTab] = useState<"providers" | "general">("providers")
+  const [tab, setTab] = useState<Tab>("providers")
   const [statuses, setStatuses] = useState<ProviderStatus[]>([])
+  const [providersCfg, setProvidersCfg] = useState<
+    SettingsSnapshot["providers"]
+  >({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({
+    claude: true,
+  })
+  const [bridgePath, setBridgePath] = useState("")
 
   const refresh = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const snap: SettingsSnapshot = await window.chatHub.getSettings()
+      const [snap, path] = await Promise.all([
+        window.chatHub.getSettings(),
+        window.chatHub.getBridgePath(),
+      ])
       setStatuses(snap.statuses)
+      setProvidersCfg(snap.providers)
+      setBridgePath(path)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -77,13 +106,12 @@ export function SettingsModal({
     }
   }
 
-  async function setDefaultModel(id: ProviderId, model: string) {
+  async function patchProvider(id: ProviderId, patch: ProviderConfig) {
     setBusyId(id)
     try {
-      const res = await window.chatHub.setProviderConfig(id, {
-        defaultModel: model,
-      })
+      const res = await window.chatHub.setProviderConfig(id, patch)
       setStatuses(res.statuses)
+      setProvidersCfg(res.providers)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -92,135 +120,261 @@ export function SettingsModal({
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose} role="presentation">
-      <div
-        className="modal-panel"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Settings"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="modal-header">
-          <h2>Settings</h2>
-          <button type="button" className="icon-chip" onClick={onClose}>
-            ×
-          </button>
+    <div className="settings-root" role="dialog" aria-modal="true">
+      <aside className="settings-nav">
+        <div className="settings-nav-brand">
+          <span className="brand-glyph">⌘</span>
+          <span>
+            Chat Hub <span className="alpha">MVP</span>
+          </span>
+        </div>
+        <nav>
+          {NAV.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={tab === item.id ? "active" : ""}
+              onClick={() => setTab(item.id)}
+            >
+              <span className="nav-ico">{item.icon}</span>
+              {item.label}
+            </button>
+          ))}
+        </nav>
+        <button type="button" className="settings-back" onClick={onClose}>
+          ← Back to chat
+        </button>
+      </aside>
+
+      <section className="settings-main">
+        <header className="settings-main-head">
+          <h1>
+            {tab === "providers"
+              ? "Providers"
+              : tab === "general"
+                ? "General"
+                : tab === "connections"
+                  ? "Connections"
+                  : "Advanced"}
+          </h1>
+          {tab === "providers" ? (
+            <button
+              type="button"
+              className="tb-btn"
+              disabled={loading}
+              onClick={() => void refresh()}
+            >
+              {loading ? "Checking…" : "↻ Refresh"}
+            </button>
+          ) : null}
         </header>
 
-        <div className="modal-tabs">
-          <button
-            type="button"
-            className={tab === "providers" ? "active" : ""}
-            onClick={() => setTab("providers")}
-          >
-            Providers & accounts
-          </button>
-          <button
-            type="button"
-            className={tab === "general" ? "active" : ""}
-            onClick={() => setTab("general")}
-          >
-            General
-          </button>
-        </div>
+        {error ? <div className="error-banner">{error}</div> : null}
 
-        {error ? <div className="error-banner modal-err">{error}</div> : null}
+        <div className="settings-scroll">
+          {tab === "general" ? (
+            <div className="settings-section">
+              <h2 className="section-label">General</h2>
+              <div className="settings-group">
+                <label className="settings-row">
+                  <div>
+                    <div className="row-title">Default permission mode</div>
+                    <div className="row-desc">
+                      YOLO bypasses tool prompts for daily coding. Change per
+                      message in the composer anytime.
+                    </div>
+                  </div>
+                  <select
+                    value={permissionMode}
+                    onChange={(e) =>
+                      onPermissionChange(e.target.value as PermissionMode)
+                    }
+                  >
+                    <option value="yolo">YOLO — full bypass</option>
+                    <option value="acceptEdits">Edits — auto file edits</option>
+                    <option value="default">Ask — CLI default</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+          ) : null}
 
-        <div className="modal-body">
           {tab === "providers" ? (
-            <>
+            <div className="settings-section">
+              <h2 className="section-label">Providers</h2>
               <p className="modal-lead">
-                Hub uses local CLIs. Connect accounts via each CLI login — status
-                is detected here. Pick a default model for new sessions.
+                Local CLIs only — Hub detects install, auth, and models. Expand a
+                card to set binary path and default model.
               </p>
-              <div className="provider-cards">
-                {loading && statuses.length === 0 ? (
-                  <div className="modal-lead">Detecting providers…</div>
-                ) : (
-                  statuses.map((s) => {
+              <div className="provider-list-t3">
+                {statuses
+                  .filter((s) => s.id !== "mock")
+                  .map((s) => {
                     const badge = authBadge(s.auth)
+                    const open = expanded[s.id] === true
+                    const cfg = providersCfg[s.id] ?? {}
                     return (
-                      <article key={s.id} className="provider-card">
-                        <div className="provider-card-top">
-                          <div>
-                            <h3>{s.label}</h3>
-                            <div className="provider-path mono-soft">
-                              {s.binaryPath ?? "—"}
-                              {s.version ? ` · ${s.version}` : ""}
+                      <article
+                        key={s.id}
+                        className={`provider-t3 ${open ? "open" : ""}`}
+                      >
+                        <button
+                          type="button"
+                          className="provider-t3-head"
+                          onClick={() =>
+                            setExpanded((e) => ({
+                              ...e,
+                              [s.id]: !e[s.id],
+                            }))
+                          }
+                        >
+                          <div className="provider-t3-title">
+                            <span
+                              className={`auth-dot ${badge.cls}`}
+                              title={badge.text}
+                            />
+                            <div>
+                              <div className="name-row">
+                                <strong>{s.label}</strong>
+                                {s.version ? (
+                                  <span className="ver">{s.version}</span>
+                                ) : null}
+                              </div>
+                              <div className="auth-line">
+                                {badge.text}
+                                {s.authDetail ? ` · ${s.authDetail}` : ""}
+                              </div>
                             </div>
                           </div>
-                          <span className={`auth-badge ${badge.cls}`}>
-                            {badge.text}
-                          </span>
-                        </div>
-                        <p className="provider-detail">{s.authDetail}</p>
-                        <div className="provider-card-actions">
-                          {s.loginCommand ? (
-                            <button
-                              type="button"
-                              className="tb-btn"
-                              disabled={busyId === s.id}
-                              onClick={() => void login(s.id)}
-                            >
-                              Login…
-                            </button>
-                          ) : null}
-                          <button
-                            type="button"
-                            className="tb-btn"
-                            disabled={loading}
-                            onClick={() => void refresh()}
-                          >
-                            Re-detect
-                          </button>
-                          {s.models.length > 0 ? (
-                            <label className="model-field">
-                              <span>Default model</span>
-                              <select
-                                value={s.defaultModel ?? s.models[0]?.id ?? ""}
-                                disabled={busyId === s.id}
-                                onChange={(e) =>
-                                  void setDefaultModel(s.id, e.target.value)
+                          <span className="chev">{open ? "▾" : "▸"}</span>
+                        </button>
+
+                        {open ? (
+                          <div className="provider-t3-body">
+                            <label className="form-field">
+                              <span>Binary path</span>
+                              <input
+                                className="text-input"
+                                defaultValue={
+                                  cfg.binaryPath ?? s.binaryPath ?? ""
                                 }
-                              >
-                                {s.models.map((m) => (
-                                  <option key={m.id} value={m.id}>
-                                    {m.label}
-                                  </option>
-                                ))}
-                              </select>
+                                placeholder="Auto-detect from PATH"
+                                key={`${s.id}-bin-${s.binaryPath ?? ""}`}
+                                onBlur={(e) => {
+                                  const v = e.target.value.trim()
+                                  if (v !== (cfg.binaryPath ?? s.binaryPath ?? "")) {
+                                    void patchProvider(s.id, {
+                                      binaryPath: v || "",
+                                    })
+                                  }
+                                }}
+                              />
+                              <span className="field-hint">
+                                Path to the CLI binary used by this provider.
+                              </span>
                             </label>
-                          ) : null}
-                        </div>
+
+                            {s.models.length > 0 ? (
+                              <div className="models-block">
+                                <div className="models-head">
+                                  <span>Models</span>
+                                  <span className="field-hint">
+                                    {s.models.length} available
+                                  </span>
+                                </div>
+                                <ul className="models-list">
+                                  {s.models.slice(0, 24).map((m) => (
+                                    <li key={m.id}>
+                                      <span className="mono-soft">{m.label}</span>
+                                      <button
+                                        type="button"
+                                        className={
+                                          (cfg.defaultModel ?? s.defaultModel) ===
+                                          m.id
+                                            ? "star on"
+                                            : "star"
+                                        }
+                                        title="Set as default"
+                                        onClick={() =>
+                                          void patchProvider(s.id, {
+                                            defaultModel: m.id,
+                                          })
+                                        }
+                                      >
+                                        {(cfg.defaultModel ?? s.defaultModel) ===
+                                        m.id
+                                          ? "★"
+                                          : "☆"}
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ) : (
+                              <p className="field-hint">
+                                No model list from CLI — will use provider default.
+                              </p>
+                            )}
+
+                            <div className="provider-card-actions">
+                              {s.loginCommand ? (
+                                <button
+                                  type="button"
+                                  className="tb-btn"
+                                  disabled={busyId === s.id}
+                                  onClick={() => void login(s.id)}
+                                >
+                                  Login…
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                className="tb-btn"
+                                disabled={loading}
+                                onClick={() => void refresh()}
+                              >
+                                Re-detect
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                       </article>
                     )
-                  })
-                )}
+                  })}
               </div>
-            </>
-          ) : (
-            <div className="general-settings">
-              <label className="model-field">
-                <span>Default permission mode</span>
-                <select
-                  value={permissionMode}
-                  onChange={(e) =>
-                    onPermissionChange(e.target.value as PermissionMode)
-                  }
-                >
-                  <option value="yolo">YOLO — full bypass</option>
-                  <option value="acceptEdits">Edits — auto file edits</option>
-                  <option value="default">Ask — CLI default</option>
-                </select>
-              </label>
-              <p className="modal-lead">
-                YOLO is recommended for daily coding. Change per-message in the
-                composer chip anytime.
-              </p>
             </div>
-          )}
+          ) : null}
+
+          {tab === "connections" ? (
+            <div className="settings-section">
+              <h2 className="section-label">Connections</h2>
+              <div className="settings-group">
+                <div className="settings-row col">
+                  <div className="row-title">Session Monitor bridge</div>
+                  <div className="row-desc">
+                    Append-only JSONL events for the island / tray app.
+                  </div>
+                  <code className="path-code">{bridgePath || "…"}</code>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {tab === "advanced" ? (
+            <div className="settings-section">
+              <h2 className="section-label">Advanced</h2>
+              <div className="settings-group">
+                <p className="modal-lead">
+                  Env overrides:{" "}
+                  <code>CHAT_HUB_PERMISSION</code>,{" "}
+                  <code>CHAT_HUB_DEMO=1</code>,{" "}
+                  <code>AGENT_DESKTOP_EVENTS</code>.
+                </p>
+              </div>
+            </div>
+          ) : null}
         </div>
-      </div>
+      </section>
     </div>
   )
 }
