@@ -48,7 +48,15 @@ Requirements: Node ≥ 20, pnpm, macOS (primary).
 | What | Where |
 |------|--------|
 | Sessions + messages | `~/Library/Application Support/chat-hub/data/state.json` |
-| Monitor bridge JSONL | `~/Library/Application Support/chat-hub/bridge/session-events.jsonl` |
+| Session Monitor bridge (JSONL) | `~/Library/Application Support/agent-desktop/events.jsonl` |
+
+## Session Monitor bridge
+
+Chat Hub **appends** `SessionEvent` lines to the shared JSONL file above. Session Monitor tails the same path.
+
+- Contract: see [docs/bridge.md](./docs/bridge.md) and both apps’ architecture docs
+- Override path: `AGENT_DESKTOP_EVENTS=/path/to/events.jsonl`
+- Both apps run alone; the bridge is best-effort
 
 ## Provider next steps
 

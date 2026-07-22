@@ -2,15 +2,17 @@
 
 Chat Hub is a **producer** of `SessionEvent` for Session Monitor.
 
-## File path
+## File path (shared)
 
-On macOS (Electron `userData`):
+On macOS:
 
 ```
-~/Library/Application Support/chat-hub/bridge/session-events.jsonl
+~/Library/Application Support/agent-desktop/events.jsonl
 ```
 
-Exact path is also shown in the Chat Hub sidebar footer and available via IPC `bridge:path`.
+Override with env `AGENT_DESKTOP_EVENTS` if needed.
+
+Exact path is shown in the Chat Hub sidebar footer and via IPC `bridge:path`.
 
 ## Format
 
@@ -23,7 +25,7 @@ Append-only **JSONL**. One event per line:
 {"type":"session.ended","id":"...","reason":"done","ts":...}
 ```
 
-`ts` is Hub-added wall-clock ms. Core fields match the shared contract in Session Monitor `docs/architecture.md`.
+`ts` is Hub-added wall-clock ms (optional for consumers). Core fields match the shared `SessionEvent` contract in both apps’ architecture docs.
 
 ## SessionEvent types
 
@@ -36,6 +38,7 @@ Append-only **JSONL**. One event per line:
 
 ## Consumer notes
 
-- Tail the file; do not truncate from Monitor without coordination.
+- Session Monitor tails this file (replay on start, then append-only).
+- Do not truncate without coordination.
 - Status must never be inferred as `running` without a live process (Hub resets `running` → `idle` on restart).
-- Future: optional Unix socket at the same directory; JSONL remains the MVP contract.
+- Both apps run alone: Hub writes even if Monitor is absent; Monitor still shows mock sessions if Hub is absent.

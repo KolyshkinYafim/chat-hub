@@ -40,6 +40,9 @@ Same contract as Session Monitor (`session.status`, `session.permission`, …).
 
 Hub is the **primary producer** for sessions it owns.
 
+Bridge (optional consumer: Session Monitor): append-only JSONL at  
+`~/Library/Application Support/agent-desktop/events.jsonl` — see [bridge.md](./bridge.md).
+
 ## Persistence
 
 - transcripts: local SQLite or append-only JSONL per session

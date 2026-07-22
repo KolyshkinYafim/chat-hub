@@ -1,15 +1,11 @@
 import { appendFile, mkdir } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { dirname } from "node:path"
 import type { SessionEvent } from "@shared/types"
+import { agentDesktopEventsPath } from "@shared/bridge-path"
 
 /**
  * Session Monitor bridge — append-only JSONL of SessionEvent.
- *
- * Path (documented for Session Monitor consumers):
- *   <userData>/bridge/session-events.jsonl
- *
- * Each line is one JSON SessionEvent object.
- * Session Monitor can tail this file (or a future Unix socket).
+ * Path: agentDesktopEventsPath() (see docs/bridge.md).
  */
 export class SessionMonitorBridge {
   private writeQueue: Promise<void> = Promise.resolve()
@@ -32,7 +28,7 @@ export class SessionMonitorBridge {
       })
   }
 
-  static defaultPath(userData: string): string {
-    return join(userData, "bridge", "session-events.jsonl")
+  static defaultPath(): string {
+    return agentDesktopEventsPath()
   }
 }
