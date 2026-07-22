@@ -1,0 +1,126 @@
+export type SessionStatus =
+  | "idle"
+  | "running"
+  | "waiting_input"
+  | "error"
+  | "done"
+
+export type ProviderId = "mock" | "grok" | "claude" | "codex" | "opencode"
+
+export type ProviderInfo = {
+  id: ProviderId
+  label: string
+  available: boolean
+  description: string
+}
+
+export type SessionMeta = {
+  id: string
+  title: string
+  provider: ProviderId
+  cwd: string
+  status: SessionStatus
+  createdAt: number
+  updatedAt: number
+}
+
+export type ChatRole = "user" | "assistant" | "system"
+
+export type ChatMessage = {
+  id: string
+  sessionId: string
+  role: ChatRole
+  content: string
+  createdAt: number
+  streaming?: boolean
+}
+
+export type SessionEvent =
+  | { type: "session.upsert"; session: SessionMeta }
+  | { type: "session.status"; id: string; status: SessionStatus }
+  | {
+      type: "session.permission"
+      id: string
+      requestId: string
+      summary: string
+    }
+  | {
+      type: "session.question"
+      id: string
+      requestId: string
+      prompt: string
+      options?: string[]
+    }
+  | {
+      type: "session.message"
+      id: string
+      role: ChatRole
+      preview: string
+    }
+  | {
+      type: "session.ended"
+      id: string
+      reason: "done" | "error" | "killed"
+    }
+
+export type HubEvent =
+  | SessionEvent
+  | { type: "chat.message"; message: ChatMessage }
+  | {
+      type: "chat.delta"
+      sessionId: string
+      messageId: string
+      delta: string
+    }
+  | { type: "chat.done"; sessionId: string; messageId: string }
+  | { type: "sessions.replaced"; sessions: SessionMeta[] }
+  | {
+      type: "messages.replaced"
+      sessionId: string
+      messages: ChatMessage[]
+    }
+
+export type CreateSessionInput = {
+  provider: ProviderId
+  title?: string
+  cwd?: string
+}
+
+export type SessionSnapshot = {
+  sessions: SessionMeta[]
+  messages: Record<string, ChatMessage[]>
+  activeSessionId: string | null
+}
+
+export const PROVIDERS: ProviderInfo[] = [
+  {
+    id: "mock",
+    label: "Mock",
+    available: true,
+    description: "Fake streaming replies for UI development",
+  },
+  {
+    id: "grok",
+    label: "Grok Build",
+    available: false,
+    description: "CLI / headless — not wired yet",
+  },
+  {
+    id: "claude",
+    label: "Claude Code",
+    available: false,
+    description: "Hooks / session files — not wired yet",
+  },
+  {
+    id: "codex",
+    label: "Codex CLI",
+    available: false,
+    description: "Codex CLI — not wired yet",
+  },
+  {
+    id: "opencode",
+    label: "OpenCode",
+    available: false,
+    description: "Desktop/CLI + plugins — not wired yet",
+  },
+]
