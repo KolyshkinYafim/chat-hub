@@ -13,6 +13,7 @@ type Props = {
   onCreate: (project?: string) => void
   onSelect: (id: string) => void
   onDelete: (id: string) => void
+  onOpenSettings: () => void
 }
 
 type ProjectGroup = {
@@ -31,6 +32,7 @@ export function Sidebar({
   onCreate,
   onSelect,
   onDelete,
+  onOpenSettings,
 }: Props) {
   const [query, setQuery] = useState("")
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
@@ -83,15 +85,25 @@ export function Sidebar({
               </div>
             </div>
           </div>
-          <button
-            type="button"
-            className="icon-chip"
-            title="New session"
-            disabled={busy}
-            onClick={() => onCreate()}
-          >
-            +
-          </button>
+          <div className="brand-actions">
+            <button
+              type="button"
+              className="icon-chip"
+              title="Settings (⌘,)"
+              onClick={onOpenSettings}
+            >
+              ⚙
+            </button>
+            <button
+              type="button"
+              className="icon-chip"
+              title="New session"
+              disabled={busy}
+              onClick={() => onCreate()}
+            >
+              +
+            </button>
+          </div>
         </div>
 
         <div className="search-wrap">

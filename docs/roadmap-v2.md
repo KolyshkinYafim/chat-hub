@@ -45,9 +45,9 @@ Session store: `provider` + `model` + `permissionMode` per session.
 |---------|--------|------|
 | Shell UI (sidebar, transcript, composer look) | ✅ | — |
 | Real CLI spawn (claude/grok/opencode) | 🟡 | stream parse грубый; resume хрупкий |
-| **Accounts / login UI** | ❌ | непонятно «подключено ли» |
-| **Model picker** | ❌ | нет выбора Sonnet/Opus/Grok model |
-| Settings window | ❌ | только permission mode chip |
+| **Accounts / login UI** | 🟡 | Settings → Providers: status + Login… |
+| **Model picker** | 🟡 | composer chip + default in Settings |
+| Settings window | ✅ | ⚙ / ⌘, Providers + General |
 | Binary path override | ❌ | только PATH discover |
 | Auth health check | ❌ | ошибка только после failed run |
 | Effort / thinking / mode chips | 🟡 | decorative / partial |

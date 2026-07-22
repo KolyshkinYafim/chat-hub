@@ -87,6 +87,9 @@ export class ClaudeAdapter implements AgentAdapter {
       // Default YOLO: full bypass for unattended daily coding
       ...claudePermissionArgs(mode),
     ]
+    if (opts?.model) {
+      args.push("--model", opts.model)
+    }
     if (state.claudeSessionId) {
       args.push("--resume", state.claudeSessionId)
     }

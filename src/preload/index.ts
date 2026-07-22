@@ -4,12 +4,18 @@ import type {
   CreateSessionInput,
   GitCheckoutInfo,
   HubEvent,
+  ProviderId,
   ProviderInfo,
   SessionMeta,
   SessionSnapshot,
   ChatMessage,
 } from "@shared/types"
 import type { PermissionMode } from "@shared/permission"
+import type {
+  ProviderConfig,
+  ProviderStatus,
+  SettingsSnapshot,
+} from "@shared/settings-types"
 
 const api = {
   getSnapshot: (): Promise<SessionSnapshot> =>
@@ -47,12 +53,27 @@ const api = {
     message: string,
   ): Promise<{ ok: boolean; output: string }> =>
     ipcRenderer.invoke(IpcChannels.gitCommit, cwd, message),
-  getSettings: (): Promise<{ permissionMode: PermissionMode }> =>
+  getSettings: (): Promise<SettingsSnapshot> =>
     ipcRenderer.invoke(IpcChannels.getSettings),
   setPermissionMode: (
     mode: PermissionMode,
   ): Promise<{ permissionMode: PermissionMode }> =>
     ipcRenderer.invoke(IpcChannels.setPermissionMode, mode),
+  getProviderStatuses: (): Promise<ProviderStatus[]> =>
+    ipcRenderer.invoke(IpcChannels.getProviderStatuses),
+  setProviderConfig: (
+    id: ProviderId,
+    patch: ProviderConfig,
+  ): Promise<{
+    providers: SettingsSnapshot["providers"]
+    statuses: ProviderStatus[]
+  }> => ipcRenderer.invoke(IpcChannels.setProviderConfig, id, patch),
+  providerLogin: (
+    id: ProviderId,
+  ): Promise<{ ok: boolean; command: string }> =>
+    ipcRenderer.invoke(IpcChannels.providerLogin, id),
+  setSessionModel: (sessionId: string, model: string): Promise<SessionMeta> =>
+    ipcRenderer.invoke(IpcChannels.setSessionModel, sessionId, model),
   onHubEvent: (cb: (event: HubEvent) => void): (() => void) => {
     const handler = (_e: IpcRendererEvent, event: HubEvent) => cb(event)
     ipcRenderer.on(IpcChannels.hubEvent, handler)

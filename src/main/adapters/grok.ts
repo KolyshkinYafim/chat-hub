@@ -84,6 +84,9 @@ export class GrokAdapter implements AgentAdapter {
       state.cwd,
       ...grokPermissionArgs(mode),
     ]
+    if (opts?.model) {
+      args.push("--model", opts.model)
+    }
     if (state.grokSession) {
       args.push("--resume", state.grokSession)
     }

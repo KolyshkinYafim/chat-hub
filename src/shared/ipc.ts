@@ -17,6 +17,10 @@ export const IpcChannels = {
   gitCommit: "git:commit",
   getSettings: "settings:get",
   setPermissionMode: "settings:permission",
+  getProviderStatuses: "providers:status",
+  setProviderConfig: "providers:config",
+  providerLogin: "providers:login",
+  setSessionModel: "session:set-model",
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]

@@ -9,9 +9,11 @@ import type {
 } from "@shared/types"
 import type { PermissionMode } from "@shared/permission"
 import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
+import type { ProviderStatus } from "@shared/settings-types"
 import { projectFromCwd } from "@shared/project"
 import { Sidebar } from "./components/Sidebar"
 import { ChatView } from "./components/ChatView"
+import { SettingsModal } from "./components/SettingsModal"
 
 export default function App() {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
@@ -20,10 +22,14 @@ export default function App() {
   >({})
   const [activeId, setActiveId] = useState<string | null>(null)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
+  const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>(
+    [],
+  )
   const [provider, setProvider] = useState<ProviderId>("claude")
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(
     DEFAULT_PERMISSION_MODE,
   )
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [sending, setSending] = useState(false)
@@ -140,6 +146,7 @@ export default function App() {
         setActiveId(snap.activeSessionId)
         setProviders(prov)
         setPermissionMode(settings.permissionMode)
+        setProviderStatuses(settings.statuses)
         const firstAvailable =
           prov.find((p) => p.available && p.id !== "mock") ??
           prov.find((p) => p.available)
@@ -150,7 +157,18 @@ export default function App() {
     })()
 
     unsub = window.chatHub.onHubEvent(applyEvent)
-    return () => unsub()
+
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault()
+        setSettingsOpen(true)
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => {
+      unsub()
+      window.removeEventListener("keydown", onKey)
+    }
   }, [applyEvent])
 
   const activeSession = useMemo(
@@ -159,6 +177,11 @@ export default function App() {
   )
 
   const messages = activeId ? (messagesBySession[activeId] ?? []) : []
+
+  const sessionModels = useMemo(() => {
+    const id = activeSession?.provider ?? provider
+    return providerStatuses.find((s) => s.id === id)?.models ?? []
+  }, [activeSession?.provider, provider, providerStatuses])
 
   useEffect(() => {
     if (!activeSession?.cwd) {
@@ -197,10 +220,13 @@ export default function App() {
         cwd = picked
       }
 
+      const defaultModel = providerStatuses.find((s) => s.id === provider)
+        ?.defaultModel
       const session = await window.chatHub.createSession({
         provider,
         cwd,
         project: projectFromCwd(cwd),
+        model: defaultModel ?? undefined,
       })
       setActiveId(session.id)
       setSessions((curr) => {
@@ -314,6 +340,16 @@ export default function App() {
     }
   }
 
+  async function changeModel(model: string) {
+    if (!activeId) return
+    try {
+      const next = await window.chatHub.setSessionModel(activeId, model)
+      setSessions((curr) => curr.map((s) => (s.id === next.id ? next : s)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   return (
     <div className="app">
       <Sidebar
@@ -326,17 +362,20 @@ export default function App() {
         onCreate={(project) => void createSession(project)}
         onSelect={(id) => void selectSession(id)}
         onDelete={(id) => void deleteSession(id)}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
       <ChatView
         session={activeSession}
         messages={messages}
         providers={providers}
         provider={provider}
+        models={sessionModels}
         permissionMode={permissionMode}
         git={git}
         error={error}
         sending={sending}
         onProviderChange={setProvider}
+        onModelChange={(m) => void changeModel(m)}
         onPermissionChange={(m) => void changePermission(m)}
         onSend={sendMessage}
         onAbort={() => void abortSession()}
@@ -344,6 +383,18 @@ export default function App() {
         onOpenFolder={() => void openFolder()}
         onOpenEditor={() => void openEditor()}
         onCommit={() => void commit()}
+      />
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => {
+          setSettingsOpen(false)
+          void window.chatHub.getSettings().then((s) => {
+            setProviderStatuses(s.statuses)
+            setPermissionMode(s.permissionMode)
+          })
+        }}
+        permissionMode={permissionMode}
+        onPermissionChange={(m) => void changePermission(m)}
       />
     </div>
   )
