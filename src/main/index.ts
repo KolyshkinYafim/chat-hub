@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron"
 import { join } from "node:path"
 import { IpcChannels } from "@shared/ipc"
-import type { CreateSessionInput } from "@shared/types"
+import type { CreateSessionInput, ProviderId } from "@shared/types"
 import { PROVIDERS } from "@shared/types"
 import { EventBus } from "./event-bus"
 import { SessionMonitorBridge } from "./bridge"
@@ -11,6 +11,24 @@ import { SessionManager } from "./session-manager"
 
 let mainWindow: BrowserWindow | null = null
 let manager: SessionManager | null = null
+
+const PROVIDER_IDS = new Set(PROVIDERS.map((p) => p.id))
+
+function isSafeExternalUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === "https:" || parsed.protocol === "http:"
+  } catch {
+    return false
+  }
+}
+
+function isRendererNavigationAllowed(url: string): boolean {
+  if (process.env.ELECTRON_RENDERER_URL) {
+    return url.startsWith(process.env.ELECTRON_RENDERER_URL)
+  }
+  return url.startsWith("file://")
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -26,7 +44,7 @@ function createWindow(): void {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   })
 
@@ -35,8 +53,16 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    if (isSafeExternalUrl(url)) {
+      void shell.openExternal(url)
+    }
     return { action: "deny" }
+  })
+
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (!isRendererNavigationAllowed(url)) {
+      event.preventDefault()
+    }
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -49,27 +75,59 @@ function createWindow(): void {
 function registerIpc(sm: SessionManager, bridge: SessionMonitorBridge): void {
   ipcMain.handle(IpcChannels.getSnapshot, () => sm.getSnapshot())
   ipcMain.handle(IpcChannels.listSessions, () => sm.listSessions())
-  ipcMain.handle(IpcChannels.getMessages, (_e, sessionId: string) =>
-    sm.getMessages(sessionId),
-  )
+  ipcMain.handle(IpcChannels.getMessages, (_e, sessionId: unknown) => {
+    if (typeof sessionId !== "string" || !sessionId) {
+      throw new Error("Invalid sessionId")
+    }
+    return sm.getMessages(sessionId)
+  })
   ipcMain.handle(
     IpcChannels.createSession,
-    async (_e, input: CreateSessionInput) => sm.createSession(input),
+    async (_e, input: unknown) => {
+      if (!input || typeof input !== "object") {
+        throw new Error("Invalid createSession payload")
+      }
+      const raw = input as CreateSessionInput
+      if (!PROVIDER_IDS.has(raw.provider as ProviderId)) {
+        throw new Error("Unknown provider")
+      }
+      return sm.createSession({
+        provider: raw.provider,
+        title: typeof raw.title === "string" ? raw.title : undefined,
+        cwd: typeof raw.cwd === "string" ? raw.cwd : undefined,
+      })
+    },
   )
   ipcMain.handle(
     IpcChannels.sendMessage,
-    async (_e, sessionId: string, text: string) =>
-      sm.sendMessage(sessionId, text),
+    async (_e, sessionId: unknown, text: unknown) => {
+      if (typeof sessionId !== "string" || !sessionId) {
+        throw new Error("Invalid sessionId")
+      }
+      if (typeof text !== "string") {
+        throw new Error("Invalid message")
+      }
+      return sm.sendMessage(sessionId, text)
+    },
   )
-  ipcMain.handle(IpcChannels.abortSession, async (_e, sessionId: string) =>
-    sm.abortSession(sessionId),
-  )
-  ipcMain.handle(IpcChannels.deleteSession, async (_e, sessionId: string) =>
-    sm.deleteSession(sessionId),
-  )
+  ipcMain.handle(IpcChannels.abortSession, async (_e, sessionId: unknown) => {
+    if (typeof sessionId !== "string" || !sessionId) {
+      throw new Error("Invalid sessionId")
+    }
+    return sm.abortSession(sessionId)
+  })
+  ipcMain.handle(IpcChannels.deleteSession, async (_e, sessionId: unknown) => {
+    if (typeof sessionId !== "string" || !sessionId) {
+      throw new Error("Invalid sessionId")
+    }
+    return sm.deleteSession(sessionId)
+  })
   ipcMain.handle(
     IpcChannels.setActiveSession,
-    (_e, sessionId: string | null) => {
+    (_e, sessionId: unknown) => {
+      if (sessionId !== null && typeof sessionId !== "string") {
+        throw new Error("Invalid sessionId")
+      }
       sm.setActiveSession(sessionId)
       return sm.getSnapshot()
     },

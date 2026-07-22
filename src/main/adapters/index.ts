@@ -12,7 +12,11 @@ const adapters: Record<ProviderId, AgentAdapter> = {
 }
 
 export function getAdapter(id: ProviderId): AgentAdapter {
-  return adapters[id]
+  const adapter = adapters[id]
+  if (!adapter) {
+    throw new Error(`Unknown provider: ${String(id)}`)
+  }
+  return adapter
 }
 
 export function listAdapters(): AgentAdapter[] {
