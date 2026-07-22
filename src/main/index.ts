@@ -203,8 +203,15 @@ function registerIpc(
   })
 
   ipcMain.handle(IpcChannels.getGitInfo, async (_e, cwd: unknown) => {
-    if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
-    return getGitCheckout(assertExistingDir(cwd))
+    if (typeof cwd !== "string" || !cwd) {
+      return { branch: "no-git", dirty: false, root: null }
+    }
+    try {
+      return await getGitCheckout(assertExistingDir(cwd))
+    } catch {
+      // Missing/demo paths (e.g. seeded /Users/dev/…) should not break UI
+      return { branch: "no-git", dirty: false, root: null }
+    }
   })
 
   ipcMain.handle(
