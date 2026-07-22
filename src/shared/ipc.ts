@@ -10,6 +10,11 @@ export const IpcChannels = {
   listProviders: "providers:list",
   getBridgePath: "bridge:path",
   hubEvent: "hub:event",
+  pickFolder: "dialog:pick-folder",
+  openPath: "shell:open-path",
+  openInEditor: "shell:open-editor",
+  getGitInfo: "git:info",
+  gitCommit: "git:commit",
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]

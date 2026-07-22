@@ -217,12 +217,15 @@ export function Sidebar({
             {providers.map((p) => (
               <option key={p.id} value={p.id} disabled={!p.available}>
                 {p.label}
-                {!p.available ? " · soon" : ""}
+                {!p.available ? " · install" : ""}
               </option>
             ))}
           </select>
         </label>
-        <div className="status-legend" title="Live status from event bus">
+        <div className="provider-hint-line">
+          {providers.find((p) => p.id === provider)?.description}
+        </div>
+        <div className="status-legend" title="Live status from process events">
           <span>
             <i className="status-dot running" /> {statusLabel.running}
           </span>

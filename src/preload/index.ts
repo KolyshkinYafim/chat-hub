@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron"
 import { IpcChannels } from "@shared/ipc"
 import type {
   CreateSessionInput,
+  GitCheckoutInfo,
   HubEvent,
   ProviderInfo,
   SessionMeta,
@@ -32,6 +33,19 @@ const api = {
     ipcRenderer.invoke(IpcChannels.listProviders),
   getBridgePath: (): Promise<string> =>
     ipcRenderer.invoke(IpcChannels.getBridgePath),
+  pickFolder: (): Promise<string | null> =>
+    ipcRenderer.invoke(IpcChannels.pickFolder),
+  openPath: (path: string): Promise<boolean> =>
+    ipcRenderer.invoke(IpcChannels.openPath, path),
+  openInEditor: (path: string): Promise<string> =>
+    ipcRenderer.invoke(IpcChannels.openInEditor, path),
+  getGitInfo: (cwd: string): Promise<GitCheckoutInfo> =>
+    ipcRenderer.invoke(IpcChannels.getGitInfo, cwd),
+  gitCommit: (
+    cwd: string,
+    message: string,
+  ): Promise<{ ok: boolean; output: string }> =>
+    ipcRenderer.invoke(IpcChannels.gitCommit, cwd, message),
   onHubEvent: (cb: (event: HubEvent) => void): (() => void) => {
     const handler = (_e: IpcRendererEvent, event: HubEvent) => cb(event)
     ipcRenderer.on(IpcChannels.hubEvent, handler)

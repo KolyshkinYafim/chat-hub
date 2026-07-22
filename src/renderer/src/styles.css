@@ -394,6 +394,12 @@ button {
   outline: none;
 }
 
+.provider-hint-line {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  line-height: 1.35;
+}
+
 .status-legend {
   display: flex;
   gap: 12px;
@@ -922,6 +928,34 @@ button {
   height: 6px;
   border-radius: 50%;
   background: var(--ok);
+}
+
+.dot-amber {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--waiting);
+}
+
+.tb-split {
+  display: inline-flex;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.tb-split .tb-btn {
+  border: none;
+  border-radius: 0;
+}
+
+.tb-split .tb-btn + .tb-btn {
+  border-left: 1px solid var(--border);
+}
+
+.tb-btn-narrow {
+  padding: 0 8px !important;
+  min-width: 28px;
 }
 
 /* ——— Empty / error ——— */

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
   ChatMessage,
+  GitCheckoutInfo,
   HubEvent,
   ProviderId,
   ProviderInfo,
   SessionMeta,
 } from "@shared/types"
+import { projectFromCwd } from "@shared/project"
 import { Sidebar } from "./components/Sidebar"
 import { ChatView } from "./components/ChatView"
 
@@ -16,18 +18,16 @@ export default function App() {
   >({})
   const [activeId, setActiveId] = useState<string | null>(null)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
-  const [provider, setProvider] = useState<ProviderId>("mock")
+  const [provider, setProvider] = useState<ProviderId>("claude")
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [sending, setSending] = useState(false)
+  const [git, setGit] = useState<GitCheckoutInfo | null>(null)
 
   const applyEvent = useCallback((event: HubEvent) => {
     switch (event.type) {
       case "sessions.replaced":
         setSessions(event.sessions)
-        break
-      case "session.active":
-        setActiveId(event.sessionId)
         break
       case "session.upsert":
         setSessions((curr) => {
@@ -130,7 +130,9 @@ export default function App() {
         setMessagesBySession(snap.messages)
         setActiveId(snap.activeSessionId)
         setProviders(prov)
-        const firstAvailable = prov.find((p) => p.available)
+        const firstAvailable =
+          prov.find((p) => p.available && p.id !== "mock") ??
+          prov.find((p) => p.available)
         if (firstAvailable) setProvider(firstAvailable.id)
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
@@ -148,18 +150,47 @@ export default function App() {
 
   const messages = activeId ? (messagesBySession[activeId] ?? []) : []
 
-  async function createSession(project?: string) {
+  useEffect(() => {
+    if (!activeSession?.cwd) {
+      setGit(null)
+      return
+    }
+    let cancelled = false
+    void window.chatHub.getGitInfo(activeSession.cwd).then((info) => {
+      if (!cancelled) setGit(info)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [activeSession?.id, activeSession?.cwd, activeSession?.status])
+
+  async function createSession(projectHint?: string) {
     setError(null)
     setBusy(true)
     try {
-      const cwd = project
-        ? `/Users/dev/projects/${project}`
-        : activeSession?.cwd
+      // Always pick a real folder for daily use (unless continuing same project)
+      let cwd: string | undefined
+      if (projectHint && activeSession?.project === projectHint) {
+        cwd = activeSession.cwd
+      } else if (projectHint) {
+        // find existing session in that project for cwd
+        const sibling = sessions.find((s) => s.project === projectHint)
+        cwd = sibling?.cwd
+      }
+
+      if (!cwd) {
+        const picked = await window.chatHub.pickFolder()
+        if (!picked) {
+          setBusy(false)
+          return
+        }
+        cwd = picked
+      }
+
       const session = await window.chatHub.createSession({
         provider,
-        project: project ?? activeSession?.project,
         cwd,
-        title: project ? `New task · ${project}` : undefined,
+        project: projectFromCwd(cwd),
       })
       setActiveId(session.id)
       setSessions((curr) => {
@@ -223,6 +254,44 @@ export default function App() {
     }
   }
 
+  async function openFolder() {
+    if (!activeSession) return
+    try {
+      await window.chatHub.openPath(activeSession.cwd)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function openEditor() {
+    if (!activeSession) return
+    try {
+      await window.chatHub.openInEditor(activeSession.cwd)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function commit() {
+    if (!activeSession) return
+    const message = window.prompt(
+      "Commit message",
+      `chat-hub: updates in ${activeSession.project}`,
+    )
+    if (!message) return
+    try {
+      const res = await window.chatHub.gitCommit(activeSession.cwd, message)
+      if (!res.ok) setError(res.output)
+      else {
+        setError(null)
+        const info = await window.chatHub.getGitInfo(activeSession.cwd)
+        setGit(info)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   return (
     <div className="app">
       <Sidebar
@@ -241,12 +310,16 @@ export default function App() {
         messages={messages}
         providers={providers}
         provider={provider}
+        git={git}
         error={error}
         sending={sending}
         onProviderChange={setProvider}
         onSend={sendMessage}
         onAbort={() => void abortSession()}
         onCreate={() => void createSession()}
+        onOpenFolder={() => void openFolder()}
+        onOpenEditor={() => void openEditor()}
+        onCommit={() => void commit()}
       />
     </div>
   )

@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react"
-import type { ChatMessage, ProviderId, ProviderInfo, SessionMeta } from "@shared/types"
+import type {
+  ChatMessage,
+  GitCheckoutInfo,
+  ProviderId,
+  ProviderInfo,
+  SessionMeta,
+} from "@shared/types"
 import { formatClock } from "../lib/format"
 import { MarkdownBody } from "./MarkdownBody"
 import { TopBar } from "./TopBar"
@@ -9,12 +15,16 @@ type Props = {
   messages: ChatMessage[]
   providers: ProviderInfo[]
   provider: ProviderId
+  git: GitCheckoutInfo | null
   error: string | null
   sending: boolean
   onProviderChange: (id: ProviderId) => void
   onSend: (text: string) => Promise<void>
   onAbort: () => void
   onCreate: () => void
+  onOpenFolder: () => void
+  onOpenEditor: () => void
+  onCommit: () => void
 }
 
 export function ChatView({
@@ -22,12 +32,16 @@ export function ChatView({
   messages,
   providers,
   provider,
+  git,
   error,
   sending,
   onProviderChange,
   onSend,
   onAbort,
   onCreate,
+  onOpenFolder,
+  onOpenEditor,
+  onCommit,
 }: Props) {
   const [draft, setDraft] = useState("")
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -68,14 +82,15 @@ export function ChatView({
       <main className="main">
         <div className="empty-workbench">
           <div className="empty-card">
-            <div className="empty-kicker">Agent workbench</div>
-            <h2>No session selected</h2>
+            <div className="empty-kicker">Daily agent workbench</div>
+            <h2>Open a project to start</h2>
             <p>
-              Pick a thread in a project, or start a new agent turn. Status,
-              streaming, and Monitor bridge stay event-driven from main.
+              Pick a real folder and agent (Claude Code, Grok Build, OpenCode…).
+              Sessions spawn the CLI in that directory with honest Working /
+              Done status from process exit.
             </p>
             <button type="button" className="tb-btn primary" onClick={onCreate}>
-              New session
+              New session…
             </button>
           </div>
         </div>
@@ -83,9 +98,21 @@ export function ChatView({
     )
   }
 
+  const branchLabel =
+    git && git.branch !== "no-git"
+      ? `${git.branch}${git.dirty ? " *" : ""}`
+      : "no-git"
+
   return (
     <main className="main">
-      <TopBar session={session} onAbort={onAbort} />
+      <TopBar
+        session={session}
+        git={git}
+        onAbort={onAbort}
+        onOpenFolder={onOpenFolder}
+        onOpenEditor={onOpenEditor}
+        onCommit={onCommit}
+      />
 
       {error ? <div className="error-banner">{error}</div> : null}
 
@@ -93,7 +120,10 @@ export function ChatView({
         {messages.length === 0 ? (
           <div className="transcript-empty">
             <p>Empty transcript</p>
-            <span>Send a prompt — mock streams a dense agent reply.</span>
+            <span>
+              Message goes to <strong>{session.provider}</strong> in{" "}
+              <code>{session.cwd}</code>
+            </span>
           </div>
         ) : (
           messages.map((m) => (
@@ -116,7 +146,9 @@ export function ChatView({
                     {m.streaming ? (
                       <span className="streaming-tag">streaming</span>
                     ) : (
-                      <span className="turn-time">{formatClock(m.createdAt)}</span>
+                      <span className="turn-time">
+                        {formatClock(m.createdAt)}
+                      </span>
                     )}
                   </div>
                   <MarkdownBody text={m.content} streaming={m.streaming} />
@@ -133,14 +165,13 @@ export function ChatView({
           <textarea
             ref={taRef}
             value={draft}
-            placeholder="Ask for follow-up changes or attach images"
+            placeholder="Ask the agent… (Enter send · Shift+Enter newline)"
             rows={2}
             onChange={(e) => {
               setDraft(e.target.value)
               autoGrow()
             }}
             onKeyDown={onKeyDown}
-            disabled={sending && false}
           />
           <div className="composer-toolbar">
             <div className="composer-chips">
@@ -156,15 +187,16 @@ export function ChatView({
                   {providers.map((p) => (
                     <option key={p.id} value={p.id} disabled={!p.available}>
                       {p.label}
-                      {!p.available ? " (soon)" : ""}
+                      {!p.available ? " (install CLI)" : ""}
                     </option>
                   ))}
                 </select>
               </label>
-              <span className="chip muted">High · Normal</span>
-              <span className="chip muted">Full access</span>
-              <span className="chip muted">Build</span>
-              <span className="chip muted">Tasks</span>
+              {session.status === "running" ? (
+                <button type="button" className="chip" onClick={onAbort}>
+                  Stop
+                </button>
+              ) : null}
             </div>
             <button
               type="button"
@@ -179,9 +211,12 @@ export function ChatView({
         </div>
         <div className="composer-footer">
           <span className="checkout">
-            <span className="dot-green" /> Local checkout
+            <span className={git?.dirty ? "dot-amber" : "dot-green"} />
+            Local checkout · {branchLabel}
           </span>
-          <span className="branch mono-soft">{session.project} · main</span>
+          <span className="branch mono-soft">
+            {session.project} · {session.provider}
+          </span>
         </div>
       </div>
     </main>

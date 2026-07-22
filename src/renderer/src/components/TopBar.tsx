@@ -1,13 +1,24 @@
-import type { SessionMeta } from "@shared/types"
+import type { GitCheckoutInfo, SessionMeta } from "@shared/types"
 import { StatusDot } from "./StatusDot"
 import { shortCwd, statusLabel } from "../lib/format"
 
 type Props = {
   session: SessionMeta
+  git: GitCheckoutInfo | null
   onAbort: () => void
+  onOpenFolder: () => void
+  onOpenEditor: () => void
+  onCommit: () => void
 }
 
-export function TopBar({ session, onAbort }: Props) {
+export function TopBar({
+  session,
+  git,
+  onAbort,
+  onOpenFolder,
+  onOpenEditor,
+  onCommit,
+}: Props) {
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -20,6 +31,15 @@ export function TopBar({ session, onAbort }: Props) {
           <span className="mono-soft" title={session.cwd}>
             {shortCwd(session.cwd)}
           </span>
+          {git && git.branch !== "no-git" ? (
+            <>
+              <span className="sep">·</span>
+              <span className="mono-soft" title={git.dirty ? "dirty" : "clean"}>
+                {git.branch}
+                {git.dirty ? " *" : ""}
+              </span>
+            </>
+          ) : null}
         </div>
       </div>
       <div className="topbar-actions">
@@ -28,19 +48,30 @@ export function TopBar({ session, onAbort }: Props) {
             Stop
           </button>
         ) : null}
-        <button type="button" className="tb-btn primary-soft" disabled title="Coming soon">
-          + Add action
-        </button>
-        <button type="button" className="tb-btn" disabled title="Coming soon">
-          Open ▾
-        </button>
-        <button type="button" className="tb-btn" disabled title="Coming soon">
-          Commit ▾
+        <div className="tb-split">
+          <button type="button" className="tb-btn" onClick={onOpenFolder}>
+            Open
+          </button>
+          <button
+            type="button"
+            className="tb-btn tb-btn-narrow"
+            title="Open in editor"
+            onClick={onOpenEditor}
+          >
+            ▾
+          </button>
+        </div>
+        <button
+          type="button"
+          className="tb-btn"
+          onClick={onCommit}
+          title="git add -A && git commit"
+        >
+          Commit
         </button>
         <button
           type="button"
           className="tb-icon"
-          disabled
           title={`${statusLabel[session.status]} · ${session.provider}`}
         >
           ☆
