@@ -26,8 +26,12 @@ const api = {
     ipcRenderer.invoke(IpcChannels.getMessages, sessionId),
   createSession: (input: CreateSessionInput): Promise<SessionMeta> =>
     ipcRenderer.invoke(IpcChannels.createSession, input),
-  sendMessage: (sessionId: string, text: string): Promise<void> =>
-    ipcRenderer.invoke(IpcChannels.sendMessage, sessionId, text),
+  sendMessage: (
+    sessionId: string,
+    text: string,
+    opts?: { effort?: "low" | "medium" | "high" | "max"; attachments?: string[] },
+  ): Promise<void> =>
+    ipcRenderer.invoke(IpcChannels.sendMessage, sessionId, text, opts),
   abortSession: (sessionId: string): Promise<void> =>
     ipcRenderer.invoke(IpcChannels.abortSession, sessionId),
   deleteSession: (sessionId: string): Promise<void> =>
@@ -74,6 +78,10 @@ const api = {
     ipcRenderer.invoke(IpcChannels.providerLogin, id),
   setSessionModel: (sessionId: string, model: string): Promise<SessionMeta> =>
     ipcRenderer.invoke(IpcChannels.setSessionModel, sessionId, model),
+  setSessionTitle: (sessionId: string, title: string): Promise<SessionMeta> =>
+    ipcRenderer.invoke(IpcChannels.setSessionTitle, sessionId, title),
+  pickFiles: (): Promise<string[]> =>
+    ipcRenderer.invoke(IpcChannels.pickFiles),
   onHubEvent: (cb: (event: HubEvent) => void): (() => void) => {
     const handler = (_e: IpcRendererEvent, event: HubEvent) => cb(event)
     ipcRenderer.on(IpcChannels.hubEvent, handler)

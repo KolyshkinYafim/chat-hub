@@ -9,6 +9,7 @@ type Props = {
   onOpenFolder: () => void
   onOpenEditor: () => void
   onCommit: () => void
+  onRename: () => void
 }
 
 export function TopBar({
@@ -18,13 +19,26 @@ export function TopBar({
   onOpenFolder,
   onOpenEditor,
   onCommit,
+  onRename,
 }: Props) {
   return (
     <header className="topbar">
       <div className="topbar-left">
-        <h1 className="topbar-title">{session.title}</h1>
+        <h1 className="topbar-title" title="Double-click to rename">
+          <button type="button" className="title-btn" onClick={onRename}>
+            {session.title}
+          </button>
+        </h1>
         <div className="topbar-sub">
           <StatusDot status={session.status} showLabel />
+          <span className="sep">·</span>
+          <span className="mono-soft">{session.provider}</span>
+          {session.model ? (
+            <>
+              <span className="sep">·</span>
+              <span className="mono-soft">{session.model}</span>
+            </>
+          ) : null}
           <span className="sep">·</span>
           <span className="mono-soft">{session.project}</span>
           <span className="sep">·</span>
@@ -73,8 +87,9 @@ export function TopBar({
           type="button"
           className="tb-icon"
           title={`${statusLabel[session.status]} · ${session.provider}`}
+          onClick={onRename}
         >
-          ☆
+          ✎
         </button>
       </div>
     </header>

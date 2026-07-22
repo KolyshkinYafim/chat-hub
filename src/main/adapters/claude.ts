@@ -90,6 +90,14 @@ export class ClaudeAdapter implements AgentAdapter {
     if (opts?.model) {
       args.push("--model", opts.model)
     }
+    if (opts?.effort) {
+      args.push("--effort", opts.effort)
+    }
+    if (opts?.attachments?.length) {
+      for (const f of opts.attachments) {
+        args.push("--file", f)
+      }
+    }
     if (state.claudeSessionId) {
       args.push("--resume", state.claudeSessionId)
     }

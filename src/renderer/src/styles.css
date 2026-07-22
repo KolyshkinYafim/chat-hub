@@ -1069,6 +1069,193 @@ button {
   max-width: 360px;
 }
 
+.filter-chips {
+  display: flex;
+  gap: 4px;
+}
+
+.filter-chip.on {
+  color: var(--text);
+  background: var(--bg-elevated);
+  border-radius: 4px;
+}
+
+.system-banner {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 20px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 11px;
+  min-width: 0;
+}
+
+.system-banner .dim {
+  opacity: 0.65;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 55%;
+}
+
+.title-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.title-btn:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.form-field .text-input,
+.path-row .text-input {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--text);
+  outline: none;
+}
+
+.path-row {
+  display: flex;
+  gap: 8px;
+}
+
+.path-row .text-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.field-hint {
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-muted);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 560px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.modal-footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.new-session-panel {
+  width: min(520px, 100%);
+}
+
+.tool-card {
+  margin: 0 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #12141a;
+  overflow: hidden;
+}
+
+.tool-card.call {
+  border-color: rgba(124, 140, 255, 0.28);
+}
+
+.tool-card.result {
+  border-color: rgba(61, 214, 140, 0.22);
+}
+
+.tool-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.tool-name {
+  font-weight: 650;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.tool-kind {
+  margin-left: auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+}
+
+.tool-body {
+  margin: 0;
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #c8cdd8;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.attach-row {
+  max-width: 920px;
+  margin: 0 auto 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+.attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.attach-chip button {
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1;
+}
+
 .chip.select-chip select {
   border: none;
   outline: none;

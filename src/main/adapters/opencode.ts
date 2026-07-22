@@ -78,6 +78,11 @@ export class OpenCodeAdapter implements AgentAdapter {
     if (opts?.model) {
       args.push("--model", opts.model)
     }
+    if (opts?.attachments?.length) {
+      for (const f of opts.attachments) {
+        args.push("--file", f)
+      }
+    }
     if (state.opencodeSession) {
       args.push("--session", state.opencodeSession)
     }

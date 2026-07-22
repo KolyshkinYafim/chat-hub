@@ -21,6 +21,8 @@ export const IpcChannels = {
   setProviderConfig: "providers:config",
   providerLogin: "providers:login",
   setSessionModel: "session:set-model",
+  setSessionTitle: "session:set-title",
+  pickFiles: "dialog:pick-files",
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]
