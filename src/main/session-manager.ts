@@ -55,6 +55,11 @@ export class SessionManager {
       this.activeSessionId = null
     }
 
+    // Publish corrected post-restart state so Monitor does not keep stale "running".
+    for (const session of this.listSessions()) {
+      this.publishSessionEvent({ type: "session.upsert", session })
+    }
+
     this.bus.emit({
       type: "sessions.replaced",
       sessions: this.listSessions(),
@@ -156,7 +161,21 @@ export class SessionManager {
     })
 
     const adapter = getAdapter(session.provider)
-    await adapter.send(sessionId, content, this.callbacks())
+    try {
+      await adapter.send(sessionId, content, this.callbacks())
+    } catch (err) {
+      this.applyStatus(sessionId, "error")
+      this.publishSessionEvent({
+        type: "session.ended",
+        id: sessionId,
+        reason: "error",
+      })
+      throw err
+    }
+    // Adapters must clear running via events; force idle if they forget.
+    if (this.sessions.get(sessionId)?.status === "running") {
+      this.applyStatus(sessionId, "idle")
+    }
   }
 
   async abortSession(sessionId: string): Promise<void> {
