@@ -15,6 +15,8 @@ export const IpcChannels = {
   openInEditor: "shell:open-editor",
   getGitInfo: "git:info",
   gitCommit: "git:commit",
+  getSettings: "settings:get",
+  setPermissionMode: "settings:permission",
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]

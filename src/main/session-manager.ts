@@ -16,6 +16,9 @@ import type { NotificationService } from "./notifications"
 import type { Persistence, PersistedState } from "./persistence"
 import { buildDemoState } from "./demo-seed"
 import { realpathSync, statSync } from "node:fs"
+import type { PermissionMode } from "@shared/permission"
+import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
+import type { SettingsStore } from "./settings"
 
 const MAX_MESSAGES_PER_SESSION = 200
 
@@ -31,7 +34,17 @@ export class SessionManager {
     private readonly persistence: Persistence,
     private readonly bridge: SessionMonitorBridge,
     private readonly notifications: NotificationService,
+    private readonly settings: SettingsStore,
   ) {}
+
+  getPermissionMode(): PermissionMode {
+    return this.settings.permissionMode
+  }
+
+  async setPermissionMode(mode: PermissionMode): Promise<PermissionMode> {
+    const next = await this.settings.setPermissionMode(mode)
+    return next.permissionMode
+  }
 
   async init(): Promise<void> {
     if (this.started) return
@@ -191,21 +204,25 @@ export class SessionManager {
     })
 
     const adapter = getAdapter(session.provider)
-    try {
-      await adapter.send(sessionId, content, this.callbacks())
-    } catch (err) {
-      this.applyStatus(sessionId, "error")
-      this.publishSessionEvent({
-        type: "session.ended",
-        id: sessionId,
-        reason: "error",
+    const permissionMode =
+      this.settings.permissionMode || DEFAULT_PERMISSION_MODE
+    // Fire-and-forget: stream/status arrive via event bus; UI stays responsive.
+    void adapter
+      .send(sessionId, content, this.callbacks(), { permissionMode })
+      .then(() => {
+        if (this.sessions.get(sessionId)?.status === "running") {
+          this.applyStatus(sessionId, "idle")
+        }
       })
-      throw err
-    }
-    // Adapters must clear running via events; force idle if they forget.
-    if (this.sessions.get(sessionId)?.status === "running") {
-      this.applyStatus(sessionId, "idle")
-    }
+      .catch((err) => {
+        console.error("[session-manager] send failed", err)
+        this.applyStatus(sessionId, "error")
+        this.publishSessionEvent({
+          type: "session.ended",
+          id: sessionId,
+          reason: "error",
+        })
+      })
   }
 
   async abortSession(sessionId: string): Promise<void> {

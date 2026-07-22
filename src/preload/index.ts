@@ -9,6 +9,7 @@ import type {
   SessionSnapshot,
   ChatMessage,
 } from "@shared/types"
+import type { PermissionMode } from "@shared/permission"
 
 const api = {
   getSnapshot: (): Promise<SessionSnapshot> =>
@@ -46,6 +47,12 @@ const api = {
     message: string,
   ): Promise<{ ok: boolean; output: string }> =>
     ipcRenderer.invoke(IpcChannels.gitCommit, cwd, message),
+  getSettings: (): Promise<{ permissionMode: PermissionMode }> =>
+    ipcRenderer.invoke(IpcChannels.getSettings),
+  setPermissionMode: (
+    mode: PermissionMode,
+  ): Promise<{ permissionMode: PermissionMode }> =>
+    ipcRenderer.invoke(IpcChannels.setPermissionMode, mode),
   onHubEvent: (cb: (event: HubEvent) => void): (() => void) => {
     const handler = (_e: IpcRendererEvent, event: HubEvent) => cb(event)
     ipcRenderer.on(IpcChannels.hubEvent, handler)

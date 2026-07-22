@@ -8,7 +8,16 @@ import {
   safeJson,
   type StreamTurn,
 } from "./stream-parse"
-import type { AdapterCallbacks, AdapterStartOpts, AgentAdapter } from "./types"
+import {
+  DEFAULT_PERMISSION_MODE,
+  opencodeAutoApprove,
+} from "@shared/permission"
+import type {
+  AdapterCallbacks,
+  AdapterSendOpts,
+  AdapterStartOpts,
+  AgentAdapter,
+} from "./types"
 
 /**
  * OpenCode adapter via `opencode run --format json`.
@@ -47,6 +56,7 @@ export class OpenCodeAdapter implements AgentAdapter {
     sessionId: string,
     message: string,
     cb: AdapterCallbacks,
+    opts?: AdapterSendOpts,
   ): Promise<void> {
     const bin = this.binary
     if (!bin) throw new Error("OpenCode CLI not found")
@@ -55,12 +65,24 @@ export class OpenCodeAdapter implements AgentAdapter {
 
     state.proc?.abort()
 
+    const mode =
+      opts?.permissionMode ??
+      (process.env.CHAT_HUB_PERMISSION as
+        | "yolo"
+        | "acceptEdits"
+        | "default"
+        | undefined) ??
+      DEFAULT_PERMISSION_MODE
+
     const args = ["run", message, "--format", "json", "--dir", state.cwd]
     if (state.opencodeSession) {
       args.push("--session", state.opencodeSession)
     }
-    // Auto-approve only when explicitly enabled (daily driver opt-in).
-    if (process.env.CHAT_HUB_OPENCODE_AUTO === "1") {
+    // Default YOLO: --auto. Opt out via permission mode "default".
+    if (
+      opencodeAutoApprove(mode) ||
+      process.env.CHAT_HUB_OPENCODE_AUTO === "1"
+    ) {
       args.push("--auto")
     }
 

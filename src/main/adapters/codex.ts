@@ -7,7 +7,12 @@ import {
   safeJson,
   type StreamTurn,
 } from "./stream-parse"
-import type { AdapterCallbacks, AdapterStartOpts, AgentAdapter } from "./types"
+import type {
+  AdapterCallbacks,
+  AdapterSendOpts,
+  AdapterStartOpts,
+  AgentAdapter,
+} from "./types"
 
 /**
  * Codex CLI adapter (when `codex` is installed).
@@ -51,6 +56,7 @@ export class CodexAdapter implements AgentAdapter {
     sessionId: string,
     message: string,
     cb: AdapterCallbacks,
+    opts?: AdapterSendOpts,
   ): Promise<void> {
     const bin = this.binary
     if (!bin) throw new Error("Codex CLI not found")
@@ -61,6 +67,11 @@ export class CodexAdapter implements AgentAdapter {
 
     // Codex CLI flag surface varies by version — use exec-style if present.
     const args = ["exec", message, "--cd", state.cwd]
+    // Best-effort yolo flags (ignored if unknown by older codex)
+    if ((opts?.permissionMode ?? "yolo") === "yolo") {
+      args.push("--full-auto")
+    }
+    void opts
 
     cb.onSessionEvent({
       type: "session.status",

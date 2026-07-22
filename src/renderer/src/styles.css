@@ -870,6 +870,21 @@ button {
   border-color: #3d4150;
 }
 
+.perm-chip.perm-yolo {
+  border-color: rgba(240, 180, 41, 0.55);
+  background: rgba(240, 180, 41, 0.12);
+  color: #f0c14b;
+}
+
+.perm-chip.perm-acceptEdits {
+  border-color: rgba(124, 140, 255, 0.4);
+  color: #c5ccff;
+}
+
+.perm-chip.perm-default {
+  opacity: 0.85;
+}
+
 .chip.select-chip select {
   border: none;
   outline: none;

@@ -7,6 +7,8 @@ import type {
   ProviderInfo,
   SessionMeta,
 } from "@shared/types"
+import type { PermissionMode } from "@shared/permission"
+import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
 import { projectFromCwd } from "@shared/project"
 import { Sidebar } from "./components/Sidebar"
 import { ChatView } from "./components/ChatView"
@@ -19,6 +21,9 @@ export default function App() {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [provider, setProvider] = useState<ProviderId>("claude")
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(
+    DEFAULT_PERMISSION_MODE,
+  )
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [sending, setSending] = useState(false)
@@ -122,14 +127,16 @@ export default function App() {
     let unsub = () => {}
     ;(async () => {
       try {
-        const [snap, prov] = await Promise.all([
+        const [snap, prov, settings] = await Promise.all([
           window.chatHub.getSnapshot(),
           window.chatHub.listProviders(),
+          window.chatHub.getSettings(),
         ])
         setSessions(snap.sessions)
         setMessagesBySession(snap.messages)
         setActiveId(snap.activeSessionId)
         setProviders(prov)
+        setPermissionMode(settings.permissionMode)
         const firstAvailable =
           prov.find((p) => p.available && p.id !== "mock") ??
           prov.find((p) => p.available)
@@ -237,11 +244,23 @@ export default function App() {
     setError(null)
     setSending(true)
     try {
+      // Main fires agent process async; events drive Working/stream.
       await window.chatHub.sendMessage(activeId, text)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
+      // Don't lock composer for whole agent run — only for IPC handoff.
       setSending(false)
+    }
+  }
+
+  async function changePermission(mode: PermissionMode) {
+    setPermissionMode(mode)
+    try {
+      const next = await window.chatHub.setPermissionMode(mode)
+      setPermissionMode(next.permissionMode)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
     }
   }
 
@@ -310,10 +329,12 @@ export default function App() {
         messages={messages}
         providers={providers}
         provider={provider}
+        permissionMode={permissionMode}
         git={git}
         error={error}
         sending={sending}
         onProviderChange={setProvider}
+        onPermissionChange={(m) => void changePermission(m)}
         onSend={sendMessage}
         onAbort={() => void abortSession()}
         onCreate={() => void createSession()}
