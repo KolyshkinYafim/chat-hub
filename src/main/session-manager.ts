@@ -159,14 +159,23 @@ export class SessionManager {
     return this.messages.get(sessionId) ?? []
   }
 
-  setActiveSession(id: string | null): void {
-    if (id && !this.sessions.has(id)) return
+  setActiveSession(id: string | null): boolean {
+    if (id && !this.sessions.has(id)) return false
     this.activeSessionId = id
     this.scheduleSave()
     this.bus.emit({
       type: "session.active",
       sessionId: id,
     })
+    // Ensure renderer has messages for the focused session.
+    if (id) {
+      this.bus.emit({
+        type: "messages.replaced",
+        sessionId: id,
+        messages: this.getMessages(id),
+      })
+    }
+    return true
   }
 
   async createSession(input: CreateSessionInput): Promise<SessionMeta> {
