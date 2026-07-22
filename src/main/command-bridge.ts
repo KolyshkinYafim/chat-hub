@@ -138,8 +138,14 @@ export class MonitorCommandBridge {
     if (!cmd || typeof cmd !== "object" || typeof cmd.type !== "string") return
 
     if (cmd.type === "session.focus" && typeof cmd.id === "string") {
-      this.manager.setActiveSession(cmd.id)
-      this.onFocus?.(cmd.id)
+      const ok = this.manager.setActiveSession(cmd.id)
+      if (ok) {
+        this.onFocus?.(cmd.id)
+      } else {
+        console.warn("[command-bridge] focus: unknown session", cmd.id)
+        // Still surface Hub so user sees the app.
+        this.onFocus?.(cmd.id)
+      }
       return
     }
 
@@ -148,8 +154,12 @@ export class MonitorCommandBridge {
       typeof cmd.id === "string" &&
       typeof cmd.text === "string"
     ) {
-      this.manager.setActiveSession(cmd.id)
+      const ok = this.manager.setActiveSession(cmd.id)
       this.onFocus?.(cmd.id)
+      if (!ok) {
+        console.warn("[command-bridge] reply: unknown session", cmd.id)
+        return
+      }
       try {
         await this.manager.sendMessage(cmd.id, cmd.text)
       } catch (err) {
