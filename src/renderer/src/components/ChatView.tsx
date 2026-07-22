@@ -1,23 +1,33 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react"
-import type { ChatMessage, SessionMeta } from "@shared/types"
-import { StatusDot } from "./StatusDot"
+import type { ChatMessage, ProviderId, ProviderInfo, SessionMeta } from "@shared/types"
+import { formatClock } from "../lib/format"
+import { MarkdownBody } from "./MarkdownBody"
+import { TopBar } from "./TopBar"
 
 type Props = {
   session: SessionMeta | null
   messages: ChatMessage[]
+  providers: ProviderInfo[]
+  provider: ProviderId
   error: string | null
   sending: boolean
+  onProviderChange: (id: ProviderId) => void
   onSend: (text: string) => Promise<void>
   onAbort: () => void
+  onCreate: () => void
 }
 
 export function ChatView({
   session,
   messages,
+  providers,
+  provider,
   error,
   sending,
+  onProviderChange,
   onSend,
   onAbort,
+  onCreate,
 }: Props) {
   const [draft, setDraft] = useState("")
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -50,19 +60,24 @@ export function ChatView({
     const el = taRef.current
     if (!el) return
     el.style.height = "auto"
-    el.style.height = `${Math.min(el.scrollHeight, 180)}px`
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`
   }
 
   if (!session) {
     return (
       <main className="main">
-        <div className="empty-state">
-          <h3>Welcome to Chat Hub</h3>
-          <p>
-            Create a session from the sidebar. Start with the mock provider to
-            exercise streaming, status events, and notifications — then wire a
-            real adapter.
-          </p>
+        <div className="empty-workbench">
+          <div className="empty-card">
+            <div className="empty-kicker">Agent workbench</div>
+            <h2>No session selected</h2>
+            <p>
+              Pick a thread in a project, or start a new agent turn. Status,
+              streaming, and Monitor bridge stay event-driven from main.
+            </p>
+            <button type="button" className="tb-btn primary" onClick={onCreate}>
+              New session
+            </button>
+          </div>
         </div>
       </main>
     )
@@ -70,69 +85,103 @@ export function ChatView({
 
   return (
     <main className="main">
-      <header className="chat-header">
-        <div>
-          <h2>{session.title}</h2>
-          <div className="sub">
-            {session.provider} · {session.cwd}
-          </div>
-        </div>
-        <div className="header-actions">
-          <span className="status-pill">
-            <StatusDot status={session.status} />
-            {session.status.replace("_", " ")}
-          </span>
-          {session.status === "running" ? (
-            <button type="button" className="btn btn-ghost" onClick={onAbort}>
-              Abort
-            </button>
-          ) : null}
-        </div>
-      </header>
+      <TopBar session={session} onAbort={onAbort} />
 
       {error ? <div className="error-banner">{error}</div> : null}
 
-      <div className="messages" role="log" aria-live="polite">
+      <div className="transcript" role="log" aria-live="polite">
         {messages.length === 0 ? (
-          <div className="empty-state">
-            <h3>Empty transcript</h3>
-            <p>Send a message to get a streamed mock reply and status events.</p>
+          <div className="transcript-empty">
+            <p>Empty transcript</p>
+            <span>Send a prompt — mock streams a dense agent reply.</span>
           </div>
         ) : (
           messages.map((m) => (
-            <article key={m.id} className={`message ${m.role}`}>
-              <div className="message-role">{m.role}</div>
-              <div className={`bubble ${m.streaming ? "streaming" : ""}`}>
-                {m.content || (m.streaming ? "" : "…")}
-              </div>
+            <article key={m.id} className={`turn turn-${m.role}`}>
+              {m.role === "user" ? (
+                <>
+                  <div className="turn-meta">
+                    <span className="turn-role">You</span>
+                    <span className="turn-time">{formatClock(m.createdAt)}</span>
+                  </div>
+                  <div className="user-bubble">{m.content}</div>
+                </>
+              ) : m.role === "system" ? (
+                <div className="system-line">{m.content}</div>
+              ) : (
+                <>
+                  <div className="turn-meta">
+                    <span className="turn-role agent">Agent</span>
+                    <span className="turn-provider">{session.provider}</span>
+                    {m.streaming ? (
+                      <span className="streaming-tag">streaming</span>
+                    ) : (
+                      <span className="turn-time">{formatClock(m.createdAt)}</span>
+                    )}
+                  </div>
+                  <MarkdownBody text={m.content} streaming={m.streaming} />
+                </>
+              )}
             </article>
           ))
         )}
         <div ref={bottomRef} />
       </div>
 
-      <div className="composer">
-        <div className="composer-inner">
+      <div className="composer-dock">
+        <div className="composer-shell">
           <textarea
             ref={taRef}
             value={draft}
-            placeholder="Message… (Enter to send, Shift+Enter for newline)"
-            rows={1}
+            placeholder="Ask for follow-up changes or attach images"
+            rows={2}
             onChange={(e) => {
               setDraft(e.target.value)
               autoGrow()
             }}
             onKeyDown={onKeyDown}
-            disabled={sending}
+            disabled={sending && false}
           />
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => void submit()}
-            disabled={sending || !draft.trim()}
-          >
-            Send
-          </button>
+          <div className="composer-toolbar">
+            <div className="composer-chips">
+              <label className="chip select-chip">
+                <span className="chip-ico">✦</span>
+                <select
+                  value={provider}
+                  onChange={(e) =>
+                    onProviderChange(e.target.value as ProviderId)
+                  }
+                  aria-label="Provider"
+                >
+                  {providers.map((p) => (
+                    <option key={p.id} value={p.id} disabled={!p.available}>
+                      {p.label}
+                      {!p.available ? " (soon)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <span className="chip muted">High · Normal</span>
+              <span className="chip muted">Full access</span>
+              <span className="chip muted">Build</span>
+              <span className="chip muted">Tasks</span>
+            </div>
+            <button
+              type="button"
+              className="send-btn"
+              onClick={() => void submit()}
+              disabled={sending || !draft.trim()}
+              aria-label="Send"
+            >
+              ↑
+            </button>
+          </div>
+        </div>
+        <div className="composer-footer">
+          <span className="checkout">
+            <span className="dot-green" /> Local checkout
+          </span>
+          <span className="branch mono-soft">{session.project} · main</span>
         </div>
       </div>
     </main>

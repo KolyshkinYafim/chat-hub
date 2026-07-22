@@ -7,12 +7,14 @@ import type {
   SessionSnapshot,
   SessionStatus,
 } from "@shared/types"
+import { normalizeProject } from "@shared/project"
 import { getAdapter } from "./adapters"
 import type { AdapterCallbacks } from "./adapters/types"
 import type { EventBus } from "./event-bus"
 import type { SessionMonitorBridge } from "./bridge"
 import type { NotificationService } from "./notifications"
 import type { Persistence, PersistedState } from "./persistence"
+import { buildDemoState } from "./demo-seed"
 
 const MAX_MESSAGES_PER_SESSION = 200
 
@@ -34,12 +36,29 @@ export class SessionManager {
     if (this.started) return
     this.started = true
 
-    const state = await this.persistence.load()
+    let state = await this.persistence.load()
+    if (state.sessions.length === 0) {
+      const demo = buildDemoState()
+      state = {
+        version: 1,
+        sessions: demo.sessions,
+        messages: demo.messages,
+        activeSessionId: demo.activeSessionId,
+      }
+      await this.persistence.save(state)
+    }
+
     for (const session of state.sessions) {
       // Never restore as stuck running without a live process.
       const status: SessionStatus =
         session.status === "running" ? "idle" : session.status
-      this.sessions.set(session.id, { ...session, status })
+      const cwd = session.cwd || process.cwd()
+      this.sessions.set(session.id, {
+        ...session,
+        cwd,
+        project: session.project || normalizeProject(undefined, cwd),
+        status,
+      })
     }
     for (const [id, msgs] of Object.entries(state.messages)) {
       this.messages.set(
@@ -106,11 +125,14 @@ export class SessionManager {
 
     const now = Date.now()
     const id = randomUUID()
+    const cwd = input.cwd?.trim() || process.cwd()
+    const project = normalizeProject(input.project, cwd)
     const session: SessionMeta = {
       id,
       title: input.title?.trim() || defaultTitle(input.provider, now),
+      project,
       provider: input.provider,
-      cwd: input.cwd?.trim() || process.cwd(),
+      cwd,
       status: "idle",
       createdAt: now,
       updatedAt: now,

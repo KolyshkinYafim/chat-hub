@@ -17,6 +17,8 @@ export type ProviderInfo = {
 export type SessionMeta = {
   id: string
   title: string
+  /** Project / folder group in the sidebar (e.g. mary, FinanceApp). */
+  project: string
   provider: ProviderId
   cwd: string
   status: SessionStatus
@@ -84,6 +86,7 @@ export type CreateSessionInput = {
   provider: ProviderId
   title?: string
   cwd?: string
+  project?: string
 }
 
 export type SessionSnapshot = {

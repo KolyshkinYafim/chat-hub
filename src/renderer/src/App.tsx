@@ -17,7 +17,6 @@ export default function App() {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [provider, setProvider] = useState<ProviderId>("mock")
-  const [bridgePath, setBridgePath] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [sending, setSending] = useState(false)
@@ -120,16 +119,14 @@ export default function App() {
     let unsub = () => {}
     ;(async () => {
       try {
-        const [snap, prov, path] = await Promise.all([
+        const [snap, prov] = await Promise.all([
           window.chatHub.getSnapshot(),
           window.chatHub.listProviders(),
-          window.chatHub.getBridgePath(),
         ])
         setSessions(snap.sessions)
         setMessagesBySession(snap.messages)
         setActiveId(snap.activeSessionId)
         setProviders(prov)
-        setBridgePath(path)
         const firstAvailable = prov.find((p) => p.available)
         if (firstAvailable) setProvider(firstAvailable.id)
       } catch (err) {
@@ -148,11 +145,19 @@ export default function App() {
 
   const messages = activeId ? (messagesBySession[activeId] ?? []) : []
 
-  async function createSession() {
+  async function createSession(project?: string) {
     setError(null)
     setBusy(true)
     try {
-      const session = await window.chatHub.createSession({ provider })
+      const cwd = project
+        ? `/Users/dev/projects/${project}`
+        : activeSession?.cwd
+      const session = await window.chatHub.createSession({
+        provider,
+        project: project ?? activeSession?.project,
+        cwd,
+        title: project ? `New task · ${project}` : undefined,
+      })
       setActiveId(session.id)
       setSessions((curr) => {
         if (curr.some((s) => s.id === session.id)) return curr
@@ -222,20 +227,23 @@ export default function App() {
         activeId={activeId}
         providers={providers}
         provider={provider}
-        bridgePath={bridgePath}
         busy={busy}
         onProviderChange={setProvider}
-        onCreate={() => void createSession()}
+        onCreate={(project) => void createSession(project)}
         onSelect={(id) => void selectSession(id)}
         onDelete={(id) => void deleteSession(id)}
       />
       <ChatView
         session={activeSession}
         messages={messages}
+        providers={providers}
+        provider={provider}
         error={error}
         sending={sending}
+        onProviderChange={setProvider}
         onSend={sendMessage}
         onAbort={() => void abortSession()}
+        onCreate={() => void createSession()}
       />
     </div>
   )

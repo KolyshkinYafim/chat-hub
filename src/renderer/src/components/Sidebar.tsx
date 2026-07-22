@@ -1,5 +1,6 @@
+import { useMemo, useState } from "react"
 import type { ProviderId, ProviderInfo, SessionMeta } from "@shared/types"
-import { ProviderSelect } from "./ProviderSelect"
+import { formatRelative, statusLabel } from "../lib/format"
 import { StatusDot } from "./StatusDot"
 
 type Props = {
@@ -7,12 +8,17 @@ type Props = {
   activeId: string | null
   providers: ProviderInfo[]
   provider: ProviderId
-  bridgePath: string
   busy: boolean
   onProviderChange: (id: ProviderId) => void
-  onCreate: () => void
+  onCreate: (project?: string) => void
   onSelect: (id: string) => void
   onDelete: (id: string) => void
+}
+
+type ProjectGroup = {
+  name: string
+  sessions: SessionMeta[]
+  collapsed: boolean
 }
 
 export function Sidebar({
@@ -20,83 +26,210 @@ export function Sidebar({
   activeId,
   providers,
   provider,
-  bridgePath,
   busy,
   onProviderChange,
   onCreate,
   onSelect,
   onDelete,
 }: Props) {
+  const [query, setQuery] = useState("")
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+
+  const groups = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const filtered = q
+      ? sessions.filter(
+          (s) =>
+            s.title.toLowerCase().includes(q) ||
+            s.project.toLowerCase().includes(q) ||
+            s.provider.toLowerCase().includes(q),
+        )
+      : sessions
+
+    const map = new Map<string, SessionMeta[]>()
+    for (const s of filtered) {
+      const key = s.project || "Workspace"
+      const list = map.get(key) ?? []
+      list.push(s)
+      map.set(key, list)
+    }
+
+    const order = [...map.keys()].sort((a, b) => {
+      const aT = Math.max(...(map.get(a) ?? []).map((s) => s.updatedAt))
+      const bT = Math.max(...(map.get(b) ?? []).map((s) => s.updatedAt))
+      return bT - aT
+    })
+
+    return order.map(
+      (name): ProjectGroup => ({
+        name,
+        sessions: (map.get(name) ?? []).sort(
+          (a, b) => b.updatedAt - a.updatedAt,
+        ),
+        collapsed: collapsed[name] === true,
+      }),
+    )
+  }, [sessions, query, collapsed])
+
   return (
     <aside className="sidebar">
-      <div className="sidebar-header">
-        <div className="brand">
-          <h1>Chat Hub</h1>
-          <span>multi-agent</span>
+      <div className="sidebar-chrome">
+        <div className="brand-row">
+          <div className="brand-mark">
+            <span className="brand-glyph">⌘</span>
+            <div>
+              <div className="brand-name">
+                Chat Hub <span className="alpha">MVP</span>
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="icon-chip"
+            title="New session"
+            disabled={busy}
+            onClick={() => onCreate()}
+          >
+            +
+          </button>
         </div>
-        <ProviderSelect
-          providers={providers}
-          value={provider}
-          onChange={onProviderChange}
-        />
+
+        <div className="search-wrap">
+          <span className="search-icon" aria-hidden>
+            ⌕
+          </span>
+          <input
+            className="search-input"
+            placeholder="Search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search sessions"
+          />
+          <kbd className="kbd">⌘K</kbd>
+        </div>
+      </div>
+
+      <div className="projects-label">
+        <span>Projects</span>
         <button
           type="button"
-          className="btn btn-primary"
-          onClick={onCreate}
-          disabled={busy}
+          className="text-mini"
+          title="Sort"
+          onClick={() => {
+            /* visual only */
+          }}
         >
-          New session
+          ↕
         </button>
       </div>
 
-      <div className="session-list" role="list">
-        {sessions.length === 0 ? (
-          <div className="provider-hint" style={{ padding: 10 }}>
-            No sessions yet. Create one to start chatting with the mock agent.
+      <div className="session-scroll" role="tree">
+        {groups.length === 0 ? (
+          <div className="sidebar-empty">
+            No sessions. Create one to start an agent turn.
           </div>
         ) : (
-          sessions.map((s) => (
-            <div
-              key={s.id}
-              role="listitem"
-              className={`session-item ${s.id === activeId ? "active" : ""}`}
-              onClick={() => onSelect(s.id)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") onSelect(s.id)
-              }}
-              tabIndex={0}
-            >
-              <StatusDot status={s.status} />
-              <div style={{ minWidth: 0 }}>
-                <div className="session-title">{s.title}</div>
-                <div className="session-meta">
-                  <span>{s.provider}</span>
-                  <span>·</span>
-                  <span>{s.status.replace("_", " ")}</span>
-                </div>
-              </div>
-              <div className="session-actions">
+          groups.map((g) => (
+            <div key={g.name} className="project-group" role="group">
+              <button
+                type="button"
+                className="project-head"
+                onClick={() =>
+                  setCollapsed((c) => ({ ...c, [g.name]: !g.collapsed }))
+                }
+              >
+                <span className={`chev ${g.collapsed ? "" : "open"}`}>▸</span>
+                <span className="folder-ico" aria-hidden>
+                  📁
+                </span>
+                <span className="project-name">{g.name}</span>
+                <span className="project-count">{g.sessions.length}</span>
+              </button>
+              {!g.collapsed
+                ? g.sessions.map((s) => {
+                    const live =
+                      s.status === "running" || s.status === "waiting_input"
+                    return (
+                      <div
+                        key={s.id}
+                        role="treeitem"
+                        aria-selected={s.id === activeId}
+                        className={`session-row ${s.id === activeId ? "active" : ""} ${live ? "live" : ""}`}
+                        onClick={() => onSelect(s.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") onSelect(s.id)
+                        }}
+                        tabIndex={0}
+                      >
+                        <div className="session-row-main">
+                          {s.status === "running" ||
+                          s.status === "waiting_input" ? (
+                            <StatusDot status={s.status} showLabel />
+                          ) : (
+                            <span className="session-idle-pad" />
+                          )}
+                          <span className="session-row-title" title={s.title}>
+                            {s.title}
+                          </span>
+                          <span className="session-row-time">
+                            {formatRelative(s.updatedAt)}
+                          </span>
+                        </div>
+                        {s.id === activeId ? (
+                          <button
+                            type="button"
+                            className="row-delete"
+                            title="Delete session"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onDelete(s.id)
+                            }}
+                          >
+                            ×
+                          </button>
+                        ) : null}
+                      </div>
+                    )
+                  })
+                : null}
+              {!g.collapsed ? (
                 <button
                   type="button"
-                  className="icon-btn"
-                  title="Delete session"
-                  aria-label="Delete session"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onDelete(s.id)
-                  }}
+                  className="new-in-project"
+                  disabled={busy}
+                  onClick={() => onCreate(g.name)}
                 >
-                  ×
+                  + New in {g.name}
                 </button>
-              </div>
+              ) : null}
             </div>
           ))
         )}
       </div>
 
-      <div className="sidebar-footer">
-        <div>Session Monitor bridge (JSONL)</div>
-        <code>{bridgePath || "…"}</code>
+      <div className="sidebar-bottom">
+        <label className="provider-mini">
+          <span>Agent</span>
+          <select
+            value={provider}
+            onChange={(e) => onProviderChange(e.target.value as ProviderId)}
+          >
+            {providers.map((p) => (
+              <option key={p.id} value={p.id} disabled={!p.available}>
+                {p.label}
+                {!p.available ? " · soon" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="status-legend" title="Live status from event bus">
+          <span>
+            <i className="status-dot running" /> {statusLabel.running}
+          </span>
+          <span>
+            <i className="status-dot waiting_input" /> {statusLabel.waiting_input}
+          </span>
+        </div>
       </div>
     </aside>
   )
