@@ -81,6 +81,7 @@ export type HubEvent =
       sessionId: string
       messages: ChatMessage[]
     }
+  | { type: "session.active"; sessionId: string | null }
 
 export type CreateSessionInput = {
   provider: ProviderId
@@ -95,35 +96,42 @@ export type SessionSnapshot = {
   activeSessionId: string | null
 }
 
+/** Static fallback; main process returns live availability via listProviders. */
 export const PROVIDERS: ProviderInfo[] = [
   {
-    id: "mock",
-    label: "Mock",
-    available: true,
-    description: "Fake streaming replies for UI development",
+    id: "claude",
+    label: "Claude Code",
+    available: false,
+    description: "Detect at runtime",
   },
   {
     id: "grok",
     label: "Grok Build",
     available: false,
-    description: "CLI / headless — not wired yet",
-  },
-  {
-    id: "claude",
-    label: "Claude Code",
-    available: false,
-    description: "Hooks / session files — not wired yet",
-  },
-  {
-    id: "codex",
-    label: "Codex CLI",
-    available: false,
-    description: "Codex CLI — not wired yet",
+    description: "Detect at runtime",
   },
   {
     id: "opencode",
     label: "OpenCode",
     available: false,
-    description: "Desktop/CLI + plugins — not wired yet",
+    description: "Detect at runtime",
+  },
+  {
+    id: "codex",
+    label: "Codex CLI",
+    available: false,
+    description: "Detect at runtime",
+  },
+  {
+    id: "mock",
+    label: "Mock",
+    available: true,
+    description: "UI testing only",
   },
 ]
+
+export type GitCheckoutInfo = {
+  branch: string
+  dirty: boolean
+  root: string | null
+}

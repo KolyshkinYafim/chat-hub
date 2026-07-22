@@ -15,6 +15,7 @@ import type { SessionMonitorBridge } from "./bridge"
 import type { NotificationService } from "./notifications"
 import type { Persistence, PersistedState } from "./persistence"
 import { buildDemoState } from "./demo-seed"
+import { realpathSync, statSync } from "node:fs"
 
 const MAX_MESSAGES_PER_SESSION = 200
 
@@ -37,7 +38,8 @@ export class SessionManager {
     this.started = true
 
     let state = await this.persistence.load()
-    if (state.sessions.length === 0) {
+    // Demo seed only when explicitly requested (not for daily driver).
+    if (state.sessions.length === 0 && process.env.CHAT_HUB_DEMO === "1") {
       const demo = buildDemoState()
       state = {
         version: 1,
@@ -115,21 +117,27 @@ export class SessionManager {
     if (id && !this.sessions.has(id)) return
     this.activeSessionId = id
     this.scheduleSave()
+    this.bus.emit({
+      type: "session.active",
+      sessionId: id,
+    })
   }
 
   async createSession(input: CreateSessionInput): Promise<SessionMeta> {
     const adapter = getAdapter(input.provider)
     if (!adapter.available) {
-      throw new Error(`Provider "${input.provider}" is not available yet`)
+      throw new Error(
+        `Provider "${input.provider}" is not available. Install the CLI or pick another agent.`,
+      )
     }
 
     const now = Date.now()
     const id = randomUUID()
-    const cwd = input.cwd?.trim() || process.cwd()
+    const cwd = resolveSessionCwd(input.cwd)
     const project = normalizeProject(input.project, cwd)
     const session: SessionMeta = {
       id,
-      title: input.title?.trim() || defaultTitle(input.provider, now),
+      title: input.title?.trim() || defaultTitle(input.provider, project, now),
       project,
       provider: input.provider,
       cwd,
@@ -362,9 +370,28 @@ export class SessionManager {
   }
 }
 
-function defaultTitle(provider: ProviderId, now: number): string {
+function defaultTitle(
+  provider: ProviderId,
+  project: string,
+  now: number,
+): string {
   const t = new Date(now)
   const hh = String(t.getHours()).padStart(2, "0")
   const mm = String(t.getMinutes()).padStart(2, "0")
-  return `${provider} · ${hh}:${mm}`
+  return `${project} · ${provider} · ${hh}:${mm}`
+}
+
+function resolveSessionCwd(input?: string): string {
+  const raw = input?.trim() || process.cwd()
+  try {
+    const real = realpathSync(raw)
+    if (!statSync(real).isDirectory()) {
+      throw new Error(`Not a directory: ${raw}`)
+    }
+    return real
+  } catch (err) {
+    throw new Error(
+      `Invalid project folder: ${raw} (${err instanceof Error ? err.message : String(err)})`,
+    )
+  }
 }
