@@ -69,14 +69,25 @@ Chat Hub **appends** `SessionEvent` lines to the shared JSONL file above. Sessio
 - Override path: `AGENT_DESKTOP_EVENTS=/path/to/events.jsonl`
 - Both apps run alone; the bridge is best-effort
 
+## Permissions (default: **YOLO**)
+
+Daily driver default is **full bypass** so agents don't stop on every tool:
+
+| Mode (composer chip) | Claude | Grok | OpenCode |
+|----------------------|--------|------|----------|
+| **YOLO** (default) | `--permission-mode bypassPermissions` + `--dangerously-skip-permissions` | `bypassPermissions` + `--always-approve` | `--auto` |
+| **Edits** | `acceptEdits` | `acceptEdits` | `--auto` |
+| **Ask** | `default` | `default` | no `--auto` |
+
+Persisted in `userData/data/settings.json`. Override bootstrap with `CHAT_HUB_PERMISSION=yolo|acceptEdits|default`.
+
 ## Env knobs
 
 | Env | Effect |
 |-----|--------|
 | `CHAT_HUB_DEMO=1` | Seed multi-project demo data on empty store |
-| `CHAT_HUB_CLAUDE_PERMISSION` | Claude `--permission-mode` (default `acceptEdits`) |
-| `CHAT_HUB_GROK_PERMISSION` | Grok permission mode (default `acceptEdits`) |
-| `CHAT_HUB_OPENCODE_AUTO=1` | Pass `--auto` to OpenCode (auto-approve tools) |
+| `CHAT_HUB_PERMISSION` | Default permission mode if settings missing |
+| `CHAT_HUB_OPENCODE_AUTO=1` | Force OpenCode `--auto` |
 
 ## Provider next steps
 

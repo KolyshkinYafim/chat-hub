@@ -6,6 +6,11 @@ import type {
   ProviderInfo,
   SessionMeta,
 } from "@shared/types"
+import type { PermissionMode } from "@shared/permission"
+import {
+  PERMISSION_HINTS,
+  PERMISSION_LABELS,
+} from "@shared/permission"
 import { formatClock } from "../lib/format"
 import { MarkdownBody } from "./MarkdownBody"
 import { TopBar } from "./TopBar"
@@ -15,10 +20,12 @@ type Props = {
   messages: ChatMessage[]
   providers: ProviderInfo[]
   provider: ProviderId
+  permissionMode: PermissionMode
   git: GitCheckoutInfo | null
   error: string | null
   sending: boolean
   onProviderChange: (id: ProviderId) => void
+  onPermissionChange: (mode: PermissionMode) => void
   onSend: (text: string) => Promise<void>
   onAbort: () => void
   onCreate: () => void
@@ -32,10 +39,12 @@ export function ChatView({
   messages,
   providers,
   provider,
+  permissionMode,
   git,
   error,
   sending,
   onProviderChange,
+  onPermissionChange,
   onSend,
   onAbort,
   onCreate,
@@ -190,6 +199,27 @@ export function ChatView({
                       {!p.available ? " (install CLI)" : ""}
                     </option>
                   ))}
+                </select>
+              </label>
+              <label
+                className={`chip select-chip perm-chip perm-${permissionMode}`}
+                title={PERMISSION_HINTS[permissionMode]}
+              >
+                <select
+                  value={permissionMode}
+                  onChange={(e) =>
+                    onPermissionChange(e.target.value as PermissionMode)
+                  }
+                  aria-label="Permission mode"
+                >
+                  {(["yolo", "acceptEdits", "default"] as PermissionMode[]).map(
+                    (m) => (
+                      <option key={m} value={m}>
+                        {PERMISSION_LABELS[m]}
+                        {m === "yolo" ? " · full access" : ""}
+                      </option>
+                    ),
+                  )}
                 </select>
               </label>
               {session.status === "running" ? (

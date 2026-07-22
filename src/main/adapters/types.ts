@@ -4,11 +4,16 @@ import type {
   SessionEvent,
   SessionMeta,
 } from "@shared/types"
+import type { PermissionMode } from "@shared/permission"
 
 export type AdapterStartOpts = {
   sessionId: string
   cwd: string
   title?: string
+}
+
+export type AdapterSendOpts = {
+  permissionMode?: PermissionMode
 }
 
 export type AdapterCallbacks = {
@@ -26,6 +31,7 @@ export interface AgentAdapter {
     sessionId: string,
     message: string,
     cb: AdapterCallbacks,
+    opts?: AdapterSendOpts,
   ): Promise<void>
   abort(sessionId: string): Promise<void>
   dispose(sessionId: string): Promise<void>

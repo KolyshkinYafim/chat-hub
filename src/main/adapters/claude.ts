@@ -8,7 +8,16 @@ import {
   safeJson,
   type StreamTurn,
 } from "./stream-parse"
-import type { AdapterCallbacks, AdapterStartOpts, AgentAdapter } from "./types"
+import {
+  DEFAULT_PERMISSION_MODE,
+  claudePermissionArgs,
+} from "@shared/permission"
+import type {
+  AdapterCallbacks,
+  AdapterSendOpts,
+  AdapterStartOpts,
+  AgentAdapter,
+} from "./types"
 
 /**
  * Claude Code headless adapter.
@@ -49,6 +58,7 @@ export class ClaudeAdapter implements AgentAdapter {
     sessionId: string,
     message: string,
     cb: AdapterCallbacks,
+    opts?: AdapterSendOpts,
   ): Promise<void> {
     const bin = this.binary
     if (!bin) throw new Error("Claude Code CLI not found")
@@ -58,6 +68,15 @@ export class ClaudeAdapter implements AgentAdapter {
     // One turn at a time
     state.proc?.abort()
 
+    const mode =
+      opts?.permissionMode ??
+      (process.env.CHAT_HUB_PERMISSION as
+        | "yolo"
+        | "acceptEdits"
+        | "default"
+        | undefined) ??
+      DEFAULT_PERMISSION_MODE
+
     const args = [
       "-p",
       message,
@@ -65,9 +84,8 @@ export class ClaudeAdapter implements AgentAdapter {
       "stream-json",
       "--verbose",
       "--include-partial-messages",
-      // Daily-dev default: auto-accept edits, still ask for risky bash when needed
-      "--permission-mode",
-      process.env.CHAT_HUB_CLAUDE_PERMISSION ?? "acceptEdits",
+      // Default YOLO: full bypass for unattended daily coding
+      ...claudePermissionArgs(mode),
     ]
     if (state.claudeSessionId) {
       args.push("--resume", state.claudeSessionId)

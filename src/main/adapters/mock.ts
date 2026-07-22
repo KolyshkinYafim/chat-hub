@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto"
-import type { AgentAdapter, AdapterCallbacks, AdapterStartOpts } from "./types"
+import type {
+  AgentAdapter,
+  AdapterCallbacks,
+  AdapterSendOpts,
+  AdapterStartOpts,
+} from "./types"
 
 const REPLIES = [
   `## Plan
@@ -90,6 +95,7 @@ export class MockAdapter implements AgentAdapter {
     sessionId: string,
     message: string,
     cb: AdapterCallbacks,
+    _opts?: AdapterSendOpts,
   ): Promise<void> {
     this.aborts.get(sessionId)?.abort()
     const controller = new AbortController()

@@ -11,6 +11,8 @@ import { NotificationService } from "./notifications"
 import { Persistence } from "./persistence"
 import { SessionManager } from "./session-manager"
 import { getGitCheckout, gitCommitAll } from "./git"
+import { SettingsStore } from "./settings"
+import type { PermissionMode } from "@shared/permission"
 
 let mainWindow: BrowserWindow | null = null
 let manager: SessionManager | null = null
@@ -198,6 +200,21 @@ function registerIpc(sm: SessionManager, bridge: SessionMonitorBridge): void {
       return gitCommitAll(assertExistingDir(cwd), message.trim())
     },
   )
+
+  ipcMain.handle(IpcChannels.getSettings, () => ({
+    permissionMode: sm.getPermissionMode(),
+  }))
+
+  ipcMain.handle(
+    IpcChannels.setPermissionMode,
+    async (_e, mode: unknown) => {
+      if (mode !== "yolo" && mode !== "acceptEdits" && mode !== "default") {
+        throw new Error("Invalid permission mode")
+      }
+      const next = await sm.setPermissionMode(mode as PermissionMode)
+      return { permissionMode: next }
+    },
+  )
 }
 
 app.whenReady().then(async () => {
@@ -224,11 +241,19 @@ app.whenReady().then(async () => {
   const userData = app.getPath("userData")
   const bus = new EventBus()
   const persistence = new Persistence(Persistence.defaultPath(userData))
+  const settings = new SettingsStore(SettingsStore.defaultPath(userData))
+  await settings.load()
   const bridge = new SessionMonitorBridge(SessionMonitorBridge.defaultPath())
   const notifications = new NotificationService((id) =>
     manager?.getSession(id),
   )
-  manager = new SessionManager(bus, persistence, bridge, notifications)
+  manager = new SessionManager(
+    bus,
+    persistence,
+    bridge,
+    notifications,
+    settings,
+  )
   await manager.init()
 
   bus.on((event) => {

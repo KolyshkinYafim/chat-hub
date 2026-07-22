@@ -8,7 +8,16 @@ import {
   safeJson,
   type StreamTurn,
 } from "./stream-parse"
-import type { AdapterCallbacks, AdapterStartOpts, AgentAdapter } from "./types"
+import {
+  DEFAULT_PERMISSION_MODE,
+  grokPermissionArgs,
+} from "@shared/permission"
+import type {
+  AdapterCallbacks,
+  AdapterSendOpts,
+  AdapterStartOpts,
+  AgentAdapter,
+} from "./types"
 
 /**
  * Grok Build headless adapter.
@@ -48,6 +57,7 @@ export class GrokAdapter implements AgentAdapter {
     sessionId: string,
     message: string,
     cb: AdapterCallbacks,
+    opts?: AdapterSendOpts,
   ): Promise<void> {
     const bin = this.binary
     if (!bin) throw new Error("Grok Build CLI not found")
@@ -56,6 +66,15 @@ export class GrokAdapter implements AgentAdapter {
 
     state.proc?.abort()
 
+    const mode =
+      opts?.permissionMode ??
+      (process.env.CHAT_HUB_PERMISSION as
+        | "yolo"
+        | "acceptEdits"
+        | "default"
+        | undefined) ??
+      DEFAULT_PERMISSION_MODE
+
     const args = [
       "--single",
       message,
@@ -63,8 +82,7 @@ export class GrokAdapter implements AgentAdapter {
       "streaming-json",
       "--cwd",
       state.cwd,
-      "--permission-mode",
-      process.env.CHAT_HUB_GROK_PERMISSION ?? "acceptEdits",
+      ...grokPermissionArgs(mode),
     ]
     if (state.grokSession) {
       args.push("--resume", state.grokSession)
