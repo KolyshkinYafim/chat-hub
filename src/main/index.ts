@@ -7,6 +7,7 @@ import { PROVIDERS } from "@shared/types"
 import { listProviderInfo } from "./adapters"
 import { EventBus } from "./event-bus"
 import { SessionMonitorBridge } from "./bridge"
+import { MonitorCommandBridge } from "./command-bridge"
 import { NotificationService } from "./notifications"
 import { Persistence } from "./persistence"
 import { SessionManager } from "./session-manager"
@@ -16,6 +17,7 @@ import type { PermissionMode } from "@shared/permission"
 
 let mainWindow: BrowserWindow | null = null
 let manager: SessionManager | null = null
+let commandBridge: MonitorCommandBridge | null = null
 
 const PROVIDER_IDS = new Set(PROVIDERS.map((p) => p.id))
 
@@ -265,6 +267,19 @@ app.whenReady().then(async () => {
   registerIpc(manager, bridge)
   createWindow()
 
+  commandBridge = new MonitorCommandBridge(manager, (sessionId) => {
+    if (!mainWindow || mainWindow.isDestroyed()) createWindow()
+    mainWindow?.show()
+    mainWindow?.focus()
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IpcChannels.hubEvent, {
+        type: "session.active",
+        sessionId,
+      })
+    }
+  })
+  commandBridge.start()
+
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -275,6 +290,7 @@ app.on("window-all-closed", () => {
 })
 
 app.on("before-quit", (e) => {
+  commandBridge?.stop()
   if (!manager) return
   e.preventDefault()
   void manager.flush().finally(() => {
