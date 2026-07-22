@@ -92,10 +92,14 @@ export class SessionManager {
     }
 
     for (const session of state.sessions) {
+      // Drop demo / missing project paths — only real folders survive restart.
+      const cwd = session.cwd || ""
+      if (!cwdLooksReal(cwd)) {
+        continue
+      }
       // Never restore as stuck running without a live process.
       const status: SessionStatus =
         session.status === "running" ? "idle" : session.status
-      const cwd = session.cwd || process.cwd()
       this.sessions.set(session.id, {
         ...session,
         cwd,
@@ -104,6 +108,7 @@ export class SessionManager {
       })
     }
     for (const [id, msgs] of Object.entries(state.messages)) {
+      if (!this.sessions.has(id)) continue
       this.messages.set(
         id,
         msgs.map((m) => ({ ...m, streaming: false })),
@@ -460,5 +465,15 @@ function resolveSessionCwd(input?: string): string {
     throw new Error(
       `Invalid project folder: ${raw} (${err instanceof Error ? err.message : String(err)})`,
     )
+  }
+}
+
+/** Reject seeded fake paths like /Users/dev/projects/... */
+function cwdLooksReal(cwd: string): boolean {
+  if (!cwd || cwd.includes("/Users/dev/")) return false
+  try {
+    return statSync(cwd).isDirectory()
+  } catch {
+    return false
   }
 }

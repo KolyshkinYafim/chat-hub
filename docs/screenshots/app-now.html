@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Chat Hub — live look</title>
+<style>
+:root {
+  --bg:#0c0d10; --sidebar:#101114; --elev:#16171c; --border:#2a2c35;
+  --text:#ececf4; --muted:#8b8d98; --faint:#5c5e6a; --accent:#7c8cff;
+  --ok:#3dd68c; --warn:#f0b429; --user:#1a2332; --working:#4d9fff;
+  font-family: "SF Pro Text", system-ui, -apple-system, sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#000;color:var(--text)}
+.app{display:grid;grid-template-columns:268px 1fr;width:1280px;height:800px;background:var(--bg)}
+.sidebar{background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;padding-top:40px}
+.brand{display:flex;justify-content:space-between;align-items:center;padding:0 12px 12px}
+.brand-name{font-size:13px;font-weight:600}
+.alpha{font-size:9px;border:1px solid var(--border);padding:1px 4px;border-radius:4px;color:var(--faint);margin-left:4px}
+.icon{width:28px;height:28px;border-radius:8px;border:1px solid var(--border);background:var(--elev);display:grid;place-items:center;font-size:14px}
+.icons{display:flex;gap:6px}
+.search{margin:0 12px 10px;height:32px;border-radius:8px;background:var(--elev);border:1px solid var(--border);display:flex;align-items:center;padding:0 10px;color:var(--faint);font-size:12px}
+.proj-label{padding:8px 14px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);display:flex;justify-content:space-between}
+.filters{display:flex;gap:4px}
+.filters span{padding:2px 6px;border-radius:4px;font-size:10px}
+.filters .on{background:var(--elev);color:var(--text)}
+.proj{padding:6px 10px;font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:center}
+.sess{margin:2px 8px 2px 16px;padding:8px 10px;border-radius:8px;font-size:12.5px;display:flex;justify-content:space-between;gap:8px}
+.sess.active{background:#252730;border:1px solid var(--border)}
+.sess .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.time{color:var(--faint);font-size:10px}
+.main{display:flex;flex-direction:column;min-width:0}
+.top{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid var(--border)}
+.top h1{margin:0;font-size:14.5px}
+.sub{margin-top:4px;font-size:11.5px;color:var(--muted);display:flex;gap:6px;align-items:center}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+.btns{display:flex;gap:6px}
+.btn{height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--border);background:var(--elev);color:var(--muted);font-size:12px}
+.banner{padding:6px 20px;border-bottom:1px solid var(--border);font-size:11px;color:var(--muted);display:flex;justify-content:space-between;font-family:ui-monospace,monospace}
+.transcript{flex:1;padding:20px 28px;overflow:hidden}
+.turn{margin-bottom:18px;max-width:72ch}
+.role{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px}
+.role.a{color:var(--accent)}
+.user{display:inline-block;padding:10px 14px;border-radius:12px;background:var(--user);border:1px solid #2a3548;font-size:13.5px}
+.md h2{margin:0 0 8px;font-size:15px}
+.md p{margin:0 0 10px;color:#c5c7d0;font-size:13.5px;line-height:1.55}
+.tool{border:1px solid rgba(124,140,255,.28);border-radius:10px;background:#12141a;margin:10px 0;overflow:hidden}
+.tool-h{padding:7px 10px;border-bottom:1px solid var(--border);font-size:12px;display:flex;gap:8px}
+.tool-h b{font-family:ui-monospace,monospace}
+.tool-b{padding:8px 10px;font-family:ui-monospace,monospace;font-size:11px;color:#c8cdd8}
+.composer{padding:10px 20px 16px}
+.shell{border:1px solid #3a3d4a;border-radius:16px;background:#14151a;padding:10px;box-shadow:0 8px 32px rgba(0,0,0,.35)}
+.shell .ph{color:var(--faint);font-size:13px;padding:6px 4px 12px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.chip{height:26px;padding:0 10px;border-radius:999px;border:1px solid var(--border);background:var(--elev);font-size:11.5px;color:var(--muted);display:inline-flex;align-items:center}
+.chip.yolo{border-color:rgba(240,180,41,.55);background:rgba(240,180,41,.12);color:#f0c14b}
+.send{margin-left:auto;width:32px;height:32px;border-radius:999px;background:#ececf1;color:#111;display:grid;place-items:center;font-weight:700}
+.foot{display:flex;justify-content:space-between;padding:8px 4px 0;font-size:11px;color:var(--faint)}
+.modal-bg{position:absolute;inset:0;background:rgba(0,0,0,.55);display:grid;place-items:center;z-index:10}
+.modal{width:560px;background:#14161c;border:1px solid var(--border);border-radius:14px;box-shadow:0 24px 64px rgba(0,0,0,.55);overflow:hidden}
+.mh{display:flex;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);font-weight:650}
+.mtabs{padding:10px 12px 0;display:flex;gap:4px}
+.mtabs span{padding:7px 12px;border-radius:8px;font-size:12.5px;color:var(--muted)}
+.mtabs .on{background:var(--elev);color:var(--text);border:1px solid var(--border)}
+.mb{padding:12px 16px 16px}
+.lead{font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.45}
+.card{border:1px solid var(--border);border-radius:12px;padding:12px 14px;background:var(--elev);margin-bottom:10px}
+.card-top{display:flex;justify-content:space-between;gap:12px}
+.card h3{margin:0 0 4px;font-size:13.5px}
+.path{font-size:11px;color:var(--faint);font-family:ui-monospace,monospace}
+.badge{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:999px;background:rgba(61,214,140,.18);color:#7fd99a}
+.badge.warn{background:rgba(240,180,41,.18);color:#f0c14b}
+.detail{font-size:12px;color:var(--muted);margin:8px 0 10px}
+.acts{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+.sel{display:flex;flex-direction:column;gap:4px;font-size:10px;color:var(--faint);text-transform:uppercase}
+.sel select{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:6px 8px;color:var(--text);font-size:12px;text-transform:none}
+.wrap{position:relative;width:1280px;height:800px}
+.tag{position:absolute;left:16px;bottom:12px;font-size:11px;color:#666}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-name">Chat Hub <span class="alpha">MVP</span></div>
+      <div class="icons"><div class="icon">⚙</div><div class="icon">+</div></div>
+    </div>
+    <div class="search">⌕ Search</div>
+    <div class="proj-label"><span>Projects</span><div class="filters"><span class="on">All</span><span>Work</span><span>Wait</span></div></div>
+    <div class="proj">📁 mary <span style="margin-left:auto;font-size:10px;color:#5c5e6a">2</span></div>
+    <div class="sess active"><span class="t">Refactor auth middleware</span><span class="time">just now</span></div>
+    <div class="sess"><span class="t">Handoff FSD</span><span class="time">1h ago</span></div>
+    <div class="proj">📁 FinanceApp</div>
+    <div class="sess"><span class="t">Logo prompt pack</span><span class="time">3h ago</span></div>
+  </aside>
+  <main class="main">
+    <div class="top">
+      <div>
+        <h1>Refactor auth middleware</h1>
+        <div class="sub"><span class="dot"></span> Done · claude · sonnet · mary · main</div>
+      </div>
+      <div class="btns"><div class="btn">Open</div><div class="btn">Commit</div><div class="btn">✎</div></div>
+    </div>
+    <div class="banner"><span>claude · sonnet · yolo · high</span><span>/Users/dev/projects/mary</span></div>
+    <div class="transcript">
+      <div class="turn">
+        <div class="role">You</div>
+        <div class="user">Проверь middleware auth и сделай минимальный diff</div>
+      </div>
+      <div class="turn">
+        <div class="role a">Agent · claude</div>
+        <div class="md">
+          <h2>Plan</h2>
+          <p>Разобрал hot path. Делаю минимальный diff без косметики.</p>
+          <div class="tool">
+            <div class="tool-h"><span>⚙</span><b>Bash</b><span style="margin-left:auto;font-size:10px;color:#5c5e6a">TOOL</span></div>
+            <div class="tool-b">{"command":"rg -n \\"auth\\" src/middleware"}</div>
+          </div>
+          <p>Status only from event bus — never stuck Working without process.</p>
+        </div>
+      </div>
+    </div>
+    <div class="composer">
+      <div class="shell">
+        <div class="ph">Ask the agent…</div>
+        <div class="chips">
+          <span class="chip">✦ Claude Code</span>
+          <span class="chip">Sonnet (latest)</span>
+          <span class="chip yolo">YOLO · full access</span>
+          <span class="chip">High</span>
+          <span class="chip">Attach</span>
+          <span class="send">↑</span>
+        </div>
+      </div>
+      <div class="foot"><span>● Local checkout · main</span><span>mary · claude</span></div>
+    </div>
+  </main>
+</div>
+
+<!-- Settings overlay -->
+<div class="modal-bg">
+  <div class="modal">
+    <div class="mh"><span>Settings</span><span style="opacity:.5">×</span></div>
+    <div class="mtabs"><span class="on">Providers & accounts</span><span>General</span></div>
+    <div class="mb">
+      <p class="lead">Hub uses local CLIs. Connect accounts via Login… — status is detected here. Pick default model for new sessions.</p>
+      <div class="card">
+        <div class="card-top">
+          <div>
+            <h3>Claude Code</h3>
+            <div class="path">/opt/homebrew/bin/claude · 2.1.205</div>
+          </div>
+          <span class="badge">Connected</span>
+        </div>
+        <div class="detail">lic@teambox.email · max</div>
+        <div class="acts">
+          <div class="btn">Login…</div>
+          <div class="btn">Re-detect</div>
+          <label class="sel">Default model
+            <select><option>Sonnet (latest)</option><option>Opus (latest)</option></select>
+          </label>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-top">
+          <div>
+            <h3>Grok Build</h3>
+            <div class="path">~/.grok/bin/grok</div>
+          </div>
+          <span class="badge warn">Unknown</span>
+        </div>
+        <div class="detail">Installed — use Login if API rejects</div>
+        <div class="acts"><div class="btn">Login…</div><div class="btn">Re-detect</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="tag">Chat Hub · screenshot preview of current UI</div>
+</div>
+</body>
+</html>

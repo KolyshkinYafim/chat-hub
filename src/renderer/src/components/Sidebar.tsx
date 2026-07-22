@@ -9,15 +9,19 @@ type Props = {
   providers: ProviderInfo[]
   provider: ProviderId
   busy: boolean
+  collapsed: boolean
+  onToggleCollapsed: () => void
   onProviderChange: (id: ProviderId) => void
   onCreate: (project?: string) => void
   onSelect: (id: string) => void
   onDelete: (id: string) => void
   onOpenSettings: () => void
+  onOpenProject: (cwd: string) => void
 }
 
 type ProjectGroup = {
   name: string
+  cwd: string
   sessions: SessionMeta[]
   collapsed: boolean
 }
@@ -28,11 +32,14 @@ export function Sidebar({
   providers,
   provider,
   busy,
+  collapsed: railCollapsed,
+  onToggleCollapsed,
   onProviderChange,
   onCreate,
   onSelect,
   onDelete,
   onOpenSettings,
+  onOpenProject,
 }: Props) {
   const [query, setQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<
@@ -71,16 +78,50 @@ export function Sidebar({
       return bT - aT
     })
 
-    return order.map(
-      (name): ProjectGroup => ({
+    return order.map((name): ProjectGroup => {
+      const list = (map.get(name) ?? []).sort(
+        (a, b) => b.updatedAt - a.updatedAt,
+      )
+      return {
         name,
-        sessions: (map.get(name) ?? []).sort(
-          (a, b) => b.updatedAt - a.updatedAt,
-        ),
+        cwd: list[0]?.cwd ?? "",
+        sessions: list,
         collapsed: collapsed[name] === true,
-      }),
-    )
+      }
+    })
   }, [sessions, query, collapsed, statusFilter])
+
+  if (railCollapsed) {
+    return (
+      <aside className="sidebar rail-collapsed">
+        <button
+          type="button"
+          className="icon-chip rail-expand"
+          title="Expand sidebar"
+          onClick={onToggleCollapsed}
+        >
+          »
+        </button>
+        <button
+          type="button"
+          className="icon-chip"
+          title="Settings"
+          onClick={onOpenSettings}
+        >
+          ⚙
+        </button>
+        <button
+          type="button"
+          className="icon-chip"
+          title="New session"
+          disabled={busy}
+          onClick={() => onCreate()}
+        >
+          +
+        </button>
+      </aside>
+    )
+  }
 
   return (
     <aside className="sidebar">
@@ -88,13 +129,19 @@ export function Sidebar({
         <div className="brand-row">
           <div className="brand-mark">
             <span className="brand-glyph">⌘</span>
-            <div>
-              <div className="brand-name">
-                Chat Hub <span className="alpha">MVP</span>
-              </div>
+            <div className="brand-name">
+              Chat Hub <span className="alpha">MVP</span>
             </div>
           </div>
           <div className="brand-actions">
+            <button
+              type="button"
+              className="icon-chip"
+              title="Collapse sidebar"
+              onClick={onToggleCollapsed}
+            >
+              «
+            </button>
             <button
               type="button"
               className="icon-chip"
@@ -126,7 +173,6 @@ export function Sidebar({
             onChange={(e) => setQuery(e.target.value)}
             aria-label="Search sessions"
           />
-          <kbd className="kbd">⌘K</kbd>
         </div>
       </div>
 
@@ -155,25 +201,46 @@ export function Sidebar({
       <div className="session-scroll" role="tree">
         {groups.length === 0 ? (
           <div className="sidebar-empty">
-            No sessions. Create one to start an agent turn.
+            No sessions. Create one with a real project folder.
           </div>
         ) : (
           groups.map((g) => (
             <div key={g.name} className="project-group" role="group">
-              <button
-                type="button"
-                className="project-head"
-                onClick={() =>
-                  setCollapsed((c) => ({ ...c, [g.name]: !g.collapsed }))
-                }
-              >
-                <span className={`chev ${g.collapsed ? "" : "open"}`}>▸</span>
-                <span className="folder-ico" aria-hidden>
-                  📁
-                </span>
-                <span className="project-name">{g.name}</span>
-                <span className="project-count">{g.sessions.length}</span>
-              </button>
+              <div className="project-head-row">
+                <button
+                  type="button"
+                  className="project-head"
+                  onClick={() =>
+                    setCollapsed((c) => ({ ...c, [g.name]: !g.collapsed }))
+                  }
+                >
+                  <span className={`chev ${g.collapsed ? "" : "open"}`}>▸</span>
+                  <span className="folder-ico" aria-hidden>
+                    📁
+                  </span>
+                  <span className="project-name">{g.name}</span>
+                  <span className="project-count">{g.sessions.length}</span>
+                </button>
+                <div className="project-hover-actions">
+                  <button
+                    type="button"
+                    className="icon-chip sm"
+                    title="Open folder"
+                    onClick={() => g.cwd && onOpenProject(g.cwd)}
+                  >
+                    ↗
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-chip sm"
+                    title={`New in ${g.name}`}
+                    disabled={busy}
+                    onClick={() => onCreate(g.name)}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
               {!g.collapsed
                 ? g.sessions.map((s) => {
                     const live =
@@ -190,13 +257,11 @@ export function Sidebar({
                         }}
                         tabIndex={0}
                       >
-                        <div className="session-row-main">
+                        <div className="session-row-main t3">
                           {s.status === "running" ||
                           s.status === "waiting_input" ? (
                             <StatusDot status={s.status} showLabel />
-                          ) : (
-                            <span className="session-idle-pad" />
-                          )}
+                          ) : null}
                           <span className="session-row-title" title={s.title}>
                             {s.title}
                           </span>
@@ -221,16 +286,6 @@ export function Sidebar({
                     )
                   })
                 : null}
-              {!g.collapsed ? (
-                <button
-                  type="button"
-                  className="new-in-project"
-                  disabled={busy}
-                  onClick={() => onCreate(g.name)}
-                >
-                  + New in {g.name}
-                </button>
-              ) : null}
             </div>
           ))
         )}
@@ -238,7 +293,7 @@ export function Sidebar({
 
       <div className="sidebar-bottom">
         <label className="provider-mini">
-          <span>Agent</span>
+          <span>Default agent (new sessions)</span>
           <select
             value={provider}
             onChange={(e) => onProviderChange(e.target.value as ProviderId)}
@@ -251,15 +306,13 @@ export function Sidebar({
             ))}
           </select>
         </label>
-        <div className="provider-hint-line">
-          {providers.find((p) => p.id === provider)?.description}
-        </div>
-        <div className="status-legend" title="Live status from process events">
+        <div className="status-legend">
           <span>
             <i className="status-dot running" /> {statusLabel.running}
           </span>
           <span>
-            <i className="status-dot waiting_input" /> {statusLabel.waiting_input}
+            <i className="status-dot waiting_input" />{" "}
+            {statusLabel.waiting_input}
           </span>
         </div>
       </div>
