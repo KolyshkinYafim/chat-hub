@@ -35,18 +35,27 @@ export function Sidebar({
   onOpenSettings,
 }: Props) {
   const [query, setQuery] = useState("")
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "waiting" | "running"
+  >("all")
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase()
-    const filtered = q
-      ? sessions.filter(
-          (s) =>
-            s.title.toLowerCase().includes(q) ||
-            s.project.toLowerCase().includes(q) ||
-            s.provider.toLowerCase().includes(q),
-        )
-      : sessions
+    let filtered = sessions
+    if (statusFilter === "waiting") {
+      filtered = filtered.filter((s) => s.status === "waiting_input")
+    } else if (statusFilter === "running") {
+      filtered = filtered.filter((s) => s.status === "running")
+    }
+    if (q) {
+      filtered = filtered.filter(
+        (s) =>
+          s.title.toLowerCase().includes(q) ||
+          s.project.toLowerCase().includes(q) ||
+          s.provider.toLowerCase().includes(q),
+      )
+    }
 
     const map = new Map<string, SessionMeta[]>()
     for (const s of filtered) {
@@ -71,7 +80,7 @@ export function Sidebar({
         collapsed: collapsed[name] === true,
       }),
     )
-  }, [sessions, query, collapsed])
+  }, [sessions, query, collapsed, statusFilter])
 
   return (
     <aside className="sidebar">
@@ -123,16 +132,24 @@ export function Sidebar({
 
       <div className="projects-label">
         <span>Projects</span>
-        <button
-          type="button"
-          className="text-mini"
-          title="Sort"
-          onClick={() => {
-            /* visual only */
-          }}
-        >
-          ↕
-        </button>
+        <div className="filter-chips">
+          {(
+            [
+              ["all", "All"],
+              ["running", "Work"],
+              ["waiting", "Wait"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              className={`text-mini filter-chip ${statusFilter === id ? "on" : ""}`}
+              onClick={() => setStatusFilter(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="session-scroll" role="tree">

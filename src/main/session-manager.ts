@@ -61,6 +61,19 @@ export class SessionManager {
     return next
   }
 
+  setSessionTitle(sessionId: string, title: string): SessionMeta {
+    const session = this.sessions.get(sessionId)
+    if (!session) throw new Error("Session not found")
+    const t = title.trim()
+    if (!t) throw new Error("Title required")
+    const next = { ...session, title: t, updatedAt: Date.now() }
+    this.sessions.set(sessionId, next)
+    this.publishSessionEvent({ type: "session.upsert", session: next })
+    this.bus.emit({ type: "sessions.replaced", sessions: this.listSessions() })
+    this.scheduleSave()
+    return next
+  }
+
   async init(): Promise<void> {
     if (this.started) return
     this.started = true
@@ -199,18 +212,31 @@ export class SessionManager {
     return session
   }
 
-  async sendMessage(sessionId: string, text: string): Promise<void> {
+  async sendMessage(
+    sessionId: string,
+    text: string,
+    opts?: {
+      effort?: import("./adapters/types").EffortLevel
+      attachments?: string[]
+    },
+  ): Promise<void> {
     const session = this.sessions.get(sessionId)
     if (!session) throw new Error("Session not found")
 
     const content = text.trim()
-    if (!content) return
+    if (!content && !opts?.attachments?.length) return
+
+    const attachNote =
+      opts?.attachments && opts.attachments.length > 0
+        ? `\n\n[attached: ${opts.attachments.map((p) => p.split("/").pop()).join(", ")}]`
+        : ""
+    const userContent = (content || "(attachments)") + attachNote
 
     const userMsg: ChatMessage = {
       id: randomUUID(),
       sessionId,
       role: "user",
-      content,
+      content: userContent,
       createdAt: Date.now(),
     }
     this.appendMessage(userMsg)
@@ -219,7 +245,7 @@ export class SessionManager {
       type: "session.message",
       id: sessionId,
       role: "user",
-      preview: content.slice(0, 160),
+      preview: userContent.slice(0, 160),
     })
 
     const adapter = getAdapter(session.provider)
@@ -227,9 +253,11 @@ export class SessionManager {
       this.settings.permissionMode || DEFAULT_PERMISSION_MODE
     // Fire-and-forget: stream/status arrive via event bus; UI stays responsive.
     void adapter
-      .send(sessionId, content, this.callbacks(), {
+      .send(sessionId, content || "Please review the attached files.", this.callbacks(), {
         permissionMode,
         model: session.model,
+        effort: opts?.effort,
+        attachments: opts?.attachments,
       })
       .then(() => {
         if (this.sessions.get(sessionId)?.status === "running") {

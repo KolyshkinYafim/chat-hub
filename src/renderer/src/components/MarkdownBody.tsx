@@ -24,6 +24,7 @@ type Block =
   | { kind: "h"; level: 2 | 3; text: string }
   | { kind: "ul"; items: string[] }
   | { kind: "code"; lang: string; code: string }
+  | { kind: "tool"; name: string; body: string; result?: boolean }
   | { kind: "p"; text: string }
 
 function splitBlocks(src: string): Block[] {
@@ -43,7 +44,22 @@ function splitBlocks(src: string): Block[] {
         i += 1
       }
       i += 1
-      out.push({ kind: "code", lang, code: buf.join("\n") })
+      if (lang.startsWith("tool-result:")) {
+        out.push({
+          kind: "tool",
+          name: lang.slice("tool-result:".length) || "result",
+          body: buf.join("\n"),
+          result: true,
+        })
+      } else if (lang.startsWith("tool:")) {
+        out.push({
+          kind: "tool",
+          name: lang.slice(5) || "tool",
+          body: buf.join("\n"),
+        })
+      } else {
+        out.push({ kind: "code", lang, code: buf.join("\n") })
+      }
       continue
     }
 
@@ -118,6 +134,24 @@ function Block({ block }: { block: Block }) {
         {block.lang ? <span className="md-code-lang">{block.lang}</span> : null}
         <code>{block.code}</code>
       </pre>
+    )
+  }
+  if (block.kind === "tool") {
+    return (
+      <div className={`tool-card ${block.result ? "result" : "call"}`}>
+        <div className="tool-card-head">
+          <span className="tool-ico">{block.result ? "↓" : "⚙"}</span>
+          <span className="tool-name">{block.name}</span>
+          <span className="tool-kind">
+            {block.result ? "result" : "tool"}
+          </span>
+        </div>
+        {block.body ? (
+          <pre className="tool-body">
+            <code>{block.body}</code>
+          </pre>
+        ) : null}
+      </div>
     )
   }
   return (

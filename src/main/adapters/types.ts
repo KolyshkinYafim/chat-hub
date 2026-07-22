@@ -12,9 +12,14 @@ export type AdapterStartOpts = {
   title?: string
 }
 
+export type EffortLevel = "low" | "medium" | "high" | "max"
+
 export type AdapterSendOpts = {
   permissionMode?: PermissionMode
   model?: string
+  effort?: EffortLevel
+  /** Absolute file paths to attach (Claude --file, etc.) */
+  attachments?: string[]
 }
 
 export type AdapterCallbacks = {

@@ -63,8 +63,21 @@ export function extractTextFromContent(content: unknown): string {
     const b = block as Record<string, unknown>
     if (b.type === "text" && typeof b.text === "string") parts.push(b.text)
     if (b.type === "tool_use" && typeof b.name === "string") {
-      const input = b.input ? JSON.stringify(b.input).slice(0, 200) : ""
-      parts.push(`\n\n🔧 **${b.name}**${input ? `\n\`${input}\`` : ""}\n`)
+      const input = b.input
+        ? JSON.stringify(b.input, null, 0).slice(0, 400)
+        : ""
+      // Fenced tool block → rendered as card in UI
+      parts.push(
+        `\n\n\`\`\`tool:${b.name}\n${input || "(no args)"}\n\`\`\`\n\n`,
+      )
+    }
+    if (b.type === "tool_result") {
+      const content =
+        typeof b.content === "string"
+          ? b.content.slice(0, 500)
+          : JSON.stringify(b.content ?? "").slice(0, 500)
+      const name = typeof b.name === "string" ? b.name : "result"
+      parts.push(`\n\n\`\`\`tool-result:${name}\n${content}\n\`\`\`\n\n`)
     }
   }
   return parts.join("")

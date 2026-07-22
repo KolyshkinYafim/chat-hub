@@ -87,6 +87,11 @@ export class GrokAdapter implements AgentAdapter {
     if (opts?.model) {
       args.push("--model", opts.model)
     }
+    if (opts?.attachments?.length) {
+      // Grok may accept files via prompt annotation if flags differ
+      const listed = opts.attachments.map((p) => `@${p}`).join(" ")
+      args[1] = `${message}\n\nAttachments: ${listed}`
+    }
     if (state.grokSession) {
       args.push("--resume", state.grokSession)
     }

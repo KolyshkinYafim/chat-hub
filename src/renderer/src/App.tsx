@@ -14,6 +14,10 @@ import { projectFromCwd } from "@shared/project"
 import { Sidebar } from "./components/Sidebar"
 import { ChatView } from "./components/ChatView"
 import { SettingsModal } from "./components/SettingsModal"
+import {
+  NewSessionDialog,
+  type NewSessionDraft,
+} from "./components/NewSessionDialog"
 
 export default function App() {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
@@ -30,6 +34,11 @@ export default function App() {
     DEFAULT_PERMISSION_MODE,
   )
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [newSessionOpen, setNewSessionOpen] = useState(false)
+  const [newSessionHint, setNewSessionHint] = useState<{
+    project?: string
+    cwd?: string
+  }>({})
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [sending, setSending] = useState(false)
@@ -197,36 +206,32 @@ export default function App() {
     }
   }, [activeSession?.id, activeSession?.cwd, activeSession?.status])
 
-  async function createSession(projectHint?: string) {
+  function openNewSession(projectHint?: string) {
+    let cwd: string | undefined
+    if (projectHint && activeSession?.project === projectHint) {
+      cwd = activeSession.cwd
+    } else if (projectHint) {
+      cwd = sessions.find((s) => s.project === projectHint)?.cwd
+    }
+    setNewSessionHint({ project: projectHint, cwd })
+    setNewSessionOpen(true)
+  }
+
+  async function createSessionFromDraft(draft: NewSessionDraft) {
     setError(null)
     setBusy(true)
     try {
-      // Always pick a real folder for daily use (unless continuing same project)
-      let cwd: string | undefined
-      if (projectHint && activeSession?.project === projectHint) {
-        cwd = activeSession.cwd
-      } else if (projectHint) {
-        // find existing session in that project for cwd
-        const sibling = sessions.find((s) => s.project === projectHint)
-        cwd = sibling?.cwd
+      if (draft.permissionMode !== permissionMode) {
+        await window.chatHub.setPermissionMode(draft.permissionMode)
+        setPermissionMode(draft.permissionMode)
       }
-
-      if (!cwd) {
-        const picked = await window.chatHub.pickFolder()
-        if (!picked) {
-          setBusy(false)
-          return
-        }
-        cwd = picked
-      }
-
-      const defaultModel = providerStatuses.find((s) => s.id === provider)
-        ?.defaultModel
+      setProvider(draft.provider)
       const session = await window.chatHub.createSession({
-        provider,
-        cwd,
-        project: projectFromCwd(cwd),
-        model: defaultModel ?? undefined,
+        provider: draft.provider,
+        cwd: draft.cwd,
+        project: projectFromCwd(draft.cwd),
+        model: draft.model,
+        title: draft.title,
       })
       setActiveId(session.id)
       setSessions((curr) => {
@@ -236,6 +241,7 @@ export default function App() {
       setMessagesBySession((curr) => ({ ...curr, [session.id]: [] }))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+      throw err
     } finally {
       setBusy(false)
     }
@@ -268,18 +274,37 @@ export default function App() {
     }
   }
 
-  async function sendMessage(text: string) {
+  async function sendMessage(
+    text: string,
+    opts?: {
+      effort?: "low" | "medium" | "high" | "max"
+      attachments?: string[]
+    },
+  ) {
     if (!activeId) return
     setError(null)
     setSending(true)
     try {
-      // Main fires agent process async; events drive Working/stream.
-      await window.chatHub.sendMessage(activeId, text)
+      await window.chatHub.sendMessage(activeId, text, opts)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      // Don't lock composer for whole agent run — only for IPC handoff.
       setSending(false)
+    }
+  }
+
+  async function renameSession() {
+    if (!activeSession) return
+    const next = window.prompt("Rename session", activeSession.title)
+    if (!next?.trim()) return
+    try {
+      const s = await window.chatHub.setSessionTitle(
+        activeSession.id,
+        next.trim(),
+      )
+      setSessions((curr) => curr.map((x) => (x.id === s.id ? s : x)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
     }
   }
 
@@ -359,7 +384,7 @@ export default function App() {
         provider={provider}
         busy={busy}
         onProviderChange={setProvider}
-        onCreate={(project) => void createSession(project)}
+        onCreate={(project) => openNewSession(project)}
         onSelect={(id) => void selectSession(id)}
         onDelete={(id) => void deleteSession(id)}
         onOpenSettings={() => setSettingsOpen(true)}
@@ -379,10 +404,11 @@ export default function App() {
         onPermissionChange={(m) => void changePermission(m)}
         onSend={sendMessage}
         onAbort={() => void abortSession()}
-        onCreate={() => void createSession()}
+        onCreate={() => openNewSession()}
         onOpenFolder={() => void openFolder()}
         onOpenEditor={() => void openEditor()}
         onCommit={() => void commit()}
+        onRename={() => void renameSession()}
       />
       <SettingsModal
         open={settingsOpen}
@@ -395,6 +421,16 @@ export default function App() {
         }}
         permissionMode={permissionMode}
         onPermissionChange={(m) => void changePermission(m)}
+      />
+      <NewSessionDialog
+        open={newSessionOpen}
+        providers={providers}
+        statuses={providerStatuses}
+        initialProvider={provider}
+        projectHint={newSessionHint.project}
+        hintCwd={newSessionHint.cwd}
+        onClose={() => setNewSessionOpen(false)}
+        onCreate={createSessionFromDraft}
       />
     </div>
   )

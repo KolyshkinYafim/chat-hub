@@ -50,17 +50,17 @@ Session store: `provider` + `model` + `permissionMode` per session.
 | Settings window | ✅ | ⚙ / ⌘, Providers + General |
 | Binary path override | ❌ | только PATH discover |
 | Auth health check | ❌ | ошибка только после failed run |
-| Effort / thinking / mode chips | 🟡 | decorative / partial |
-| Tool cards + diffs in transcript | ❌ | сырой текст + 🔧 name |
+| Effort / thinking / mode chips | 🟡 | effort chip + YOLO; thinking later |
+| Tool cards + diffs in transcript | 🟡 | tool/result cards |
 | Permission approve UI (when not YOLO) | ❌ | CLI alone |
-| Attach images/files | ❌ | placeholder text |
+| Attach images/files | 🟡 | multi-file attach → CLI |
 | Add action / Open menu polish | 🟡 | Open/Commit есть, Add action нет |
 | Worktrees | ❌ | |
 | Parallel session process isolation | 🟡 | one turn/process per send |
 | Packaging .app | ❌ | `pnpm dev` only |
 | Onboarding first-run | ❌ | empty state weak |
-| Session rename / archive | ❌ | |
-| Search real (last message) | 🟡 | title only |
+| Session rename / archive | 🟡 | rename; archive later |
+| Search real (last message) | 🟡 | title/project; filter Work/Wait |
 | Cost / tokens footer | ❌ | |
 | Jump from Session Monitor → Hub session | ❌ | |
 

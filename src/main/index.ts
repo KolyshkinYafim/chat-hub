@@ -121,14 +121,21 @@ function registerIpc(
   })
   ipcMain.handle(
     IpcChannels.sendMessage,
-    async (_e, sessionId: unknown, text: unknown) => {
+    async (_e, sessionId: unknown, text: unknown, opts?: unknown) => {
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid sessionId")
       }
       if (typeof text !== "string") {
         throw new Error("Invalid message")
       }
-      return sm.sendMessage(sessionId, text)
+      const o =
+        opts && typeof opts === "object"
+          ? (opts as {
+              effort?: "low" | "medium" | "high" | "max"
+              attachments?: string[]
+            })
+          : undefined
+      return sm.sendMessage(sessionId, text, o)
     },
   )
   ipcMain.handle(IpcChannels.abortSession, async (_e, sessionId: unknown) => {
@@ -281,6 +288,28 @@ function registerIpc(
       return sm.setSessionModel(sessionId, model)
     },
   )
+
+  ipcMain.handle(
+    IpcChannels.setSessionTitle,
+    (_e, sessionId: unknown, title: unknown) => {
+      if (typeof sessionId !== "string" || !sessionId) {
+        throw new Error("Invalid sessionId")
+      }
+      if (typeof title !== "string") throw new Error("Invalid title")
+      return sm.setSessionTitle(sessionId, title)
+    },
+  )
+
+  ipcMain.handle(IpcChannels.pickFiles, async () => {
+    const win = BrowserWindow.getFocusedWindow() ?? mainWindow
+    const result = await dialog.showOpenDialog(win ?? undefined!, {
+      properties: ["openFile", "multiSelections"],
+      title: "Attach files",
+      buttonLabel: "Attach",
+    })
+    if (result.canceled) return [] as string[]
+    return result.filePaths
+  })
 }
 
 app.whenReady().then(async () => {

@@ -16,6 +16,8 @@ import { formatClock } from "../lib/format"
 import { MarkdownBody } from "./MarkdownBody"
 import { TopBar } from "./TopBar"
 
+type Effort = "low" | "medium" | "high" | "max"
+
 type Props = {
   session: SessionMeta | null
   messages: ChatMessage[]
@@ -29,12 +31,16 @@ type Props = {
   onProviderChange: (id: ProviderId) => void
   onModelChange: (model: string) => void
   onPermissionChange: (mode: PermissionMode) => void
-  onSend: (text: string) => Promise<void>
+  onSend: (
+    text: string,
+    opts?: { effort?: Effort; attachments?: string[] },
+  ) => Promise<void>
   onAbort: () => void
   onCreate: () => void
   onOpenFolder: () => void
   onOpenEditor: () => void
   onCommit: () => void
+  onRename: () => void
 }
 
 export function ChatView({
@@ -56,8 +62,11 @@ export function ChatView({
   onOpenFolder,
   onOpenEditor,
   onCommit,
+  onRename,
 }: Props) {
   const [draft, setDraft] = useState("")
+  const [effort, setEffort] = useState<Effort>("high")
+  const [attachments, setAttachments] = useState<string[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
 
@@ -67,14 +76,17 @@ export function ChatView({
 
   useEffect(() => {
     setDraft("")
+    setAttachments([])
   }, [session?.id])
 
   async function submit() {
     const text = draft.trim()
-    if (!text || !session || sending) return
+    if ((!text && attachments.length === 0) || !session || sending) return
     setDraft("")
+    const files = attachments
+    setAttachments([])
     if (taRef.current) taRef.current.style.height = "auto"
-    await onSend(text)
+    await onSend(text, { effort, attachments: files })
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -91,6 +103,13 @@ export function ChatView({
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`
   }
 
+  async function attach() {
+    const files = await window.chatHub.pickFiles()
+    if (files.length) {
+      setAttachments((curr) => [...curr, ...files])
+    }
+  }
+
   if (!session) {
     return (
       <main className="main">
@@ -100,8 +119,7 @@ export function ChatView({
             <h2>Open a project to start</h2>
             <p>
               Pick a real folder and agent (Claude Code, Grok Build, OpenCode…).
-              Sessions spawn the CLI in that directory with honest Working /
-              Done status from process exit.
+              Set model and YOLO in the new-session dialog or Settings (⌘,).
             </p>
             <button type="button" className="tb-btn primary" onClick={onCreate}>
               New session…
@@ -117,6 +135,11 @@ export function ChatView({
       ? `${git.branch}${git.dirty ? " *" : ""}`
       : "no-git"
 
+  const modelLabel =
+    session.model ||
+    models.find((m) => m.id === session.model)?.label ||
+    "default"
+
   return (
     <main className="main">
       <TopBar
@@ -126,7 +149,18 @@ export function ChatView({
         onOpenFolder={onOpenFolder}
         onOpenEditor={onOpenEditor}
         onCommit={onCommit}
+        onRename={onRename}
       />
+
+      <div className="system-banner" title={session.cwd}>
+        <span className="mono-soft">
+          {session.provider}
+          {session.model ? ` · ${session.model}` : ` · ${modelLabel}`}
+          {` · ${permissionMode}`}
+          {` · ${effort}`}
+        </span>
+        <span className="mono-soft dim">{session.cwd}</span>
+      </div>
 
       {error ? <div className="error-banner">{error}</div> : null}
 
@@ -135,8 +169,14 @@ export function ChatView({
           <div className="transcript-empty">
             <p>Empty transcript</p>
             <span>
-              Message goes to <strong>{session.provider}</strong> in{" "}
-              <code>{session.cwd}</code>
+              Message goes to <strong>{session.provider}</strong>
+              {session.model ? (
+                <>
+                  {" "}
+                  · <code>{session.model}</code>
+                </>
+              ) : null}{" "}
+              in <code>{session.cwd}</code>
             </span>
           </div>
         ) : (
@@ -175,6 +215,23 @@ export function ChatView({
       </div>
 
       <div className="composer-dock">
+        {attachments.length > 0 ? (
+          <div className="attach-row">
+            {attachments.map((f) => (
+              <span key={f} className="attach-chip" title={f}>
+                {f.split("/").pop()}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAttachments((curr) => curr.filter((x) => x !== f))
+                  }
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
         <div className="composer-shell">
           <textarea
             ref={taRef}
@@ -207,7 +264,10 @@ export function ChatView({
                 </select>
               </label>
               {models.length > 0 ? (
-                <label className="chip select-chip" title="Model for this session">
+                <label
+                  className="chip select-chip"
+                  title="Model for this session"
+                >
                   <select
                     value={
                       session.model &&
@@ -247,6 +307,21 @@ export function ChatView({
                   )}
                 </select>
               </label>
+              <label className="chip select-chip" title="Effort (Claude)">
+                <select
+                  value={effort}
+                  onChange={(e) => setEffort(e.target.value as Effort)}
+                  aria-label="Effort"
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="max">Max</option>
+                </select>
+              </label>
+              <button type="button" className="chip" onClick={() => void attach()}>
+                Attach
+              </button>
               {session.status === "running" ? (
                 <button type="button" className="chip" onClick={onAbort}>
                   Stop
@@ -257,7 +332,9 @@ export function ChatView({
               type="button"
               className="send-btn"
               onClick={() => void submit()}
-              disabled={sending || !draft.trim()}
+              disabled={
+                sending || (!draft.trim() && attachments.length === 0)
+              }
               aria-label="Send"
             >
               ↑
