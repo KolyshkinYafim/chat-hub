@@ -75,6 +75,9 @@ export class OpenCodeAdapter implements AgentAdapter {
       DEFAULT_PERMISSION_MODE
 
     const args = ["run", message, "--format", "json", "--dir", state.cwd]
+    if (opts?.model) {
+      args.push("--model", opts.model)
+    }
     if (state.opencodeSession) {
       args.push("--session", state.opencodeSession)
     }

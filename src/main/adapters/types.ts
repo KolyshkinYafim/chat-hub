@@ -14,6 +14,7 @@ export type AdapterStartOpts = {
 
 export type AdapterSendOpts = {
   permissionMode?: PermissionMode
+  model?: string
 }
 
 export type AdapterCallbacks = {

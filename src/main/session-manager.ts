@@ -46,6 +46,21 @@ export class SessionManager {
     return next.permissionMode
   }
 
+  setSessionModel(sessionId: string, model: string): SessionMeta {
+    const session = this.sessions.get(sessionId)
+    if (!session) throw new Error("Session not found")
+    const next = {
+      ...session,
+      model: model.trim() || undefined,
+      updatedAt: Date.now(),
+    }
+    this.sessions.set(sessionId, next)
+    this.publishSessionEvent({ type: "session.upsert", session: next })
+    this.bus.emit({ type: "sessions.replaced", sessions: this.listSessions() })
+    this.scheduleSave()
+    return next
+  }
+
   async init(): Promise<void> {
     if (this.started) return
     this.started = true
@@ -148,11 +163,15 @@ export class SessionManager {
     const id = randomUUID()
     const cwd = resolveSessionCwd(input.cwd)
     const project = normalizeProject(input.project, cwd)
+    const cfg = this.settings.getProviderConfig(input.provider)
+    const model =
+      input.model?.trim() || cfg.defaultModel || undefined
     const session: SessionMeta = {
       id,
       title: input.title?.trim() || defaultTitle(input.provider, project, now),
       project,
       provider: input.provider,
+      model,
       cwd,
       status: "idle",
       createdAt: now,
@@ -208,7 +227,10 @@ export class SessionManager {
       this.settings.permissionMode || DEFAULT_PERMISSION_MODE
     // Fire-and-forget: stream/status arrive via event bus; UI stays responsive.
     void adapter
-      .send(sessionId, content, this.callbacks(), { permissionMode })
+      .send(sessionId, content, this.callbacks(), {
+        permissionMode,
+        model: session.model,
+      })
       .then(() => {
         if (this.sessions.get(sessionId)?.status === "running") {
           this.applyStatus(sessionId, "idle")

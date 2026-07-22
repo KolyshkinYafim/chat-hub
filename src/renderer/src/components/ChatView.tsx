@@ -11,6 +11,7 @@ import {
   PERMISSION_HINTS,
   PERMISSION_LABELS,
 } from "@shared/permission"
+import type { ModelInfo } from "@shared/settings-types"
 import { formatClock } from "../lib/format"
 import { MarkdownBody } from "./MarkdownBody"
 import { TopBar } from "./TopBar"
@@ -20,11 +21,13 @@ type Props = {
   messages: ChatMessage[]
   providers: ProviderInfo[]
   provider: ProviderId
+  models: ModelInfo[]
   permissionMode: PermissionMode
   git: GitCheckoutInfo | null
   error: string | null
   sending: boolean
   onProviderChange: (id: ProviderId) => void
+  onModelChange: (model: string) => void
   onPermissionChange: (mode: PermissionMode) => void
   onSend: (text: string) => Promise<void>
   onAbort: () => void
@@ -39,11 +42,13 @@ export function ChatView({
   messages,
   providers,
   provider,
+  models,
   permissionMode,
   git,
   error,
   sending,
   onProviderChange,
+  onModelChange,
   onPermissionChange,
   onSend,
   onAbort,
@@ -201,6 +206,26 @@ export function ChatView({
                   ))}
                 </select>
               </label>
+              {models.length > 0 ? (
+                <label className="chip select-chip" title="Model for this session">
+                  <select
+                    value={
+                      session.model &&
+                      models.some((m) => m.id === session.model)
+                        ? session.model
+                        : (models[0]?.id ?? "")
+                    }
+                    onChange={(e) => onModelChange(e.target.value)}
+                    aria-label="Model"
+                  >
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <label
                 className={`chip select-chip perm-chip perm-${permissionMode}`}
                 title={PERMISSION_HINTS[permissionMode]}

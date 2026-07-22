@@ -14,6 +14,9 @@ import { SessionManager } from "./session-manager"
 import { getGitCheckout, gitCommitAll } from "./git"
 import { SettingsStore } from "./settings"
 import type { PermissionMode } from "@shared/permission"
+import type { ProviderConfig } from "@shared/settings-types"
+import { probeAllProviders } from "./provider-probe"
+import { openLoginTerminal } from "./terminal-launch"
 
 let mainWindow: BrowserWindow | null = null
 let manager: SessionManager | null = null
@@ -87,7 +90,11 @@ function createWindow(): void {
   }
 }
 
-function registerIpc(sm: SessionManager, bridge: SessionMonitorBridge): void {
+function registerIpc(
+  sm: SessionManager,
+  bridge: SessionMonitorBridge,
+  settings: SettingsStore,
+): void {
   ipcMain.handle(IpcChannels.getSnapshot, () => sm.getSnapshot())
   ipcMain.handle(IpcChannels.listSessions, () => sm.listSessions())
   ipcMain.handle(IpcChannels.getMessages, (_e, sessionId: unknown) => {
@@ -109,6 +116,7 @@ function registerIpc(sm: SessionManager, bridge: SessionMonitorBridge): void {
       title: typeof raw.title === "string" ? raw.title : undefined,
       cwd: typeof raw.cwd === "string" ? raw.cwd : undefined,
       project: typeof raw.project === "string" ? raw.project : undefined,
+      model: typeof raw.model === "string" ? raw.model : undefined,
     })
   })
   ipcMain.handle(
@@ -203,9 +211,15 @@ function registerIpc(sm: SessionManager, bridge: SessionMonitorBridge): void {
     },
   )
 
-  ipcMain.handle(IpcChannels.getSettings, () => ({
-    permissionMode: sm.getPermissionMode(),
-  }))
+  ipcMain.handle(IpcChannels.getSettings, async () => {
+    const snap = settings.snapshot
+    const statuses = await probeAllProviders(snap.providers)
+    return {
+      permissionMode: snap.permissionMode,
+      providers: snap.providers,
+      statuses,
+    }
+  })
 
   ipcMain.handle(
     IpcChannels.setPermissionMode,
@@ -215,6 +229,56 @@ function registerIpc(sm: SessionManager, bridge: SessionMonitorBridge): void {
       }
       const next = await sm.setPermissionMode(mode as PermissionMode)
       return { permissionMode: next }
+    },
+  )
+
+  ipcMain.handle(IpcChannels.getProviderStatuses, async () => {
+    return probeAllProviders(settings.snapshot.providers)
+  })
+
+  ipcMain.handle(
+    IpcChannels.setProviderConfig,
+    async (_e, id: unknown, patch: unknown) => {
+      if (typeof id !== "string") throw new Error("Invalid provider id")
+      if (!PROVIDER_IDS.has(id as ProviderId)) throw new Error("Unknown provider")
+      if (!patch || typeof patch !== "object") throw new Error("Invalid config")
+      const p = patch as ProviderConfig
+      await settings.setProviderConfig(id as ProviderId, {
+        binaryPath:
+          typeof p.binaryPath === "string" ? p.binaryPath : undefined,
+        defaultModel:
+          typeof p.defaultModel === "string" ? p.defaultModel : undefined,
+      })
+      const statuses = await probeAllProviders(settings.snapshot.providers)
+      return {
+        providers: settings.snapshot.providers,
+        statuses,
+      }
+    },
+  )
+
+  ipcMain.handle(IpcChannels.providerLogin, async (_e, id: unknown) => {
+    if (typeof id !== "string") throw new Error("Invalid provider id")
+    const map: Record<string, string> = {
+      claude: "claude auth login",
+      grok: "grok login",
+      opencode: "opencode auth login",
+      codex: "codex login",
+    }
+    const cmd = map[id]
+    if (!cmd) throw new Error("No login command for provider")
+    openLoginTerminal(cmd)
+    return { ok: true, command: cmd }
+  })
+
+  ipcMain.handle(
+    IpcChannels.setSessionModel,
+    (_e, sessionId: unknown, model: unknown) => {
+      if (typeof sessionId !== "string" || !sessionId) {
+        throw new Error("Invalid sessionId")
+      }
+      if (typeof model !== "string") throw new Error("Invalid model")
+      return sm.setSessionModel(sessionId, model)
     },
   )
 }
@@ -264,7 +328,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  registerIpc(manager, bridge)
+  registerIpc(manager, bridge, settings)
   createWindow()
 
   commandBridge = new MonitorCommandBridge(manager, (sessionId) => {

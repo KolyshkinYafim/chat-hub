@@ -41,10 +41,11 @@ Requirements: Node ≥ 20, pnpm, macOS (primary).
 
 ### Daily driver loop
 
-1. Select agent (Claude / Grok / OpenCode)
-2. **New session** → pick your repo folder
-3. Send a prompt — CLI runs in that folder, stream shows in transcript
-4. **Stop** aborts the process; **Open** / **Commit** for local workflow
+1. **⚙ Settings** (`⌘,`) → **Providers & accounts** — see Connected / Needs login, **Login…**, default model
+2. Select agent + **model** chips in composer
+3. **New session** → pick your repo folder
+4. Send a prompt — CLI runs with `--model` + YOLO permissions
+5. **Stop** / **Open** / **Commit** as needed
 
 ## Docs
 

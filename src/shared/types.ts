@@ -20,6 +20,8 @@ export type SessionMeta = {
   /** Project / folder group in the sidebar (e.g. mary, FinanceApp). */
   project: string
   provider: ProviderId
+  /** Model id for this session (provider-specific). */
+  model?: string
   cwd: string
   status: SessionStatus
   createdAt: number
@@ -88,6 +90,7 @@ export type CreateSessionInput = {
   title?: string
   cwd?: string
   project?: string
+  model?: string
 }
 
 export type SessionSnapshot = {
