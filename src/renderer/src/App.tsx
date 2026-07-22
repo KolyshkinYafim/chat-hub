@@ -26,6 +26,9 @@ export default function App() {
       case "sessions.replaced":
         setSessions(event.sessions)
         break
+      case "session.active":
+        setActiveId(event.sessionId)
+        break
       case "session.upsert":
         setSessions((curr) => {
           const idx = curr.findIndex((s) => s.id === event.session.id)

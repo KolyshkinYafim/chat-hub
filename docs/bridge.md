@@ -42,3 +42,18 @@ Append-only **JSONL**. One event per line:
 - Do not truncate without coordination.
 - Status must never be inferred as `running` without a live process (Hub resets `running` → `idle` on restart).
 - Both apps run alone: Hub writes even if Monitor is absent; Monitor still shows mock sessions if Hub is absent.
+
+## Reverse channel (Monitor → Hub)
+
+```
+~/Library/Application Support/agent-desktop/commands.jsonl
+```
+
+Override: `AGENT_DESKTOP_COMMANDS`.
+
+| Line | Effect |
+|------|--------|
+| `{"type":"session.focus","id":"<sessionId>"}` | Focus session + bring Hub to front |
+| `{"type":"session.reply","id":"<sessionId>","text":"..."}` | `sendMessage` into that session |
+
+Hub tails **new** lines only after start (no replay).
