@@ -86,9 +86,7 @@ app.whenReady().then(async () => {
   const userData = app.getPath("userData")
   const bus = new EventBus()
   const persistence = new Persistence(Persistence.defaultPath(userData))
-  const bridge = new SessionMonitorBridge(
-    SessionMonitorBridge.defaultPath(userData),
-  )
+  const bridge = new SessionMonitorBridge(SessionMonitorBridge.defaultPath())
   const notifications = new NotificationService((id) =>
     manager?.getSession(id),
   )
