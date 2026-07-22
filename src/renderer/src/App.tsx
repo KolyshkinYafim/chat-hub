@@ -375,8 +375,33 @@ export default function App() {
     }
   }
 
+  const needsAuth = providerStatuses.some(
+    (s) =>
+      s.id !== "mock" &&
+      s.installed &&
+      (s.auth === "needs_login" || s.auth === "not_installed"),
+  )
+  const noneInstalled =
+    providerStatuses.length > 0 &&
+    providerStatuses
+      .filter((s) => s.id !== "mock")
+      .every((s) => !s.installed)
+
   return (
     <div className="app">
+      {noneInstalled || needsAuth ? (
+        <div className="onboard-strip">
+          <span>
+            {noneInstalled
+              ? "No agent CLIs found on PATH."
+              : "Some agents need login."}{" "}
+            Open Settings to connect accounts and pick default models.
+          </span>
+          <button type="button" className="tb-btn" onClick={() => setSettingsOpen(true)}>
+            Open Settings
+          </button>
+        </div>
+      ) : null}
       <Sidebar
         sessions={sessions}
         activeId={activeId}
