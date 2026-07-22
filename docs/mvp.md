@@ -6,7 +6,7 @@
 - [x] SessionManager + mock adapter (echo / fake stream)
 - [x] Status from events only
 - [x] OS notification if session → waiting_input / done (without Monitor)
-- [ ] One real adapter (Grok **or** OpenCode)
+- [x] One real adapter (Claude Code + Grok + OpenCode; Codex when installed)
 - [x] Optional: write events to local socket/file for Session Monitor
 - [x] Persist sessions list + last messages
 

@@ -1,3 +1,7 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"/>
+<title>Chat Hub workbench preview</title>
+<style>
 :root {
   color-scheme: dark;
   --bg: #0c0d10;
@@ -392,12 +396,6 @@ button {
   letter-spacing: 0;
   color: var(--text-secondary);
   outline: none;
-}
-
-.provider-hint-line {
-  font-size: 10.5px;
-  color: var(--text-faint);
-  line-height: 1.35;
 }
 
 .status-legend {
@@ -930,34 +928,6 @@ button {
   background: var(--ok);
 }
 
-.dot-amber {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--waiting);
-}
-
-.tb-split {
-  display: inline-flex;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-}
-
-.tb-split .tb-btn {
-  border: none;
-  border-radius: 0;
-}
-
-.tb-split .tb-btn + .tb-btn {
-  border-left: 1px solid var(--border);
-}
-
-.tb-btn-narrow {
-  padding: 0 8px !important;
-  min-width: 28px;
-}
-
 /* ——— Empty / error ——— */
 
 .empty-workbench {
@@ -1004,3 +974,217 @@ button {
   color: #ffb4b8;
   font-size: 12.5px;
 }
+
+html,body,#root,.app { height: 100vh; }
+body { margin:0; }
+/* force full window for screenshot */
+.app { width: 1280px; height: 840px; }
+</style></head>
+<body>
+<div class="app" id="root">
+  <aside class="sidebar">
+    <div class="sidebar-chrome">
+      <div class="brand-row">
+        <div class="brand-mark">
+          <span class="brand-glyph">⌘</span>
+          <div class="brand-name">Chat Hub <span class="alpha">MVP</span></div>
+        </div>
+        <button class="icon-chip" type="button">+</button>
+      </div>
+      <div class="search-wrap">
+        <span class="search-icon">⌕</span>
+        <input class="search-input" placeholder="Search" value=""/>
+        <kbd class="kbd">⌘K</kbd>
+      </div>
+    </div>
+    <div class="projects-label"><span>Projects</span><button class="text-mini" type="button">↕</button></div>
+    <div class="session-scroll">
+      
+      <div class="project-group">
+        <button class="project-head" type="button">
+          <span class="chev open">▸</span>
+          <span class="folder-ico">📁</span>
+          <span class="project-name">mary</span>
+          <span class="project-count">4</span>
+        </button>
+        
+          <div class="session-row active ">
+            <div class="session-row-main">
+              <span class="session-idle-pad"></span>
+              <span class="session-row-title">Ответ о reasoni…</span>
+              <span class="session-row-time">5h ago</span>
+            </div>
+          </div>
+          <div class="session-row  ">
+            <div class="session-row-main">
+              <span class="session-idle-pad"></span>
+              <span class="session-row-title">Handoff по фронтенд-рефакторингу</span>
+              <span class="session-row-time">5h ago</span>
+            </div>
+          </div>
+          <div class="session-row  ">
+            <div class="session-row-main">
+              <span class="session-idle-pad"></span>
+              <span class="session-row-title">Проверка CRM PicPac на …</span>
+              <span class="session-row-time">5h ago</span>
+            </div>
+          </div>
+          <div class="session-row  ">
+            <div class="session-row-main">
+              <span class="session-idle-pad"></span>
+              <span class="session-row-title">Inspect folder contents</span>
+              <span class="session-row-time">5h ago</span>
+            </div>
+          </div>
+      </div>
+      <div class="project-group">
+        <button class="project-head" type="button">
+          <span class="chev open">▸</span>
+          <span class="folder-ico">📁</span>
+          <span class="project-name">FinanceApp</span>
+          <span class="project-count">2</span>
+        </button>
+        
+          <div class="session-row  ">
+            <div class="session-row-main">
+              <span class="session-idle-pad"></span>
+              <span class="session-row-title">Master-промпт для 10 ло…</span>
+              <span class="session-row-time">5h ago</span>
+            </div>
+          </div>
+          <div class="session-row  ">
+            <div class="session-row-main">
+              <span class="session-idle-pad"></span>
+              <span class="session-row-title">Master prompt for logo ge…</span>
+              <span class="session-row-time">5h ago</span>
+            </div>
+          </div>
+      </div>
+      <div class="project-group">
+        <button class="project-head" type="button">
+          <span class="chev open">▸</span>
+          <span class="folder-ico">📁</span>
+          <span class="project-name">NSFW</span>
+          <span class="project-count">1</span>
+        </button>
+        
+          <div class="session-row  ">
+            <div class="session-row-main">
+              <span class="session-idle-pad"></span>
+              <span class="session-row-title">Оценка T3 code обвязки</span>
+              <span class="session-row-time">5h ago</span>
+            </div>
+          </div>
+      </div>
+      <div class="project-group">
+        <button class="project-head" type="button">
+          <span class="chev open">▸</span>
+          <span class="folder-ico">📁</span>
+          <span class="project-name">ProxyFlash</span>
+          <span class="project-count">2</span>
+        </button>
+        
+          <div class="session-row  ">
+            <div class="session-row-main">
+              <span class="session-idle-pad"></span>
+              <span class="session-row-title">Redux crash on clients pa…</span>
+              <span class="session-row-time">5h ago</span>
+            </div>
+          </div>
+          <div class="session-row  ">
+            <div class="session-row-main">
+              <span class="session-idle-pad"></span>
+              <span class="session-row-title">Fix blank clients page error</span>
+              <span class="session-row-time">5h ago</span>
+            </div>
+          </div>
+      </div>
+    </div>
+    <div class="sidebar-bottom">
+      <label class="provider-mini"><span>Agent</span>
+        <select><option>Mock</option></select>
+      </label>
+      <div class="status-legend">
+        <span><i class="status-dot running"></i> Working</span>
+        <span><i class="status-dot waiting_input"></i> Waiting</span>
+      </div>
+    </div>
+  </aside>
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 class="topbar-title">Ответ о reasoni…</h1>
+        <div class="topbar-sub">
+          <span class="status-live status-done"><span class="status-dot done"></span><span class="status-live-label">Done</span></span>
+          <span class="sep">·</span>
+          <span class="mono-soft">mary</span>
+          <span class="sep">·</span>
+          <span class="mono-soft">projects/mary</span>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button class="tb-btn primary-soft" type="button">+ Add action</button>
+        <button class="tb-btn" type="button">Open ▾</button>
+        <button class="tb-btn" type="button">Commit ▾</button>
+        <button class="tb-icon" type="button">☆</button>
+      </div>
+    </header>
+    <div class="transcript">
+      
+        <article class="turn turn-user">
+          <div class="turn-meta"><span class="turn-role">You</span><span class="turn-time">10:07 AM</span></div>
+          <div class="user-bubble">Почему reasoning token stream иногда рвётся на длинных ответах?</div>
+        </article>
+        <article class="turn turn-assistant">
+          <div class="turn-meta">
+            <span class="turn-role agent">Agent</span>
+            <span class="turn-provider">mock</span>
+            <span class="turn-time">10:07 AM</span>
+          </div>
+          <div class="md-body"><p class="md-p">Смотрю логи провайдера и backpressure на stream chunk boundary…</p>
+<p class="md-p">Нужно твоё подтверждение: <strong>ретраить</strong> обрыв с offset, или <strong>fail-fast</strong> и показать partial?</p></div>
+        </article>
+        <article class="turn turn-user">
+          <div class="turn-meta"><span class="turn-role">You</span><span class="turn-time">10:07 AM</span></div>
+          <div class="user-bubble">are you really working?</div>
+        </article>
+        <article class="turn turn-assistant">
+          <div class="turn-meta">
+            <span class="turn-role agent">Agent</span>
+            <span class="turn-provider">mock</span>
+            <span class="turn-time">10:07 AM</span>
+          </div>
+          <div class="md-body"><h2 class="md-h md-h2">Plan</h2>
+<p class="md-p">Разобрал запрос. Делаю минимальный diff, без косметики.</p>
+<h3 class="md-h md-h3">Steps</h3>
+<p class="md-p">1. Найти hot path в адаптере
+2. Прокинуть <code class="md-inline-code">SessionEvent</code> только из main
+3. Не трогать renderer, кроме отображения статуса</p>
+<pre class="md-code"><code>cb.onSessionEvent({ type: "session.status", id, status: "running" })</code></pre>
+<h3 class="md-h md-h3">Outcome</h3>
+<ul class='md-ul'><li>✅ Stream deltas в transcript</li><li>✅ Status never stuck without process</li><li>⏳ Waiting on your OK to open PR</li></ul>
+<p class="md-p">Скажи <strong>ship</strong> или <strong>iterate</strong>.</p></div>
+        </article>
+    </div>
+    <div class="composer-dock">
+      <div class="composer-shell">
+        <textarea rows="2" placeholder="Ask for follow-up changes or attach images"></textarea>
+        <div class="composer-toolbar">
+          <div class="composer-chips">
+            <span class="chip select-chip"><span class="chip-ico">✦</span> Mock</span>
+            <span class="chip muted">High · Normal</span>
+            <span class="chip muted">Full access</span>
+            <span class="chip muted">Build</span>
+            <span class="chip muted">Tasks</span>
+          </div>
+          <button class="send-btn" type="button">↑</button>
+        </div>
+      </div>
+      <div class="composer-footer">
+        <span class="checkout"><span class="dot-green"></span> Local checkout</span>
+        <span class="branch mono-soft">mary · main</span>
+      </div>
+    </div>
+  </main>
+</div>
+</body></html>

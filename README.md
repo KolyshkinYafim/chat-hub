@@ -25,15 +25,26 @@ Requirements: Node ≥ 20, pnpm, macOS (primary).
 
 ## What works (MVP)
 
-- Electron main + React renderer
-- Sidebar session list, create / select / delete
-- Chat transcript (user / assistant) with mock streaming
-- `SessionManager` + **mock** adapter (status + stream events)
-- Status only from event bus; restored sessions never stay `running`
-- OS notifications on `waiting_input` / `done`
+- Electron main + React T3-class workbench UI
+- Multi-project sidebar, create / select / delete
+- **Real CLI adapters** (auto-detected on PATH):
+  - **Claude Code** (`claude -p --output-format stream-json`)
+  - **Grok Build** (`grok --single --output-format streaming-json`)
+  - **OpenCode** (`opencode run --format json`)
+  - **Codex** when `codex` is installed
+  - Mock (UI testing)
+- Folder picker for real project `cwd`
+- Open folder / editor, git branch footer, simple Commit
+- Status only from events/process exit (never stuck Running after restart)
+- OS notifications + Session Monitor JSONL bridge
 - Local persistence of sessions + messages
-- Provider select: mock live; grok / claude / codex / opencode placeholders
-- Session Monitor bridge: JSONL events (see [docs/bridge.md](./docs/bridge.md))
+
+### Daily driver loop
+
+1. Select agent (Claude / Grok / OpenCode)
+2. **New session** → pick your repo folder
+3. Send a prompt — CLI runs in that folder, stream shows in transcript
+4. **Stop** aborts the process; **Open** / **Commit** for local workflow
 
 ## Docs
 
@@ -58,11 +69,21 @@ Chat Hub **appends** `SessionEvent` lines to the shared JSONL file above. Sessio
 - Override path: `AGENT_DESKTOP_EVENTS=/path/to/events.jsonl`
 - Both apps run alone; the bridge is best-effort
 
+## Env knobs
+
+| Env | Effect |
+|-----|--------|
+| `CHAT_HUB_DEMO=1` | Seed multi-project demo data on empty store |
+| `CHAT_HUB_CLAUDE_PERMISSION` | Claude `--permission-mode` (default `acceptEdits`) |
+| `CHAT_HUB_GROK_PERMISSION` | Grok permission mode (default `acceptEdits`) |
+| `CHAT_HUB_OPENCODE_AUTO=1` | Pass `--auto` to OpenCode (auto-approve tools) |
+
 ## Provider next steps
 
-1. Implement one real `AgentAdapter` (Grok Build CLI or OpenCode) behind the existing interface in `src/main/adapters/`.
-2. Keep emitting `SessionEvent` through `SessionManager` so UI + bridge stay unchanged.
-3. Add second provider only after the first real chat loop is solid.
+1. Richer stream parsers (tool cards, diffs, permission prompts in UI)
+2. Codex flag surface once you install `codex`
+3. Attach files / model picker wired to CLI flags
+See [docs/usability-checklist.md](./docs/usability-checklist.md).
 
 ## Scripts
 
