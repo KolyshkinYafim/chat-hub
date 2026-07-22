@@ -2,10 +2,64 @@ import { randomUUID } from "node:crypto"
 import type { AgentAdapter, AdapterCallbacks, AdapterStartOpts } from "./types"
 
 const REPLIES = [
-  "I looked through the request and sketched a plan. Next I'll stub the adapter surface and stream a short reply so the UI can show honest status transitions.",
-  "Mock agent here. Status comes only from the event bus — when this stream ends, the session flips to done (or waiting_input on alternate turns).",
-  "Acknowledged. In a real provider this would be token deltas from the CLI. For now I'm faking a multi-sentence answer so transcript rendering stays exercised.",
-  "Done with the mock work. If you send another message I'll stream again and occasionally pause for input.",
+  `## Plan
+
+Разобрал запрос. Делаю минимальный diff, без косметики.
+
+### Steps
+1. Найти hot path в адаптере
+2. Прокинуть \`SessionEvent\` только из main
+3. Не трогать renderer, кроме отображения статуса
+
+\`\`\`ts
+cb.onSessionEvent({ type: "session.status", id, status: "running" })
+\`\`\`
+
+### Outcome
+- ✅ Stream deltas в transcript
+- ✅ Status never stuck without process
+- ⏳ Waiting on your OK to open PR
+
+Скажи **ship** или **iterate**.`,
+
+  `## Findings
+
+Прошёлся по session manager и bridge path.
+
+| Check | Result |
+|-------|--------|
+| Event bus ownership | main only |
+| Renderer invents status | no |
+| JSONL bridge | append-only |
+
+\`cwd\` пока берётся из process; для real CLI нужен folder picker + allowlist.
+
+**Next:** wire one real adapter (Grok Build or OpenCode) behind the same \`AgentAdapter\` surface.`,
+
+  `## Patch summary
+
+Изменения локальные, mock-only:
+
+- Dense workbench transcript (markdown-ish)
+- Project-grouped sidebar
+- Live Working / Waiting pills
+
+\`\`\`diff
++ project: normalizeProject(input.project, cwd)
++ status label map running → Working
+\`\`\`
+
+Нужен input: продолжать UI polish или переключаться на real provider spawn?`,
+
+  `## Done for this turn
+
+Mock agent закончил turn. Status flips to **done** or **waiting_input** via the event bus only.
+
+- Transcript streaming exercised
+- OS notif path exercised on waiting/done
+- Bridge line written for Session Monitor
+
+Ready for follow-up.`,
 ]
 
 function sleep(ms: number): Promise<void> {
@@ -62,10 +116,11 @@ export class MockAdapter implements AgentAdapter {
     })
 
     const body = pickReply(turn)
-    const tokens = body.split(/(\s+)/).filter(Boolean)
+    // Stream in small chunks so markdown structure appears progressively.
+    const chunks = body.match(/\S+\s*|\n+/g) ?? [body]
 
     try {
-      for (const token of tokens) {
+      for (const token of chunks) {
         if (controller.signal.aborted) {
           cb.onSessionEvent({
             type: "session.status",
@@ -76,7 +131,7 @@ export class MockAdapter implements AgentAdapter {
           return
         }
         cb.onDelta(sessionId, messageId, token)
-        await sleep(28 + Math.floor(Math.random() * 40))
+        await sleep(12 + Math.floor(Math.random() * 28))
       }
 
       if (controller.signal.aborted) {
@@ -89,10 +144,9 @@ export class MockAdapter implements AgentAdapter {
         type: "session.message",
         id: sessionId,
         role: "assistant",
-        preview: body.slice(0, 160),
+        preview: body.replace(/\s+/g, " ").slice(0, 160),
       })
 
-      // Alternate done vs waiting_input so notifications and status UI get exercise.
       const nextStatus = turn % 2 === 0 ? "done" : "waiting_input"
       cb.onSessionEvent({
         type: "session.status",

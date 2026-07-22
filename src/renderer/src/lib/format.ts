@@ -1,0 +1,37 @@
+import type { SessionStatus } from "@shared/types"
+
+export function formatRelative(ts: number, now = Date.now()): string {
+  const sec = Math.max(0, Math.floor((now - ts) / 1000))
+  if (sec < 45) return "just now"
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min}m ago`
+  const hr = Math.floor(min / 60)
+  if (hr < 48) return `${hr}h ago`
+  const day = Math.floor(hr / 24)
+  if (day < 14) return `${day}d ago`
+  return new Date(ts).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  })
+}
+
+export function formatClock(ts: number): string {
+  return new Date(ts).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  })
+}
+
+export const statusLabel: Record<SessionStatus, string> = {
+  idle: "Idle",
+  running: "Working",
+  waiting_input: "Waiting",
+  error: "Error",
+  done: "Done",
+}
+
+export function shortCwd(cwd: string): string {
+  const parts = cwd.replace(/\\/g, "/").split("/").filter(Boolean)
+  if (parts.length <= 2) return cwd
+  return parts.slice(-2).join("/")
+}

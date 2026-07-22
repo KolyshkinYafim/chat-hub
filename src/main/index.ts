@@ -95,6 +95,7 @@ function registerIpc(sm: SessionManager, bridge: SessionMonitorBridge): void {
         provider: raw.provider,
         title: typeof raw.title === "string" ? raw.title : undefined,
         cwd: typeof raw.cwd === "string" ? raw.cwd : undefined,
+        project: typeof raw.project === "string" ? raw.project : undefined,
       })
     },
   )
