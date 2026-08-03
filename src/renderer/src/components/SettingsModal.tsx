@@ -472,6 +472,11 @@ export function SettingsModal({
                     const badge = authBadge(s.auth)
                     const open = expanded[s.instanceId] === true
                     const cfg = providersCfg[s.id] ?? {}
+                    const configuredDefault = cfg.defaultModel
+                    const selectedDefault = configuredDefault &&
+                      s.models.some((model) => model.id === configuredDefault)
+                      ? configuredDefault
+                      : s.defaultModel
                     const extras = statuses.filter(
                       (x) => x.isExtra && x.id === s.id,
                     )
@@ -579,8 +584,7 @@ export function SettingsModal({
                                       <button
                                         type="button"
                                         className={
-                                          (cfg.defaultModel ?? s.defaultModel) ===
-                                          m.id
+                                          selectedDefault === m.id
                                             ? "star on"
                                             : "star"
                                         }
@@ -591,8 +595,7 @@ export function SettingsModal({
                                           })
                                         }
                                       >
-                                        {(cfg.defaultModel ?? s.defaultModel) ===
-                                        m.id
+                                        {selectedDefault === m.id
                                           ? "★"
                                           : "☆"}
                                       </button>

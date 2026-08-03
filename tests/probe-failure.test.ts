@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest"
-import { readableFailure } from "../src/main/provider-probe"
+import { pickAvailableModel, readableFailure } from "../src/main/provider-probe"
 
 describe("readableFailure", () => {
+  it("drops a persisted Codex model after it disappears from the live catalog", () => {
+    const models = [
+      { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+      { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+    ]
+    expect(pickAvailableModel("gpt-5-codex", models)).toBe("gpt-5.6-sol")
+    expect(pickAvailableModel("gpt-5.6-terra", models)).toBe("gpt-5.6-terra")
+  })
+
   it("pulls the sentence out of a claude result line", () => {
     // Verified against claude 2.1.205 with a logged-out CLI.
     const raw =
