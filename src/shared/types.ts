@@ -220,6 +220,22 @@ export type PermissionRequestInfo = {
   createdAt: number
 }
 
+export type AgentInputQuestion = {
+  id: string
+  header: string
+  prompt: string
+  options?: { label: string; description?: string }[]
+  secret?: boolean
+}
+
+export type AgentInputRequestInfo = {
+  requestId: string
+  sessionId: string
+  source: string
+  questions: AgentInputQuestion[]
+  createdAt: number
+}
+
 export type SessionEvent =
   | { type: "session.upsert"; session: SessionMeta }
   | { type: "session.status"; id: string; status: SessionStatus }
@@ -293,6 +309,8 @@ export type HubEvent =
       outcome: PermissionDecision | "cancelled"
       decidedBy: PermissionDecider
     }
+  | { type: "input.request"; request: AgentInputRequestInfo }
+  | { type: "input.resolved"; requestId: string; sessionId: string }
 
 export type CreateSessionInput = {
   provider: ProviderId
@@ -312,6 +330,8 @@ export type SessionSnapshot = {
   usage: Record<string, SessionUsage>
   /** Tool permissions still blocking a CLI, for a renderer that just reloaded. */
   permissions: PermissionRequestInfo[]
+  /** Native agent questions still awaiting an answer. */
+  inputRequests: AgentInputRequestInfo[]
   activeSessionId: string | null
 }
 

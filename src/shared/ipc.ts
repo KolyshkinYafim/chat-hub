@@ -49,6 +49,7 @@ export const IpcChannels = {
   removeInstance: "providers:remove-instance",
   listPermissions: "permission:list",
   resolvePermission: "permission:resolve",
+  resolveInput: "input:resolve",
   listDir: "surface:list-dir",
   readFile: "surface:read-file",
   termStart: "surface:term-start",

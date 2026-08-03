@@ -35,7 +35,7 @@ export type RedactedProviderConfig = {
   enabled?: boolean
 }
 
-export type EffortLevel = "low" | "medium" | "high" | "max"
+export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
 export type EditorPref = "auto" | "cursor" | "code" | "finder"
 
 /**

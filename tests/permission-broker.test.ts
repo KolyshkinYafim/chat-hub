@@ -123,6 +123,27 @@ const REQUEST = {
 }
 
 describe("unified permission approvals", () => {
+  it("routes a native app-server approval through the same Hub card", async () => {
+    const { broker, events } = await harness({ island: false })
+    const decision = broker.requestFromAdapter({
+      requestId: "codex-rpc-7",
+      sessionId: "hub-session-1",
+      agentSessionId: "codex-thread-1",
+      source: "codex",
+      summary: "npm test",
+      toolName: "Command",
+      cwd: "/repo",
+    })
+
+    expect(broker.list()).toHaveLength(1)
+    expect(events.at(-1)).toMatchObject({
+      type: "permission.request",
+      request: { requestId: "codex-rpc-7", source: "codex" },
+    })
+    expect(broker.resolve("codex-rpc-7", "allow")).toBe(true)
+    await expect(decision).resolves.toBe("allow")
+  })
+
   it("surfaces the request in the Hub and mirrors it onto the island verbatim", async () => {
     const { events, island, hubPath, broker } = await harness()
     const hook = new FakeHook()

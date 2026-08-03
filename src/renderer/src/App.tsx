@@ -8,6 +8,7 @@ import {
 } from "react"
 import type {
   ChatMessage,
+  AgentInputRequestInfo,
   GitCheckoutInfo,
   HubEvent,
   PermissionRequestInfo,
@@ -103,6 +104,7 @@ export default function App() {
     Record<string, SessionUsage>
   >({})
   const [permissions, setPermissions] = useState<PermissionRequestInfo[]>([])
+  const [inputRequests, setInputRequests] = useState<AgentInputRequestInfo[]>([])
   const [archived, setArchived] = useState<Set<string>>(() => loadArchived())
   const [highlight, setHighlight] = useState<{
     sessionId: string
@@ -249,6 +251,18 @@ export default function App() {
           curr.filter((p) => p.requestId !== event.requestId),
         )
         break
+      case "input.request":
+        setInputRequests((curr) =>
+          curr.some((request) => request.requestId === event.request.requestId)
+            ? curr
+            : [...curr, event.request],
+        )
+        break
+      case "input.resolved":
+        setInputRequests((curr) =>
+          curr.filter((request) => request.requestId !== event.requestId),
+        )
+        break
       case "session.ended":
         setSessions((curr) =>
           curr.map((s) =>
@@ -284,6 +298,7 @@ export default function App() {
         setQueuedBySession(snap.queued)
         setUsageBySession(snap.usage)
         setPermissions(snap.permissions)
+        setInputRequests(snap.inputRequests)
         setActiveId(snap.activeSessionId)
         setProjects(pinned)
         setProviders(prov)
@@ -477,6 +492,20 @@ export default function App() {
     }
   }
 
+  async function resolveAgentInput(
+    requestId: string,
+    answers: Record<string, string[]>,
+  ) {
+    setInputRequests((curr) => curr.filter((request) => request.requestId !== requestId))
+    try {
+      await window.chatHub.resolveInput(requestId, answers)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      const snap = await window.chatHub.getSnapshot()
+      setInputRequests(snap.inputRequests)
+    }
+  }
+
   function openNewSession(hint?: { project?: string; cwd?: string }) {
     const projectHint = hint?.project
     let cwd = hint?.cwd
@@ -591,6 +620,7 @@ export default function App() {
       setQueuedBySession(snap.queued)
         setUsageBySession(snap.usage)
         setPermissions(snap.permissions)
+        setInputRequests(snap.inputRequests)
       setActiveId(snap.activeSessionId)
       activeIdRef.current = snap.activeSessionId
     } catch (err) {
@@ -875,6 +905,10 @@ export default function App() {
             activeId ? permissions.filter((p) => p.sessionId === activeId) : []
           }
           onResolvePermission={(id, allow) => void resolvePermission(id, allow)}
+          pendingInputRequests={
+            activeId ? inputRequests.filter((request) => request.sessionId === activeId) : []
+          }
+          onResolveInput={(id, answers) => void resolveAgentInput(id, answers)}
           messages={messages}
           providers={providers}
           models={sessionModels}
@@ -952,6 +986,7 @@ export default function App() {
               setQueuedBySession(snap.queued)
         setUsageBySession(snap.usage)
         setPermissions(snap.permissions)
+        setInputRequests(snap.inputRequests)
               setActiveId(snap.activeSessionId)
               setProjects(pinned)
               setProviderStatuses(s.statuses)

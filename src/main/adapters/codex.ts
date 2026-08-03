@@ -1,18 +1,23 @@
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { basename, extname, join } from "node:path"
 import { findBinary, isExecutable } from "./binary"
-import { buildCodexArgs } from "./args"
-import { runProcess, type RunningProcess } from "./process-runner"
 import {
   beginAssistant,
   finishTurn,
   pushDelta,
-  safeJson,
   toolUseBlock,
   type StreamTurn,
 } from "./stream-parse"
-import { readUsage } from "./usage"
-import type { TurnUsage } from "@shared/types"
+import { CodexAppServerClient } from "../codex-protocol/client"
+import type { ServerNotification } from "../codex-protocol/generated/ServerNotification"
+import type { ServerRequest } from "../codex-protocol/generated/ServerRequest"
+import type { ThreadItem } from "../codex-protocol/generated/v2/ThreadItem"
+import type { ThreadResumeResponse } from "../codex-protocol/generated/v2/ThreadResumeResponse"
+import type { ThreadStartResponse } from "../codex-protocol/generated/v2/ThreadStartResponse"
+import type { TurnStartResponse } from "../codex-protocol/generated/v2/TurnStartResponse"
+import type { UserInput } from "../codex-protocol/generated/v2/UserInput"
+import type { AgentTurnItem, TurnItemStatus, TurnUsage } from "@shared/types"
+import type { PermissionMode } from "@shared/permission"
 import type {
   AdapterCallbacks,
   AdapterSendOpts,
@@ -21,8 +26,9 @@ import type {
 } from "./types"
 
 /**
- * Codex CLI adapter (when `codex` is installed).
- * Tries common headless flags; degrades gracefully if binary missing.
+ * Codex app-server adapter. Each Hub session owns one long-lived JSON-RPC
+ * connection and one resumable Codex thread; turns no longer spawn one-shot
+ * `codex exec` processes.
  */
 const CODEX_NAMES = [
   "codex",
@@ -35,18 +41,7 @@ const CODEX_NAMES = [
 export class CodexAdapter implements AgentAdapter {
   readonly id = "codex" as const
   private binary: string | null
-  private sessions = new Map<
-    string,
-    {
-      cwd: string
-      binaryPath?: string
-      proc?: RunningProcess
-      /** codex `thread_id` — what `exec resume <id>` continues. */
-      threadId?: string
-      /** Set by abort() so the dying turn hands the session to the next send. */
-      aborting?: boolean
-    }
-  >()
+  private sessions = new Map<string, CodexSessionState>()
 
   constructor() {
     this.binary = findBinary(CODEX_NAMES)
@@ -72,9 +67,12 @@ export class CodexAdapter implements AgentAdapter {
       throw new Error(`Codex binary is not executable: ${opts.binaryPath}`)
     }
     this.sessions.set(opts.sessionId, {
+      sessionId: opts.sessionId,
       cwd: opts.cwd,
       binaryPath: opts.binaryPath,
       threadId: opts.resumeId,
+      permissionMode: "yolo",
+      callbacks: cb,
     })
     cb.onSessionEvent({
       type: "session.status",
@@ -95,26 +93,18 @@ export class CodexAdapter implements AgentAdapter {
     if (!bin) throw new Error("Codex CLI not found")
     if (opts?.binaryPath) state.binaryPath = opts.binaryPath
 
-    // One turn at a time — refuse rather than kill the in-flight turn. After an
-    // explicit Stop the dying process hands the session over instead.
-    if (state.proc) {
-      if (!state.aborting) {
-        throw new Error(
-          "This session is already running a turn — stop it or wait for it to finish.",
-        )
-      }
-      state.proc = undefined
-      state.aborting = false
+    if (state.active) {
+      throw new Error(
+        "This session is already running a turn — stop it or wait for it to finish.",
+      )
     }
 
-    const args = buildCodexArgs({
-      message,
-      cwd: state.cwd,
-      permissionMode: opts?.permissionMode ?? "yolo",
-      model: opts?.model,
-      attachments: opts?.attachments,
-      resumeId: state.threadId,
-    })
+    const permissionMode = opts?.permissionMode ?? "yolo"
+    const client = await this.ensureClient(state, bin, opts?.env)
+    state.permissionMode = permissionMode
+    state.callbacks = cb
+    await this.ensureThread(state, client, cb, opts)
+    if (!state.threadId) throw new Error("Codex app-server did not return a thread id")
 
     cb.onSessionEvent({
       type: "session.status",
@@ -122,124 +112,471 @@ export class CodexAdapter implements AgentAdapter {
       status: "running",
     })
 
-    let turn: StreamTurn | null = null
-    let usage: TurnUsage | null = null
-    const stderr: string[] = []
-
-    const proc = runProcess({
-      command: bin,
-      args,
-      cwd: state.cwd,
-      env: opts?.env,
-      onStdoutLine: (line) => {
-        const ev = safeJson(line)
-        // `--json` puts events on stdout and logs on stderr, but a stray line
-        // (a panic, an older codex) must not be swallowed silently.
-        if (!ev) {
-          if (!line.trim()) return
-          turn ??= beginAssistant(sessionId, cb)
-          pushDelta(turn, sessionId, line + "\n", cb)
-          return
-        }
-
-        usage = readUsage(ev) ?? usage
-
-        if (ev.type === "thread.started") {
-          // The thread id is what `exec resume <id>` needs; persisting it here
-          // is the whole difference between a chat and a series of one-shots.
-          const id = typeof ev.thread_id === "string" ? ev.thread_id : undefined
-          if (id && id !== state.threadId) {
-            state.threadId = id
-            cb.onAgentSession?.(sessionId, id)
-          }
-          return
-        }
-
-        // Only `item.completed` carries the finished payload; `item.started`
-        // repeats it in progress and would double every card.
-        if (ev.type !== "item.completed") return
-        const item = ev.item && typeof ev.item === "object"
-          ? (ev.item as Record<string, unknown>)
-          : null
-        if (!item) return
-        const rendered = renderCodexItem(item)
-        if (!rendered) return
-        turn ??= beginAssistant(sessionId, cb)
-        pushDelta(turn, sessionId, rendered, cb)
-      },
-      onStderrLine: (line) => {
-        stderr.push(line)
-        if (stderr.length > 40) stderr.shift()
-      },
-      onSpawnError: (err) => {
-        // ENOENT/EACCES never reaches stderr — without this the turn dies silent.
-        stderr.push(err.message)
-      },
-      onExit: (code) => {
-        const messageId = turn?.messageId
-        finishTurn(turn, sessionId, cb)
-        if (usage) cb.onUsage?.(sessionId, usage, messageId)
-        // A newer turn may already own this session (Stop then immediate
-        // resend): a dead process must not overwrite the live turn's status.
-        if (state.proc !== proc) return
-        state.proc = undefined
-        state.aborting = false
-        if (code === 0) {
-          cb.onSessionEvent({
-            type: "session.status",
-            id: sessionId,
-            status: "done",
-          })
-          cb.onSessionEvent({
-            type: "session.ended",
-            id: sessionId,
-            reason: "done",
-          })
-        } else if (code === null) {
-          cb.onSessionEvent({
-            type: "session.status",
-            id: sessionId,
-            status: "idle",
-          })
-        } else {
-          if (!turn) {
-            const t = beginAssistant(sessionId, cb)
-            pushDelta(
-              t,
-              sessionId,
-              `Codex exited with code ${code}.\n\n\`\`\`\n${stderr.slice(-10).join("\n") || "(no stderr output)"}\n\`\`\``,
-              cb,
-            )
-            finishTurn(t, sessionId, cb)
-          }
-          cb.onSessionEvent({
-            type: "session.status",
-            id: sessionId,
-            status: "error",
-          })
-          cb.onSessionEvent({
-            type: "session.ended",
-            id: sessionId,
-            reason: "error",
-          })
-        }
-      },
+    const stream = beginAssistant(sessionId, cb)
+    let resolveTurn!: () => void
+    let rejectTurn!: (error: Error) => void
+    const completed = new Promise<void>((resolve, reject) => {
+      resolveTurn = resolve
+      rejectTurn = reject
     })
-
-    state.proc = proc
-    await proc.done
+    const active: ActiveTurn = {
+      stream,
+      turnId: "",
+      resolve: resolveTurn,
+      reject: rejectTurn,
+      itemText: new Map(),
+    }
+    state.active = active
+    try {
+      const response = await client.request<TurnStartResponse>("turn/start", {
+        threadId: state.threadId,
+        input: buildUserInput(message, opts?.attachments),
+        cwd: state.cwd,
+        approvalPolicy: approvalPolicy(permissionMode),
+        sandboxPolicy: sandboxPolicy(permissionMode, state.cwd),
+        model: opts?.model ?? null,
+        effort: opts?.effort ?? null,
+        summary: "concise",
+      })
+      active.turnId = response.turn.id
+      await completed
+    } catch (error) {
+      if (state.active === active) {
+        finishTurn(active.stream, sessionId, cb)
+        state.active = undefined
+      }
+      throw error
+    }
   }
 
   async abort(sessionId: string): Promise<void> {
     const state = this.sessions.get(sessionId)
-    if (!state?.proc) return
-    state.aborting = true
-    state.proc.abort()
+    if (!state?.client || !state.active || !state.threadId || !state.active.turnId) return
+    await state.client.request("turn/interrupt", {
+      threadId: state.threadId,
+      turnId: state.active.turnId,
+    })
   }
 
   async dispose(sessionId: string): Promise<void> {
+    const state = this.sessions.get(sessionId)
+    if (!state) return
     await this.abort(sessionId)
+    await state.client?.close()
     this.sessions.delete(sessionId)
+  }
+
+  private async ensureClient(
+    state: CodexSessionState,
+    binary: string,
+    env: Record<string, string> | undefined,
+  ): Promise<CodexAppServerClient> {
+    if (state.client && state.connectedBinary === binary) return state.client
+    await state.client?.close()
+    const client = await CodexAppServerClient.connect({
+      binary,
+      cwd: state.cwd,
+      env,
+      clientVersion: "0.1.0",
+    })
+    state.client = client
+    state.connectedBinary = binary
+    state.threadLoaded = false
+    client.onNotification((notification) => this.handleNotification(state, notification))
+    client.onServerRequest((request) => void this.handleServerRequest(state, request))
+    client.onClose((error) => {
+      state.client = undefined
+      state.connectedBinary = undefined
+      const active = state.active
+      if (!active) return
+      state.active = undefined
+      finishTurn(active.stream, state.sessionId, state.callbacks)
+      active.reject(error)
+    })
+    return client
+  }
+
+  private async ensureThread(
+    state: CodexSessionState,
+    client: CodexAppServerClient,
+    cb: AdapterCallbacks,
+    opts: AdapterSendOpts | undefined,
+  ): Promise<void> {
+    if (state.threadLoaded) return
+    const common = {
+      cwd: state.cwd,
+      model: opts?.model ?? null,
+      approvalPolicy: approvalPolicy(state.permissionMode),
+      sandbox: sandboxMode(state.permissionMode),
+      developerInstructions: opts?.systemPrompt ?? null,
+    }
+    const response = state.threadId
+      ? await client.request<ThreadResumeResponse>("thread/resume", {
+          threadId: state.threadId,
+          ...common,
+        })
+      : await client.request<ThreadStartResponse>("thread/start", common)
+    state.threadId = response.thread.id
+    state.threadLoaded = true
+    cb.onAgentSession?.(state.sessionId, response.thread.id)
+  }
+
+  private handleNotification(state: CodexSessionState, event: ServerNotification): void {
+    const active = state.active
+    if (!active) return
+    const params = event.params as { threadId?: string; turnId?: string }
+    if (params.threadId && params.threadId !== state.threadId) return
+    if (params.turnId && active.turnId && params.turnId !== active.turnId) return
+    const cb = state.callbacks
+
+    switch (event.method) {
+      case "item/agentMessage/delta": {
+        const { itemId, delta } = event.params
+        active.itemText.set(itemId, (active.itemText.get(itemId) ?? "") + delta)
+        pushDelta(active.stream, state.sessionId, delta, cb)
+        break
+      }
+      case "item/reasoning/summaryTextDelta": {
+        const { itemId, delta } = event.params
+        const previous = active.reasoning?.get(itemId) ?? ""
+        active.reasoning ??= new Map()
+        active.reasoning.set(itemId, previous + delta)
+        cb.onTurnItem(state.sessionId, active.stream.messageId, {
+          id: itemId,
+          kind: "reasoning",
+          status: "running",
+          summary: previous + delta,
+        })
+        break
+      }
+      case "item/commandExecution/outputDelta": {
+        const item = active.items?.get(event.params.itemId)
+        if (item?.kind === "command") {
+          const updated = { ...item, output: (item.output ?? "") + event.params.delta }
+          active.items?.set(item.id, updated)
+          cb.onTurnItem(state.sessionId, active.stream.messageId, updated)
+        }
+        break
+      }
+      case "item/started":
+      case "item/completed": {
+        this.publishItem(state, event.params.item, event.method === "item/completed")
+        break
+      }
+      case "turn/plan/updated": {
+        cb.onTurnItem(state.sessionId, active.stream.messageId, {
+          id: "turn-plan",
+          kind: "plan",
+          status: "running",
+          text: event.params.explanation ?? "Plan",
+          steps: event.params.plan.map((step) => ({
+            text: step.step,
+            status: mapPlanStatus(step.status),
+          })),
+        })
+        break
+      }
+      case "turn/diff/updated": {
+        cb.onTurnItem(state.sessionId, active.stream.messageId, {
+          id: "turn-diff",
+          kind: "file_change",
+          status: "running",
+          changes: [],
+          aggregateDiff: event.params.diff,
+        })
+        break
+      }
+      case "thread/tokenUsage/updated": {
+        const usage = event.params.tokenUsage.last
+        active.usage = {
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cacheReadTokens: usage.cachedInputTokens,
+          cacheCreateTokens: usage.cacheWriteInputTokens,
+        }
+        break
+      }
+      case "error": {
+        cb.onTurnItem(state.sessionId, active.stream.messageId, {
+          id: `error-${event.params.turnId}`,
+          kind: "error",
+          status: "failed",
+          message: event.params.error.message,
+        })
+        break
+      }
+      case "thread/compacted": {
+        cb.onTurnItem(state.sessionId, active.stream.messageId, {
+          id: `compaction-${event.params.turnId}`,
+          kind: "compaction",
+          status: "completed",
+        })
+        break
+      }
+      case "turn/completed":
+        this.completeTurn(state, event.params.turn.status, event.params.turn.error?.message)
+        break
+    }
+  }
+
+  private publishItem(state: CodexSessionState, item: ThreadItem, completed: boolean): void {
+    const active = state.active
+    if (!active) return
+    if (item.type === "agentMessage") {
+      const emitted = active.itemText.get(item.id) ?? ""
+      if (completed && item.text.length > emitted.length) {
+        pushDelta(active.stream, state.sessionId, item.text.slice(emitted.length), state.callbacks)
+      }
+      return
+    }
+    const mapped = mapThreadItem(item, completed)
+    if (!mapped) return
+    active.items ??= new Map()
+    active.items.set(mapped.id, mapped)
+    state.callbacks.onTurnItem(state.sessionId, active.stream.messageId, mapped)
+  }
+
+  private completeTurn(
+    state: CodexSessionState,
+    status: "completed" | "interrupted" | "failed" | "inProgress",
+    errorMessage: string | undefined,
+  ): void {
+    const active = state.active
+    if (!active || status === "inProgress") return
+    state.active = undefined
+    if (errorMessage) {
+      state.callbacks.onTurnItem(state.sessionId, active.stream.messageId, {
+        id: `turn-error-${active.turnId}`,
+        kind: "error",
+        status: "failed",
+        message: errorMessage,
+      })
+    }
+    finishTurn(active.stream, state.sessionId, state.callbacks)
+    if (active.usage) {
+      state.callbacks.onUsage?.(state.sessionId, active.usage, active.stream.messageId)
+    }
+    const ok = status === "completed"
+    state.callbacks.onSessionEvent({
+      type: "session.status",
+      id: state.sessionId,
+      status: ok ? "done" : status === "interrupted" ? "idle" : "error",
+    })
+    state.callbacks.onSessionEvent({
+      type: "session.ended",
+      id: state.sessionId,
+      reason: ok ? "done" : status === "interrupted" ? "killed" : "error",
+    })
+    if (status === "failed") active.reject(new Error(errorMessage ?? "Codex turn failed"))
+    else active.resolve()
+  }
+
+  private async handleServerRequest(state: CodexSessionState, request: ServerRequest): Promise<void> {
+    const client = state.client
+    if (!client) return
+    try {
+      if (request.method === "item/commandExecution/requestApproval" ||
+          request.method === "item/fileChange/requestApproval") {
+        const params = request.params as {
+          command?: string | null
+          reason?: string | null
+          grantRoot?: string | null
+          cwd?: string | null
+        }
+        const isCommand = request.method === "item/commandExecution/requestApproval"
+        const summary = isCommand
+          ? params.command || params.reason || "Run a command"
+          : params.reason || params.grantRoot || "Apply file changes"
+        const decision = state.permissionMode === "yolo"
+          ? "allow"
+          : await state.callbacks.onPermissionRequest?.({
+              requestId: `codex-${String(request.id)}`,
+              sessionId: state.sessionId,
+              agentSessionId: state.threadId ?? state.sessionId,
+              source: "codex",
+              summary,
+              toolName: isCommand ? "Command" : "File change",
+              cwd: isCommand ? params.cwd ?? state.cwd : state.cwd,
+            }) ?? "deny"
+        await client.respond(request.id, {
+          decision: decision === "allow" ? "accept" : "decline",
+        })
+        return
+      }
+      if (request.method === "item/tool/requestUserInput") {
+        const requestId = `codex-input-${String(request.id)}`
+        const answers = await state.callbacks.onUserInputRequest?.({
+          requestId,
+          sessionId: state.sessionId,
+          source: "codex",
+          questions: request.params.questions.map((question) => ({
+            id: question.id,
+            header: question.header,
+            prompt: question.question,
+            options: question.options?.map((option) => ({
+              label: option.label,
+              description: option.description,
+            })),
+            secret: question.isSecret,
+          })),
+        }) ?? {}
+        await client.respond(request.id, {
+          answers: Object.fromEntries(
+            Object.entries(answers).map(([id, values]) => [id, { answers: values }]),
+          ),
+        })
+        return
+      }
+      await client.respondError(request.id, {
+        code: -32601,
+        message: `Chat Hub cannot handle ${request.method} yet`,
+      })
+    } catch (error) {
+      console.warn("[codex] failed to answer server request", request.method, error)
+    }
+  }
+}
+
+type ActiveTurn = {
+  stream: StreamTurn
+  turnId: string
+  resolve: () => void
+  reject: (error: Error) => void
+  itemText: Map<string, string>
+  reasoning?: Map<string, string>
+  items?: Map<string, AgentTurnItem>
+  usage?: TurnUsage
+}
+
+type CodexSessionState = {
+  sessionId: string
+  cwd: string
+  binaryPath?: string
+  connectedBinary?: string
+  client?: CodexAppServerClient
+  threadId?: string
+  threadLoaded?: boolean
+  permissionMode: PermissionMode
+  callbacks: AdapterCallbacks
+  active?: ActiveTurn
+}
+
+function buildUserInput(message: string, attachments: string[] | undefined): UserInput[] {
+  return [
+    { type: "text", text: message, text_elements: [] },
+    ...(attachments ?? []).map((path): UserInput => {
+      const image = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]
+        .includes(extname(path).toLowerCase())
+      return image
+        ? { type: "localImage", path }
+        : { type: "mention", name: basename(path), path }
+    }),
+  ]
+}
+
+function approvalPolicy(mode: PermissionMode): "never" | "on-request" {
+  return mode === "yolo" ? "never" : "on-request"
+}
+
+function sandboxMode(mode: PermissionMode): "danger-full-access" | "workspace-write" | "read-only" {
+  if (mode === "yolo") return "danger-full-access"
+  return mode === "acceptEdits" ? "workspace-write" : "read-only"
+}
+
+function sandboxPolicy(mode: PermissionMode, cwd: string) {
+  if (mode === "yolo") return { type: "dangerFullAccess" as const }
+  if (mode === "acceptEdits") {
+    return {
+      type: "workspaceWrite" as const,
+      writableRoots: [cwd],
+      networkAccess: false,
+      excludeTmpdirEnvVar: false,
+      excludeSlashTmp: false,
+    }
+  }
+  return { type: "readOnly" as const, networkAccess: false }
+}
+
+function mapItemStatus(status: string, completed: boolean): TurnItemStatus {
+  if (!completed || status === "inProgress") return "running"
+  if (status === "declined") return "declined"
+  if (status === "failed") return "failed"
+  return "completed"
+}
+
+function mapPlanStatus(status: string): "pending" | "running" | "completed" {
+  if (status === "completed") return "completed"
+  if (status === "inProgress") return "running"
+  return "pending"
+}
+
+export function mapThreadItem(item: ThreadItem, completed: boolean): AgentTurnItem | null {
+  switch (item.type) {
+    case "reasoning":
+      return {
+        id: item.id,
+        kind: "reasoning",
+        status: completed ? "completed" : "running",
+        summary: item.summary.join("\n"),
+      }
+    case "plan":
+      return { id: item.id, kind: "plan", status: completed ? "completed" : "running", text: item.text }
+    case "commandExecution":
+      return {
+        id: item.id,
+        kind: "command",
+        status: mapItemStatus(item.status, completed),
+        command: item.command,
+        cwd: item.cwd,
+        output: item.aggregatedOutput ?? undefined,
+        exitCode: item.exitCode ?? undefined,
+        durationMs: item.durationMs ?? undefined,
+      }
+    case "fileChange":
+      return {
+        id: item.id,
+        kind: "file_change",
+        status: mapItemStatus(item.status, completed),
+        changes: item.changes.map((change) => ({
+          path: change.path,
+          kind: change.kind.type,
+          diff: change.diff,
+        })),
+      }
+    case "mcpToolCall":
+      return {
+        id: item.id,
+        kind: "tool",
+        status: mapItemStatus(item.status, completed),
+        name: item.tool,
+        server: item.server,
+        arguments: item.arguments,
+        result: item.result ?? undefined,
+        error: item.error?.message,
+        durationMs: item.durationMs ?? undefined,
+      }
+    case "dynamicToolCall":
+      return {
+        id: item.id,
+        kind: "tool",
+        status: mapItemStatus(item.status, completed),
+        name: item.tool,
+        server: item.namespace ?? undefined,
+        arguments: item.arguments,
+        result: item.contentItems ?? undefined,
+        durationMs: item.durationMs ?? undefined,
+      }
+    case "webSearch":
+      return { id: item.id, kind: "web_search", status: completed ? "completed" : "running", query: item.query }
+    case "imageView":
+      return { id: item.id, kind: "image", status: completed ? "completed" : "running", path: item.path }
+    case "enteredReviewMode":
+    case "exitedReviewMode":
+      return { id: item.id, kind: "review", status: completed ? "completed" : "running", text: item.review }
+    case "contextCompaction":
+      return { id: item.id, kind: "compaction", status: completed ? "completed" : "running" }
+    default:
+      return null
   }
 }
 

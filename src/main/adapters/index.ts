@@ -66,7 +66,7 @@ export function listProviderInfo(): ProviderInfo[] {
       label: "Codex CLI",
       available: codex.available,
       description: codex.available
-        ? "Real CLI · codex exec"
+        ? "Codex app-server · resumable threads · structured tools"
         : "Install Codex CLI (`codex` on PATH)",
     },
     {
