@@ -2,6 +2,7 @@ import type { SurfaceKind } from "../../lib/surface-bridge"
 import { SurfaceIcon } from "./SurfaceIcon"
 
 export const SURFACE_LABEL: Record<SurfaceKind, string> = {
+  board: "Board",
   browser: "Browser",
   terminal: "Terminal",
   files: "Files",
@@ -9,13 +10,20 @@ export const SURFACE_LABEL: Record<SurfaceKind, string> = {
 }
 
 const SURFACE_HINT: Record<SurfaceKind, string> = {
+  board: "Todos and the agent's notes for this project.",
   browser: "Open a local app or URL.",
   terminal: "Start a shell in this workspace.",
   files: "Browse and read workspace files.",
   diff: "Review changes in this thread.",
 }
 
-const TILE_ORDER: SurfaceKind[] = ["browser", "terminal", "files", "diff"]
+const TILE_ORDER: SurfaceKind[] = [
+  "board",
+  "browser",
+  "terminal",
+  "files",
+  "diff",
+]
 
 type Props = {
   onPick: (kind: SurfaceKind) => void

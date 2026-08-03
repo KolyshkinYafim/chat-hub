@@ -8,6 +8,7 @@ import {
 } from "../../lib/surface-store"
 import { SURFACE_LABEL, SurfaceChooser } from "./SurfaceChooser"
 import { SurfaceIcon } from "./SurfaceIcon"
+import { BoardSurface } from "./BoardSurface"
 import { BrowserSurface } from "./BrowserSurface"
 import { DiffSurface } from "./DiffSurface"
 import { FilesSurface } from "./FilesSurface"
@@ -114,6 +115,7 @@ export function SurfaceDock({
       </header>
       <div className="surface-body">
         {kind === null ? <SurfaceChooser onPick={onSelectKind} /> : null}
+        {kind === "board" ? <BoardSurface key={session.id} cwd={session.cwd} /> : null}
         {kind === "browser" ? <BrowserSurface key={session.id} /> : null}
         {kind === "terminal" ? (
           <TerminalSurface key={session.id} cwd={session.cwd} />

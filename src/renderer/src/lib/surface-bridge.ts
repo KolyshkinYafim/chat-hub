@@ -1,4 +1,19 @@
-export type SurfaceKind = "browser" | "terminal" | "files" | "diff"
+export type SurfaceKind = "browser" | "terminal" | "files" | "diff" | "board"
+
+export type BoardTodo = {
+  id: string
+  text: string
+  done: boolean
+  createdAt: number
+}
+
+export type BoardNote = { id: string; text: string; createdAt: number }
+
+export type Board = {
+  todos: BoardTodo[]
+  notes: BoardNote[]
+  updatedAt?: number
+}
 
 export type DirEntry = {
   name: string
@@ -36,6 +51,8 @@ export type SurfaceBridge = {
   termKill: (ptyId: string) => void
   onTerminalData: (cb: (chunk: TerminalChunk) => void) => () => void
   onTerminalExit: (cb: (exit: TerminalExit) => void) => () => void
+  boardRead: (cwd: string) => Promise<Board>
+  boardWrite: (cwd: string, board: Board) => Promise<Board>
 }
 
 export function surfaceBridge(): SurfaceBridge {

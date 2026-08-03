@@ -18,6 +18,7 @@ import type {
   SettingsSnapshot,
 } from "@shared/settings-types"
 import type {
+  Board,
   SurfaceBridge,
   TerminalChunk,
   TerminalExit,
@@ -175,6 +176,17 @@ const terminalExitListeners = new Set<(exit: TerminalExit) => void>()
 const livePtys = new Map<string, (data: string) => void>()
 let ptySeq = 0
 
+let mockBoard: Board = {
+  todos: [
+    { id: "d1", text: "Wire the composer", done: true, createdAt: 1 },
+    { id: "d2", text: "Ship the board surface", done: false, createdAt: 2 },
+  ],
+  notes: [
+    { id: "n1", text: "Board file lives at .chathub/board.json", createdAt: 1 },
+  ],
+  updatedAt: 2,
+}
+
 function makeSurfaceBridge(): SurfaceBridge {
   return {
     listDir: async (_cwd, relPath) => {
@@ -245,6 +257,11 @@ function makeSurfaceBridge(): SurfaceBridge {
       return () => {
         terminalExitListeners.delete(cb)
       }
+    },
+    boardRead: async () => mockBoard,
+    boardWrite: async (_cwd, board) => {
+      mockBoard = { ...board, updatedAt: Date.now() }
+      return mockBoard
     },
   }
 }

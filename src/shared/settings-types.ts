@@ -78,6 +78,15 @@ export const DEFAULT_MODES: Mode[] = [
       "Think before coding. Lay out the approach, trade-offs, and file-level plan first, then implement. Match existing patterns in the codebase over introducing new ones.",
     effort: "high",
   },
+  {
+    id: "planner",
+    name: "Planner",
+    systemPrompt:
+      "Maintain a project board at `.chathub/board.json` in the workspace root. It is JSON of the shape " +
+      '{"todos":[{"id":string,"text":string,"done":boolean,"createdAt":number}],"notes":[{"id":string,"text":string,"createdAt":number}]}. ' +
+      "At the start of a task, read it (create it if missing) and add the todos you plan to do. As you work, flip todos to done:true and append short notes about decisions or findings. Keep it current — it is shown live in the UI.",
+    effort: "high",
+  },
 ]
 
 /** App-wide preferences that are not tied to a single provider. */

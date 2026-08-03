@@ -57,6 +57,8 @@ export const IpcChannels = {
   termKill: "surface:term-kill",
   termData: "surface:term-data",
   termExit: "surface:term-exit",
+  boardRead: "surface:board-read",
+  boardWrite: "surface:board-write",
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]
