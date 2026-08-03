@@ -38,6 +38,15 @@ const CODEX_NAMES = [
   "/Applications/ChatGPT.app/Contents/MacOS/codex",
 ]
 
+const RETIRED_CODEX_MODELS = new Set([
+  "gpt-5-codex",
+  "gpt-5",
+  "o4-mini",
+  "o3",
+  "gpt-5.2",
+  "gpt-5.3-codex",
+])
+
 export class CodexAdapter implements AgentAdapter {
   readonly id = "codex" as const
   private binary: string | null
@@ -134,7 +143,7 @@ export class CodexAdapter implements AgentAdapter {
         cwd: state.cwd,
         approvalPolicy: approvalPolicy(permissionMode),
         sandboxPolicy: sandboxPolicy(permissionMode, state.cwd),
-        model: opts?.model ?? null,
+        model: currentCodexModel(opts?.model),
         effort: opts?.effort ?? null,
         summary: "concise",
       })
@@ -205,7 +214,7 @@ export class CodexAdapter implements AgentAdapter {
     if (state.threadLoaded) return
     const common = {
       cwd: state.cwd,
-      model: opts?.model ?? null,
+      model: currentCodexModel(opts?.model),
       approvalPolicy: approvalPolicy(state.permissionMode),
       sandbox: sandboxMode(state.permissionMode),
       developerInstructions: opts?.systemPrompt ?? null,
@@ -556,6 +565,11 @@ function schemaQuestions(schema: unknown): AgentInputQuestion[] {
 
 function approvalPolicy(mode: PermissionMode): "never" | "on-request" {
   return mode === "yolo" ? "never" : "on-request"
+}
+
+export function currentCodexModel(model: string | undefined): string | null {
+  const selected = model?.trim()
+  return selected && !RETIRED_CODEX_MODELS.has(selected) ? selected : null
 }
 
 function sandboxMode(mode: PermissionMode): "danger-full-access" | "workspace-write" | "read-only" {

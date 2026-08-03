@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { buildCodexArgs } from "../src/main/adapters/args"
-import { renderCodexItem } from "../src/main/adapters/codex"
+import { currentCodexModel, renderCodexItem } from "../src/main/adapters/codex"
 import { readUsage } from "../src/main/adapters/usage"
 import { safeJson } from "../src/main/adapters/stream-parse"
 
@@ -21,6 +21,12 @@ const REAL_TURN = [
 ]
 
 describe("buildCodexArgs", () => {
+  it("does not send model ids retired from the Codex picker", () => {
+    expect(currentCodexModel("gpt-5-codex")).toBeNull()
+    expect(currentCodexModel("o4-mini")).toBeNull()
+    expect(currentCodexModel("gpt-5.6-sol")).toBe("gpt-5.6-sol")
+  })
+
   it("asks for JSONL and tolerates a non-repo folder", () => {
     const args = buildCodexArgs({ message: "hi", cwd: "/p", permissionMode: "yolo" })
     expect(args).toContain("--json")
