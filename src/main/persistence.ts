@@ -1,11 +1,14 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
-import type { ChatMessage, SessionMeta } from "@shared/types"
+import { readFile } from "node:fs/promises"
+import { join } from "node:path"
+import type { ChatMessage, SessionMeta, SessionUsage } from "@shared/types"
+import { quarantineCorrupt, writeFileAtomic } from "./atomic-write"
 
 export type PersistedState = {
   version: 1
   sessions: SessionMeta[]
   messages: Record<string, ChatMessage[]>
+  /** Cost/token totals per session — absent for state written before wave 2. */
+  usage?: Record<string, SessionUsage>
   activeSessionId: string | null
 }
 
@@ -20,8 +23,13 @@ export class Persistence {
   constructor(private readonly filePath: string) {}
 
   async load(): Promise<PersistedState> {
+    let raw: string
     try {
-      const raw = await readFile(this.filePath, "utf8")
+      raw = await readFile(this.filePath, "utf8")
+    } catch {
+      return { ...EMPTY, messages: {} }
+    }
+    try {
       const data = JSON.parse(raw) as PersistedState
       if (data?.version !== 1 || !Array.isArray(data.sessions)) {
         return { ...EMPTY }
@@ -30,18 +38,20 @@ export class Persistence {
         version: 1,
         sessions: data.sessions,
         messages: data.messages ?? {},
+        usage: data.usage ?? {},
         activeSessionId: data.activeSessionId ?? null,
       }
-    } catch {
+    } catch (err) {
+      // Unreadable state is a lost transcript, not a fresh install: keep the file
+      // as evidence instead of letting the first save of this run erase it.
+      const parked = await quarantineCorrupt(this.filePath)
+      console.error("[persistence] unreadable state parked at", parked, err)
       return { ...EMPTY, messages: {} }
     }
   }
 
   async save(state: PersistedState): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true })
-    const tmp = `${this.filePath}.tmp`
-    await writeFile(tmp, JSON.stringify(state, null, 2), "utf8")
-    await rename(tmp, this.filePath)
+    await writeFileAtomic(this.filePath, JSON.stringify(state, null, 2))
   }
 
   static defaultPath(userData: string): string {

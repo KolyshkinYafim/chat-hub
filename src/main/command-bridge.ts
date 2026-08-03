@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   openSync,
+  readFileSync,
   readSync,
   statSync,
   watch,
@@ -20,13 +21,23 @@ type ReplyCommand = {
   text: string
   requestId?: string
 }
-type MonitorCommand = FocusCommand | ReplyCommand
+type NewSessionCommand = {
+  type: "session.new"
+  provider?: string
+  cwd?: string
+  title?: string
+}
+type MonitorCommand = FocusCommand | ReplyCommand | NewSessionCommand
+
+/** A command older than this is scenery from a previous run, not a click. */
+const STALE_COMMAND_MS = 60_000
 
 /**
  * Tails commands.jsonl written by Session Monitor (open chat / reply).
  */
 export class MonitorCommandBridge {
   private readonly filePath: string
+  private readonly offsetPath: string
   private offset = 0
   private buffer = ""
   private watcher: FSWatcher | null = null
@@ -36,10 +47,12 @@ export class MonitorCommandBridge {
 
   constructor(
     private readonly manager: SessionManager,
-    private readonly onFocus?: (sessionId: string) => void,
+    /** null = only bring the Hub forward, do not change the active session. */
+    private readonly onFocus?: (sessionId: string | null) => void,
     filePath = agentDesktopCommandsPath(),
   ) {
     this.filePath = filePath
+    this.offsetPath = `${filePath}.offset`
   }
 
   get path(): string {
@@ -58,13 +71,12 @@ export class MonitorCommandBridge {
       return
     }
 
-    // Do not replay history — only new commands after start.
-    try {
-      this.offset = existsSync(this.filePath) ? statSync(this.filePath).size : 0
-    } catch {
-      this.offset = 0
-    }
+    // The Monitor writes the command and *then* launches the Hub, so starting at
+    // EOF drops the very click that opened us. Resume where the last run stopped;
+    // the ts filter below discards anything that is no longer a live click.
+    this.offset = this.loadOffset()
     this.buffer = ""
+    this.drain(true)
 
     try {
       this.watcher = watch(this.filePath, () => this.drain())
@@ -88,7 +100,7 @@ export class MonitorCommandBridge {
     this.watcher = null
   }
 
-  private drain(): void {
+  private drain(catchUp = false): void {
     if (this.stopped || this.reading) return
     this.reading = true
     try {
@@ -107,7 +119,8 @@ export class MonitorCommandBridge {
         readSync(fd, buf, 0, length, this.offset)
         this.offset = size
         this.buffer += buf.toString("utf8")
-        this.flushLines()
+        this.flushLines(catchUp)
+        this.saveOffset()
       } finally {
         closeSync(fd)
       }
@@ -118,34 +131,67 @@ export class MonitorCommandBridge {
     }
   }
 
-  private flushLines(): void {
+  private flushLines(catchUp: boolean): void {
     let idx = this.buffer.indexOf("\n")
     while (idx !== -1) {
       const line = this.buffer.slice(0, idx).trim()
       this.buffer = this.buffer.slice(idx + 1)
-      if (line) void this.handleLine(line)
+      if (line) void this.handleLine(line, catchUp)
       idx = this.buffer.indexOf("\n")
     }
   }
 
-  private async handleLine(line: string): Promise<void> {
-    let cmd: MonitorCommand
+  private loadOffset(): number {
     try {
-      cmd = JSON.parse(line) as MonitorCommand
+      const saved = JSON.parse(readFileSync(this.offsetPath, "utf8")) as {
+        offset?: number
+      }
+      return typeof saved.offset === "number" && saved.offset >= 0
+        ? saved.offset
+        : 0
+    } catch {
+      // No record yet: read from the top and let the ts filter drop old lines.
+      return 0
+    }
+  }
+
+  private saveOffset(): void {
+    try {
+      writeFileSync(
+        this.offsetPath,
+        JSON.stringify({ offset: this.offset }),
+        "utf8",
+      )
+    } catch (err) {
+      console.error("[command-bridge] offset save failed", err)
+    }
+  }
+
+  private async handleLine(line: string, catchUp = false): Promise<void> {
+    let cmd: MonitorCommand & { ts?: number }
+    try {
+      cmd = JSON.parse(line) as MonitorCommand & { ts?: number }
     } catch {
       return
     }
     if (!cmd || typeof cmd !== "object" || typeof cmd.type !== "string") return
+    // Catch-up only: a click from an hour ago must not focus or spawn anything.
+    if (
+      catchUp &&
+      typeof cmd.ts === "number" &&
+      Date.now() - cmd.ts > STALE_COMMAND_MS
+    ) {
+      return
+    }
 
     if (cmd.type === "session.focus" && typeof cmd.id === "string") {
       const ok = this.manager.setActiveSession(cmd.id)
-      if (ok) {
-        this.onFocus?.(cmd.id)
-      } else {
+      if (!ok) {
         console.warn("[command-bridge] focus: unknown session", cmd.id)
-        // Still surface Hub so user sees the app.
-        this.onFocus?.(cmd.id)
       }
+      // Surface either way, but never push an id the manager just refused —
+      // the renderer would sit on a session that does not exist.
+      this.onFocus?.(ok ? cmd.id : null)
       return
     }
 
@@ -155,7 +201,7 @@ export class MonitorCommandBridge {
       typeof cmd.text === "string"
     ) {
       const ok = this.manager.setActiveSession(cmd.id)
-      this.onFocus?.(cmd.id)
+      this.onFocus?.(ok ? cmd.id : null)
       if (!ok) {
         console.warn("[command-bridge] reply: unknown session", cmd.id)
         return
@@ -164,6 +210,36 @@ export class MonitorCommandBridge {
         await this.manager.sendMessage(cmd.id, cmd.text)
       } catch (err) {
         console.error("[command-bridge] reply failed", err)
+      }
+      return
+    }
+
+    if (cmd.type === "session.new") {
+      const provider =
+        typeof cmd.provider === "string" && cmd.provider ? cmd.provider : "claude"
+      // The island sends no folder; inherit the most recently used one rather
+      // than letting the Hub's own process cwd ("/" when packaged) become a project.
+      const cwd =
+        typeof cmd.cwd === "string" && cmd.cwd.trim()
+          ? cmd.cwd
+          : this.manager.listSessions()[0]?.cwd
+      if (!cwd) {
+        console.warn("[command-bridge] session.new: no cwd and no known project")
+        this.onFocus?.(null)
+        return
+      }
+      try {
+        const session = await this.manager.createSession({
+          provider: provider as "claude" | "grok" | "opencode" | "codex" | "mock",
+          cwd,
+          title: typeof cmd.title === "string" ? cmd.title : undefined,
+        })
+        this.manager.setActiveSession(session.id)
+        this.onFocus?.(session.id)
+      } catch (err) {
+        console.error("[command-bridge] session.new failed", err)
+        // Still surface the app so the user can create manually.
+        this.onFocus?.(null)
       }
     }
   }
