@@ -313,6 +313,7 @@ export class SessionManager {
       queued,
       usage,
       permissions: this.permissions?.list() ?? [],
+      inputRequests: this.permissions?.listInputs() ?? [],
       activeSessionId: this.activeSessionId,
     }
   }
@@ -853,6 +854,14 @@ export class SessionManager {
         })
         this.touch(sessionId)
         this.scheduleSave()
+      },
+      onPermissionRequest: async (request) => {
+        if (!this.permissions) return "deny"
+        return this.permissions.requestFromAdapter(request)
+      },
+      onUserInputRequest: async (request) => {
+        if (!this.permissions) return {}
+        return this.permissions.requestInputFromAdapter(request)
       },
       onUsage: (sessionId, turn, messageId) => {
         this.recordUsage(sessionId, turn, messageId)

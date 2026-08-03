@@ -41,6 +41,7 @@ type PendingRequest = {
 
 export type CodexNotificationHandler = (notification: ServerNotification) => void
 export type CodexServerRequestHandler = (request: ServerRequest) => void
+export type CodexCloseHandler = (error: Error) => void
 
 export type CodexRpcTransport = {
   input: Readable
@@ -87,6 +88,7 @@ export class CodexAppServerClient {
   private readonly pending = new Map<RequestId, PendingRequest>()
   private readonly notificationHandlers = new Set<CodexNotificationHandler>()
   private readonly serverRequestHandlers = new Set<CodexServerRequestHandler>()
+  private readonly closeHandlers = new Set<CodexCloseHandler>()
   private readonly stderrLines: string[] = []
   private readonly inputLines: ReadlineInterface
   private readonly stderrReader: ReadlineInterface | null
@@ -155,6 +157,11 @@ export class CodexAppServerClient {
   onServerRequest(handler: CodexServerRequestHandler): () => void {
     this.serverRequestHandlers.add(handler)
     return () => this.serverRequestHandlers.delete(handler)
+  }
+
+  onClose(handler: CodexCloseHandler): () => void {
+    this.closeHandlers.add(handler)
+    return () => this.closeHandlers.delete(handler)
   }
 
   async request<Result>(method: string, params?: unknown): Promise<Result> {
@@ -274,6 +281,8 @@ export class CodexAppServerClient {
     if (this.closing) return
     this.closing = true
     this.rejectPending(error)
+    for (const handler of this.closeHandlers) handler(error)
+    this.closeHandlers.clear()
     this.inputLines.close()
     this.stderrReader?.close()
     if (!this.exited) void this.transport.close()

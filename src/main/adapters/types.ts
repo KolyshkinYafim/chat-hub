@@ -5,6 +5,8 @@ import type {
   SessionEvent,
   SessionMeta,
   TurnUsage,
+  PermissionDecision,
+  AgentInputQuestion,
 } from "@shared/types"
 import type { PermissionMode } from "@shared/permission"
 
@@ -18,7 +20,7 @@ export type AdapterStartOpts = {
   resumeId?: string
 }
 
-export type EffortLevel = "low" | "medium" | "high" | "max"
+export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
 
 export type AdapterSendOpts = {
   permissionMode?: PermissionMode
@@ -45,6 +47,22 @@ export type AdapterCallbacks = {
     messageId: string,
     item: AgentTurnItem,
   ) => void
+  /** Ask the Hub/island approval surface and suspend the app-server request. */
+  onPermissionRequest?: (request: {
+    requestId: string
+    sessionId: string
+    agentSessionId: string
+    source: string
+    summary: string
+    toolName?: string
+    cwd?: string
+  }) => Promise<PermissionDecision>
+  onUserInputRequest?: (request: {
+    requestId: string
+    sessionId: string
+    source: string
+    questions: AgentInputQuestion[]
+  }) => Promise<Record<string, string[]>>
   /** The CLI reported its own session id — persist it for cross-restart resume. */
   onAgentSession?: (sessionId: string, agentSessionId: string) => void
   /**

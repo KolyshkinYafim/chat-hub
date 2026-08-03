@@ -8,6 +8,8 @@ import {
   type UIEvent,
 } from "react"
 import type {
+  AgentTurnItem,
+  AgentInputRequestInfo,
   ChatMessage,
   GitCheckoutInfo,
   PermissionRequestInfo,
@@ -28,7 +30,7 @@ import { formatSessionUsage, formatUsage, usageDetail } from "../lib/usage"
 import { MarkdownBody } from "./MarkdownBody"
 import { TopBar } from "./TopBar"
 
-type Effort = "low" | "medium" | "high" | "max"
+type Effort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
 
 /** The auth nag, rendered inline so it never outweighs the session title. */
 export type OnboardNotice = {
@@ -47,6 +49,8 @@ type Props = {
   usage: SessionUsage | null
   pendingPermissions: PermissionRequestInfo[]
   onResolvePermission: (requestId: string, allow: boolean) => void
+  pendingInputRequests: AgentInputRequestInfo[]
+  onResolveInput: (requestId: string, answers: Record<string, string[]>) => void
   messages: ChatMessage[]
   providers: ProviderInfo[]
   models: ModelInfo[]
@@ -85,6 +89,133 @@ function TurnCost({ usage }: { usage: TurnUsage }) {
     <span className="turn-cost" title={usageDetail(usage)}>
       {label}
     </span>
+  )
+}
+
+function itemLabel(item: AgentTurnItem): string {
+  switch (item.kind) {
+    case "reasoning": return "Reasoning"
+    case "plan": return "Plan"
+    case "command": return item.command.split("\n")[0] || "Command"
+    case "file_change": return item.changes.length === 1 ? item.changes[0]!.path : `${item.changes.length} file changes`
+    case "tool": return item.server ? `${item.server} · ${item.name}` : item.name
+    case "web_search": return `Search · ${item.query}`
+    case "image": return `Viewed · ${item.path}`
+    case "review": return "Review"
+    case "compaction": return "Context compacted"
+    case "error": return "Error"
+  }
+}
+
+function ItemBody({ item }: { item: AgentTurnItem }) {
+  switch (item.kind) {
+    case "reasoning":
+      return <div className="activity-text">{item.summary}</div>
+    case "plan":
+      return item.steps?.length ? (
+        <ol className="activity-plan">
+          {item.steps.map((step, index) => (
+            <li key={`${index}-${step.text}`} data-status={step.status}>{step.text}</li>
+          ))}
+        </ol>
+      ) : <div className="activity-text">{item.text}</div>
+    case "command":
+      return (
+        <>
+          <pre className="activity-code"><code>$ {item.command}</code></pre>
+          {item.output ? <pre className="activity-output"><code>{item.output}</code></pre> : null}
+        </>
+      )
+    case "file_change": {
+      const diff = item.aggregateDiff || item.changes.map((change) => change.diff).filter(Boolean).join("\n")
+      return (
+        <>
+          {item.changes.length ? <div className="activity-files">{item.changes.map((change) => <span key={change.path}>{change.kind ?? "edit"} · {change.path}</span>)}</div> : null}
+          {diff ? <pre className="activity-diff"><code>{diff}</code></pre> : null}
+        </>
+      )
+    }
+    case "tool":
+      return <pre className="activity-code"><code>{JSON.stringify(item.result ?? item.arguments ?? item.error ?? {}, null, 2)}</code></pre>
+    case "review": return <div className="activity-text">{item.text}</div>
+    case "error": return <div className="activity-error">{item.message}</div>
+    default: return null
+  }
+}
+
+function TurnItems({ items }: { items: AgentTurnItem[] | undefined }) {
+  if (!items?.length) return null
+  return (
+    <div className="turn-activity">
+      {items.map((item) => (
+        <details
+          key={item.id}
+          className={`activity-item activity-${item.kind}`}
+          open={item.kind === "error" || item.kind === "plan"}
+        >
+          <summary>
+            <span className={`activity-status status-${item.status}`} aria-label={item.status} />
+            <span className="activity-label">{itemLabel(item)}</span>
+            <span className="activity-state">{item.status}</span>
+          </summary>
+          <ItemBody item={item} />
+        </details>
+      ))}
+    </div>
+  )
+}
+
+function AgentInputCard({
+  request,
+  onSubmit,
+}: {
+  request: AgentInputRequestInfo
+  onSubmit: (answers: Record<string, string[]>) => void
+}) {
+  const [answers, setAnswers] = useState<Record<string, string>>({})
+  const complete = request.questions.every((question) => Boolean(answers[question.id]?.trim()))
+  return (
+    <form
+      className="agent-input-card"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (!complete) return
+        onSubmit(Object.fromEntries(Object.entries(answers).map(([id, answer]) => [id, [answer]])))
+      }}
+    >
+      <span className="permission-tag">Codex asks</span>
+      {request.questions.map((question) => (
+        <fieldset key={question.id}>
+          <legend>{question.header || "Question"}</legend>
+          <p>{question.prompt}</p>
+          {question.options?.length ? (
+            <div className="agent-input-options">
+              {question.options.map((option) => (
+                <button
+                  type="button"
+                  key={option.label}
+                  className={answers[question.id] === option.label ? "selected" : ""}
+                  title={option.description}
+                  onClick={() => setAnswers((curr) => ({ ...curr, [question.id]: option.label }))}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <input
+            type={question.secret ? "password" : "text"}
+            value={answers[question.id] ?? ""}
+            placeholder={question.options?.length ? "Or type another answer…" : "Your answer…"}
+            onChange={(event) => {
+              const value = event.currentTarget.value
+              setAnswers((curr) => ({ ...curr, [question.id]: value }))
+            }}
+          />
+        </fieldset>
+      ))}
+      <button type="submit" className="tb-btn primary" disabled={!complete}>Send answer</button>
+    </form>
   )
 }
 
@@ -138,6 +269,8 @@ export function ChatView({
   usage,
   pendingPermissions,
   onResolvePermission,
+  pendingInputRequests,
+  onResolveInput,
   messages,
   providers,
   models,
@@ -405,7 +538,7 @@ export function ChatView({
     session.model ??
     "CLI default"
   // Effort is a Claude Code flag; no other adapter passes it on.
-  const supportsEffort = session.provider === "claude"
+  const supportsEffort = session.provider === "claude" || session.provider === "codex"
   const running = session.status === "running"
   const usageLabel = usage ? formatSessionUsage(usage) : null
 
@@ -455,8 +588,8 @@ export function ChatView({
 
       {permissionMode === "default" ? (
         <div className="warn-banner">
-          Ask mode — Chat Hub cannot answer a tool prompt yet, so a turn that
-          hits one stalls until you Stop it. YOLO or Edits keep turns moving.
+          Ask mode — risky Codex actions are denied until the approval card is
+          answered. YOLO keeps turns moving without prompts.
         </div>
       ) : null}
 
@@ -489,6 +622,14 @@ export function ChatView({
               whichever window is in front wins and the other card disappears. */}
           <span className="permission-where">or answer in the notch island</span>
         </div>
+      ))}
+
+      {pendingInputRequests.map((request) => (
+        <AgentInputCard
+          key={request.requestId}
+          request={request}
+          onSubmit={(answers) => onResolveInput(request.requestId, answers)}
+        />
       ))}
 
       <div
@@ -543,6 +684,7 @@ export function ChatView({
                     )}
                     {m.usage ? <TurnCost usage={m.usage} /> : null}
                   </div>
+                  <TurnItems items={m.items} />
                   <MarkdownBody text={m.content} streaming={m.streaming} />
                 </>
               )}
@@ -690,8 +832,8 @@ export function ChatView({
                 className={`chip select-chip ${supportsEffort ? "" : "muted"}`}
                 title={
                   supportsEffort
-                    ? "Reasoning effort (Claude Code)"
-                    : `Only Claude Code takes an effort flag — ${session.provider} ignores it`
+                    ? `Reasoning effort (${session.provider})`
+                    : `${session.provider} does not expose an effort control`
                 }
               >
                 <select
@@ -703,7 +845,9 @@ export function ChatView({
                   <option value="low">Low</option>
                   <option value="medium">Medium</option>
                   <option value="high">High</option>
+                  {session.provider === "codex" ? <option value="xhigh">Extra high</option> : null}
                   <option value="max">Max</option>
+                  {session.provider === "codex" ? <option value="ultra">Ultra</option> : null}
                 </select>
               </label>
             </div>

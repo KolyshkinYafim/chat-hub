@@ -122,9 +122,10 @@ const snapshot: SessionSnapshot = wantWizard
       queued: {},
       usage: {},
       permissions: [],
+      inputRequests: [],
       activeSessionId: null,
     }
-  : { sessions, messages, queued, usage, permissions, activeSessionId: "s1" }
+  : { sessions, messages, queued, usage, permissions, inputRequests: [], activeSessionId: "s1" }
 
 const mockDirs: Record<string, string[]> = {
   "": ["assets", "notes", "src", "tests", "README.md", "huge.log", "package.json"],
@@ -275,7 +276,8 @@ export function installDevMock(): void {
     removeInstance: async () => ({ instances: mockInstances, statuses }),
     setGeneralConfig: async (patch) => ({ general: { ...settings.general, ...patch } }),
     revealPath: async () => true,
-    wipeSessions: async () => ({ sessions: [], messages: {}, queued: {}, usage: {}, permissions: [], activeSessionId: null }),
+    wipeSessions: async () => ({ sessions: [], messages: {}, queued: {}, usage: {}, permissions: [], inputRequests: [], activeSessionId: null }),
+    resolveInput: async () => true,
     providerLogin: async () => ({ ok: true, command: "…" }),
     testProvider: async (id) => ({
       ok: id !== "opencode",

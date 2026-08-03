@@ -429,7 +429,9 @@ export function SettingsModal({
                     <option value="low">Low</option>
                     <option value="medium">Medium</option>
                     <option value="high">High</option>
+                    <option value="xhigh">Extra high</option>
                     <option value="max">Max</option>
+                    <option value="ultra">Ultra</option>
                   </select>
                 </label>
 
