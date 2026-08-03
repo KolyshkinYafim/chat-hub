@@ -6,6 +6,7 @@ import {
   useState,
   type CSSProperties,
 } from "react"
+import type { HookRun } from "@shared/hooks"
 import type {
   ChatMessage,
   GitCheckoutInfo,
@@ -18,6 +19,7 @@ import type {
   SessionMeta,
   SessionUsage,
 } from "@shared/types"
+import { collectAgentActions } from "./lib/agent-actions"
 import type { PermissionMode } from "@shared/permission"
 import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
 import type {
@@ -112,6 +114,10 @@ export default function App() {
     Record<string, SessionUsage>
   >({})
   const [permissions, setPermissions] = useState<PermissionRequestInfo[]>([])
+  /** Project hooks that have run, keyed by session id (oldest first). */
+  const [hooksBySession, setHooksBySession] = useState<
+    Record<string, HookRun[]>
+  >({})
   const [archived, setArchived] = useState<Set<string>>(() => loadArchived())
   const [highlight, setHighlight] = useState<{
     sessionId: string
@@ -303,6 +309,16 @@ export default function App() {
           ),
         )
         break
+      case "hook.ran":
+        setHooksBySession((curr) => {
+          const list = curr[event.run.sessionId] ?? []
+          if (list.some((r) => r.id === event.run.id)) return curr
+          return {
+            ...curr,
+            [event.run.sessionId]: [...list, event.run],
+          }
+        })
+        break
       default:
         break
     }
@@ -390,6 +406,8 @@ export default function App() {
   }, [autoOpenDock])
 
   const messages = activeId ? (messagesBySession[activeId] ?? []) : []
+  // Diff surface audit trail: same tool cards the transcript already parsed.
+  const agentActions = useMemo(() => collectAgentActions(messages), [messages])
 
   useEffect(() => {
     // Sessions deleted elsewhere (or wiped) would otherwise leave their ids in
@@ -971,6 +989,8 @@ export default function App() {
           width={dockWidth}
           gitRefreshKey={gitRefresh}
           diffFocus={diffFocus}
+          hookRuns={activeId ? (hooksBySession[activeId] ?? []) : []}
+          agentActions={agentActions}
           onGitChanged={refreshGit}
           onSelectKind={chooseSurface}
           onWidthChange={setDockWidth}
