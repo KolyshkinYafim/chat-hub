@@ -39,9 +39,59 @@ function result(name: string, body: string, meta: ToolCardMeta = {}): string {
   return `\n\n\`\`\`tool-result:${name}\n${encodeToolCardMeta(meta)}${body}\n\`\`\`\n\n`
 }
 
-function diff(code: string): string {
-  return `\`\`\`diff\n${code}\n\`\`\`\n\n`
+// Body lines are `marker + space + text`, hunks introduced by an @@ header —
+// the same unified shape buildEditDiff emits from an Edit/Write payload.
+function diff(lines: string[]): string {
+  return `\`\`\`diff\n${lines.join("\n")}\n\`\`\`\n\n`
 }
+
+const jwtDiff = [
+  "@@ -12,7 +12,8 @@",
+  "  export function verifyJwt(token: string): Claims | null {",
+  "    const claims = decode(token)",
+  "    if (!claims) return null",
+  "-   if (claims.iat < Date.now() / 1000) return null",
+  "+   const nowSeconds = Math.floor(Date.now() / 1000)",
+  "+   if (claims.exp <= nowSeconds) return null",
+  "    return claims",
+  "  }",
+  "@@ -31,4 +32,4 @@",
+  "  export function isExpired(claims: Claims): boolean {",
+  "-   return claims.iat < Date.now() / 1000",
+  "+   return claims.exp <= Math.floor(Date.now() / 1000)",
+  "  }",
+]
+
+const clockDiff = [
+  "@@ -0,0 +1,9 @@",
+  "+ /** Seconds since the epoch, the unit every JWT claim is written in. */",
+  '+ export function nowSeconds(): number {',
+  "+   return Math.floor(Date.now() / 1000)",
+  "+ }",
+  "+ ",
+  "+ export function isPast(at: number): boolean {",
+  "+   return at <= nowSeconds()",
+  "+ }",
+  "+ ",
+]
+
+const authDiff = [
+  "@@ -1,4 +1,5 @@",
+  "  import { Router } from 'express'",
+  "  import { verifyJwt } from '../lib/jwt'",
+  "+ import { isPast } from '../lib/clock'",
+  "  ",
+  "  export function requireAuth(req, res, next) {",
+  "@@ -9,7 +10,5 @@",
+  "    const token = req.headers.authorization?.slice(7)",
+  "    if (!token) return res.status(401).end()",
+  "    const decoded = verifyJwt(token)",
+  "-   if (!decoded) return res.status(401).end()",
+  "-   if (decoded.iat < Date.now() / 1000) return res.status(401).end()",
+  "+   if (!decoded || isPast(decoded.exp)) return res.status(401).end()",
+  "    req.user = decoded",
+  "    next()",
+]
 
 const suitePass = [
   "> proxy-flash-admin@0.1.0 test",
@@ -115,44 +165,41 @@ const busyTurn =
     ].join("\n"),
     { id: "t3" },
   ) +
-  "\nThere it is: the guard compares `iat` (issued-at) instead of `exp`, so every token looks expired the moment it is issued. Two files need the fix — the check itself and the middleware that duplicates it.\n\n" +
+  "\nThere it is: the guard compares `iat` (issued-at) instead of `exp`, so every token looks expired the moment it is issued. Three files need touching — the check itself, a small clock helper, and the middleware that duplicates the guard.\n\n" +
   call("Edit", "/Users/lic/ProxyFlash/proxy-flash-admin/src/lib/jwt.ts", {
     id: "t4",
     desc: "Compare exp, not iat",
     paths: ["/Users/lic/ProxyFlash/proxy-flash-admin/src/lib/jwt.ts"],
-    added: 2,
-    removed: 1,
+    added: 3,
+    removed: 2,
+    absLines: true,
   }) +
-  diff(
-    [
-      "-   if (claims.iat < Date.now() / 1000) return null",
-      "+   const nowSeconds = Math.floor(Date.now() / 1000)",
-      "+   if (claims.exp <= nowSeconds) return null",
-    ].join("\n"),
-  ) +
+  diff(jwtDiff) +
   result("Edit", "The file has been updated.", { id: "t4" }) +
+  call("Write", "/Users/lic/ProxyFlash/proxy-flash-admin/src/lib/clock.ts", {
+    id: "t5",
+    paths: ["/Users/lic/ProxyFlash/proxy-flash-admin/src/lib/clock.ts"],
+    added: 9,
+    removed: 0,
+    absLines: true,
+  }) +
+  diff(clockDiff) +
+  result("Write", "File created successfully.", { id: "t5" }) +
   call(
-    "Edit",
-    "/Users/lic/ProxyFlash/proxy-flash-admin/src/middleware/auth.ts",
+    "MultiEdit",
+    "/Users/lic/ProxyFlash/proxy-flash-admin/src/middleware/auth.ts · 2 edits",
     {
-      id: "t5",
-      desc: "Drop the duplicated expiry guard",
+      id: "t7",
+      desc: "Route the middleware through the shared clock",
       paths: [
         "/Users/lic/ProxyFlash/proxy-flash-admin/src/middleware/auth.ts",
       ],
-      added: 1,
-      removed: 3,
+      added: 2,
+      removed: 2,
     },
   ) +
-  diff(
-    [
-      "-   const decoded = verifyJwt(token)",
-      "-   if (!decoded) return res.status(401).end()",
-      "-   if (decoded.iat < Date.now() / 1000) return res.status(401).end()",
-      "+   const decoded = verifyJwt(token)",
-    ].join("\n"),
-  ) +
-  result("Edit", "The file has been updated.", { id: "t5" }) +
+  diff(authDiff) +
+  result("MultiEdit", "Applied 2 edits to auth.ts", { id: "t7" }) +
   call("Bash", "$ /bin/zsh -lc 'pnpm test -- expiry auth'", {
     id: "t6",
     desc: "Re-run the two affected suites",

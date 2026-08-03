@@ -1,11 +1,17 @@
 export type SurfaceKind = "browser" | "terminal" | "files" | "diff" | "board"
 
-/** One task on the project board. `done` toggles from the UI or the agent. */
+/**
+ * One task on the project board. `done` toggles from the UI or the agent.
+ * `updatedAt` is per item so concurrent writes merge row by row instead of
+ * board by board; it's optional because hand-written board.json files don't
+ * have it (reads fall back to the file's stamp).
+ */
 export type BoardTodo = {
   id: string
   text: string
   done: boolean
   createdAt: number
+  updatedAt?: number
 }
 
 /** A dynamic note the agent (or user) drops onto the board. */
@@ -13,6 +19,7 @@ export type BoardNote = {
   id: string
   text: string
   createdAt: number
+  updatedAt?: number
 }
 
 /**

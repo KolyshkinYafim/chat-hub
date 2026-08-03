@@ -45,13 +45,24 @@ cat > out/build-info.json <<JSON
 }
 JSON
 
-./node_modules/.bin/electron-builder "${TARGET[@]}"
+# Deliberately outside the repo. This tree lives on an iCloud-synced Desktop,
+# where the file provider re-stamps every directory it touches with
+# com.apple.FinderInfo within seconds — and codesign rejects that as "resource
+# fork, Finder information, or similar detritus not allowed", both while signing
+# and on every later `codesign --verify`. `xattr -cr` loses that race by design,
+# so the bundle is built and signed on a filesystem nobody is syncing.
+OUT_DIR="${CHAT_HUB_OUT_DIR:-${TMPDIR:-/tmp}/chat-hub-release}"
+mkdir -p "${OUT_DIR}"
+
+./node_modules/.bin/electron-builder "${TARGET[@]}" \
+  -c.directories.output="${OUT_DIR}"
 
 # electron-builder suffixes the output dir with the arch it built for.
 case "$(uname -m)" in
-  arm64) APP="${ROOT}/release/mac-arm64/Chat Hub.app" ;;
-  *)     APP="${ROOT}/release/mac/Chat Hub.app" ;;
+  arm64) ARCH_DIR="mac-arm64" ;;
+  *)     ARCH_DIR="mac" ;;
 esac
+APP="${OUT_DIR}/${ARCH_DIR}/Chat Hub.app"
 [[ -d "${APP}" ]] || { echo "Build produced no app at ${APP}" >&2; exit 1; }
 
 # Info.plist is the one place the identity stays readable without unpacking the
@@ -64,5 +75,33 @@ for entry in "AgentDesktopBuildCommit:${COMMIT}" "AgentDesktopBuildDate:${BUILD_
   /usr/libexec/PlistBuddy -c "Add :${key} string ${value}" "${PLIST}"
 done
 
+# Signing comes last, after the Info.plist edits above — codesign seals the
+# bundle, and any byte written afterwards invalidates the signature it just made.
+#
+# electron-builder is told `identity: null`, so the app arrives carrying only the
+# linker's ad-hoc signature, which fails `codesign --verify` ("code has no
+# resources but signature indicates they must be present") and makes macOS call
+# the app damaged the moment it is zipped or AirDropped. Signing ad-hoc here
+# fixes that without a certificate. Hardened runtime stays off — it only means
+# something with a Developer ID and notarization.
+#
+# Cheap insurance: electron-builder copies from node_modules, which *is* synced,
+# so a stray xattr can still ride in on a nested framework.
+echo "Signing (ad-hoc)..."
+xattr -cr "${APP}"
+codesign --force --deep --sign - "${APP}"
+codesign --verify --deep --strict "${APP}"
+
+# release/mac-arm64 stays the address everything else knows — install-app.sh, the
+# README, muscle memory — it is just a pointer now. A symlink and not a copy on
+# purpose: a copy back into the synced tree would grow the same FinderInfo again
+# and stop verifying within seconds of being made. The link goes *inside*
+# release/ rather than replacing it, because .gitignore ignores `release/` as a
+# directory and a symlink in its place would show up as an untracked file.
+mkdir -p "${ROOT}/release"
+rm -rf "${ROOT}/release/${ARCH_DIR}"
+ln -s "${OUT_DIR}/${ARCH_DIR}" "${ROOT}/release/${ARCH_DIR}"
+
 echo "Built ${APP}"
 echo "  ${VERSION} · ${COMMIT} · ${BUILD_DATE}"
+echo "  signed ad-hoc · verifies · release/${ARCH_DIR} -> ${OUT_DIR}/${ARCH_DIR}"

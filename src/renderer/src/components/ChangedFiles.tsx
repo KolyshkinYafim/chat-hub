@@ -1,15 +1,13 @@
+import { displayPath, splitPath } from "../lib/path-match"
 import type { ChangedFiles as Changed } from "../lib/tool-runs"
-
-function baseName(path: string): string {
-  const parts = path.split("/")
-  return parts[parts.length - 1] || path
-}
 
 export function ChangedFiles({
   changed,
+  cwd,
   onOpenDiff,
 }: {
   changed: Changed
+  cwd?: string
   onOpenDiff?: (path: string) => void
 }) {
   const { files, added, removed, countsKnown } = changed
@@ -28,25 +26,28 @@ export function ChangedFiles({
         ) : null}
       </div>
       <ul className="changed-list">
-        {files.map((file) => (
-          <li key={file.path}>
-            <button
-              type="button"
-              className="changed-path"
-              title={`${file.path} — open in the Diff panel`}
-              onClick={() => onOpenDiff?.(file.path)}
-            >
-              <span className="changed-name">{baseName(file.path)}</span>
-              <span className="changed-dir">{file.path}</span>
-            </button>
-            {typeof file.added === "number" ? (
-              <span className="changed-delta">
-                <span className="diff-stat add">+{file.added}</span>
-                <span className="diff-stat del">−{file.removed ?? 0}</span>
-              </span>
-            ) : null}
-          </li>
-        ))}
+        {files.map((file) => {
+          const { dir, name } = splitPath(displayPath(cwd, file.path))
+          return (
+            <li key={file.path}>
+              <button
+                type="button"
+                className="changed-path"
+                title={`${file.path} — open in the Diff panel`}
+                onClick={() => onOpenDiff?.(file.path)}
+              >
+                <span className="changed-dir">{dir}</span>
+                <span className="changed-name">{name}</span>
+              </button>
+              {typeof file.added === "number" ? (
+                <span className="changed-delta">
+                  <span className="diff-stat add">+{file.added}</span>
+                  <span className="diff-stat del">−{file.removed ?? 0}</span>
+                </span>
+              ) : null}
+            </li>
+          )
+        })}
       </ul>
     </div>
   )

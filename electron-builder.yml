@@ -19,7 +19,11 @@ mac:
     - dir
   category: public.app-category.developer-tools
   darkModeSupport: true
-  # Local/unsigned build — set to null so packaging doesn't require a cert.
+  # No Developer ID here, so electron-builder must not go looking for a cert.
+  # The bundle it leaves behind fails `codesign --verify`, so packaging/build-app.sh
+  # re-signs it ad-hoc (`codesign --force --deep --sign -`) once the build and the
+  # Info.plist stamping are done. Do not move that step earlier: signing seals the
+  # bundle, and PlistBuddy writing into Info.plist afterwards would break the seal.
   identity: null
 
 dmg:

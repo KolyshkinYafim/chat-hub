@@ -192,9 +192,11 @@ describe("toolUseBlock", () => {
   it("truncates a huge diff instead of flooding the transcript", () => {
     const out = toolUseBlock("Write", {
       file_path: "/p/big.ts",
-      content: Array.from({ length: 100 }, (_, i) => `l${i}`).join("\n"),
+      content: Array.from({ length: 900 }, (_, i) => `l${i}`).join("\n"),
     })
-    expect(out).toContain("… (60 more lines)")
+    expect(out).toMatch(/… \(\d+ more lines\)/)
+    const diff = /```diff\n([\s\S]*?)\n```/.exec(out)?.[1] ?? ""
+    expect(diff.split("\n").length).toBeLessThanOrEqual(402)
   })
 
   it("is case-insensitive about tool names (str_replace variants)", () => {

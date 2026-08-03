@@ -12,6 +12,17 @@ import { surfaceBridge, errorText, type Board } from "../../lib/surface-bridge"
  * `.chathub/board.json`. The agent edits that file directly during a turn; we
  * poll so those out-of-band edits show up live, and the user can edit too.
  */
+/**
+ * Stamp the one item the user just edited. The main-process merge resolves per
+ * item: rows we merely echo back never clobber a fresher agent edit, but a row
+ * carrying a `now` stamp is a deliberate change and wins. (The renderer's Board
+ * mirror doesn't model `updatedAt` on items — main owns that schema — so this
+ * rides along structurally.)
+ */
+function touch<T extends object>(item: T): T {
+  return { ...item, updatedAt: Date.now() } as T
+}
+
 export function BoardSurface({ cwd }: { cwd: string }) {
   const [board, setBoard] = useState<Board>({ todos: [], notes: [] })
   const [todoDraft, setTodoDraft] = useState("")
@@ -132,7 +143,7 @@ export function BoardSurface({ cwd }: { cwd: string }) {
                   persist({
                     ...board,
                     todos: board.todos.map((x) =>
-                      x.id === t.id ? { ...x, done: !x.done } : x,
+                      x.id === t.id ? touch({ ...x, done: !x.done }) : x,
                     ),
                   })
                 }

@@ -70,9 +70,14 @@
 
 .tool-caret {
   flex-shrink: 0;
-  width: 10px;
-  color: var(--text-faint);
-  font-size: 9px;
+  width: 12px;
+  color: var(--text-muted);
+  font-size: 8px;
+  line-height: 1;
+}
+
+.tool-head:hover .tool-caret {
+  color: var(--text);
 }
 
 .tool-title {
@@ -178,6 +183,177 @@
   background: var(--bg-hover);
 }
 
+/* ——— Diff card ———
+   Built from the tool call's own payload (old_string/new_string/content), so a
+   folder that is not a git repo still gets a real diff. */
+
+.diff-card {
+  border-top: 1px solid var(--border-soft);
+  background: #0f1014;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  max-height: 520px;
+  overflow: auto;
+}
+
+.diff-file {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: var(--code-bg);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.diff-file-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.diff-line-base {
+  flex-shrink: 0;
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 6px;
+}
+
+.diff-copy {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+
+.diff-copy:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.diff-hunk + .diff-hunk {
+  border-top: 1px solid var(--border-soft);
+}
+
+.diff-hunk-head {
+  display: flex;
+  padding: 4px 10px;
+  background: var(--code-bg);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.diff-row {
+  display: flex;
+  align-items: flex-start;
+  white-space: pre;
+}
+
+.diff-row.add {
+  background: rgba(61, 214, 140, 0.08);
+}
+
+.diff-row.del {
+  background: rgba(240, 113, 120, 0.08);
+}
+
+.diff-num {
+  flex-shrink: 0;
+  width: 34px;
+  padding-right: 8px;
+  text-align: right;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.diff-num.new {
+  width: 34px;
+  border-right: 1px solid var(--border-soft);
+  padding-right: 8px;
+  margin-right: 8px;
+}
+
+.diff-marker {
+  flex-shrink: 0;
+  width: 12px;
+  color: var(--text-faint);
+  user-select: none;
+}
+
+.diff-row.add .diff-marker {
+  color: var(--ok);
+}
+
+.diff-row.del .diff-marker {
+  color: var(--danger);
+}
+
+.diff-text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-secondary);
+}
+
+.tok-keyword {
+  color: #c792ea;
+}
+
+.tok-type {
+  color: #7fd1e8;
+}
+
+.tok-string {
+  color: #b5e08a;
+}
+
+.tok-number {
+  color: #f6b26b;
+}
+
+.tok-comment {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.tok-punct {
+  color: #8b8d98;
+}
+
+/* The bytes that actually differ, on top of the line's own tint — a one-token
+   change has to be findable without reading the whole line. */
+.diff-row.add .tok-changed {
+  background: rgba(61, 214, 140, 0.28);
+  border-radius: 2px;
+}
+
+.diff-row.del .tok-changed {
+  background: rgba(240, 113, 120, 0.28);
+  border-radius: 2px;
+}
+
+.diff-truncated {
+  padding: 4px 10px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  border-top: 1px solid var(--border-soft);
+}
+
 .changed-files {
   margin: 14px 0 4px;
   border: 1px solid var(--border);
@@ -219,12 +395,13 @@
   min-width: 0;
   display: flex;
   align-items: baseline;
-  gap: 8px;
   padding: 5px 10px;
   text-align: left;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .changed-path:hover {
@@ -240,11 +417,7 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
-  text-align: left;
   color: var(--text-faint);
-  font-size: 10.5px;
 }
 
 .changed-delta {

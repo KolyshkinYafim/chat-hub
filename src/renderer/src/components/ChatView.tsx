@@ -548,7 +548,9 @@ export function ChatView({
                   </div>
                   <MarkdownBody
                     text={m.content}
+                    messageId={m.id}
                     streaming={m.streaming}
+                    cwd={session.cwd}
                     onOpenDiff={onOpenDiff}
                   />
                 </>

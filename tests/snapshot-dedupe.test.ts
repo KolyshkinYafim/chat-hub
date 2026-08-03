@@ -67,7 +67,7 @@ describe("assistant snapshot dedupe", () => {
     expect(out).toMatch(
       /```tool:Edit\n\x1f\{"paths":\["\/a\.ts"\],"added":1,"removed":1\}\n\/a\.ts\n```/,
     )
-    expect(out).toContain("```diff\n- old\n+ new\n```")
+    expect(out).toContain("```diff\n@@ -1,1 +1,1 @@\n- old\n+ new\n```")
     // The old cumulative-length heuristic sliced INTO the second card.
     expect(out).not.toMatch(/^\s*f\n/m)
   })
