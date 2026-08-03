@@ -4,6 +4,7 @@ import {
   fenceFor,
   type ToolCardMeta,
 } from "@shared/tool-card"
+import { buildEditDiff } from "./edit-diff"
 import type { AdapterCallbacks } from "./types"
 
 /** Shared helpers for NDJSON CLI streams → transcript callbacks. */
@@ -247,13 +248,17 @@ export function toolUseBlock(
   input: unknown,
   id?: string,
 ): string {
-  const { head, diff, paths, added, removed } = summarizeToolInput(name, input)
+  const { head, diff, paths, added, removed, absLines } = summarizeToolInput(
+    name,
+    input,
+  )
   const card = toolCallBlock(name, head, {
     id,
     desc: descriptionOf(input),
     paths,
     added,
     removed,
+    absLines,
   })
   if (!diff || !diff.trim()) return card
   return `${card}\`\`\`diff\n${diff}\n\`\`\`\n\n`
@@ -275,6 +280,7 @@ type ToolSummary = {
   paths?: string[]
   added?: number
   removed?: number
+  absLines?: true
 }
 
 function summarizeToolInput(name: string, input: unknown): ToolSummary {
@@ -322,38 +328,24 @@ function summarizeToolInput(name: string, input: unknown): ToolSummary {
   return { head: json.length > 2 ? json.slice(0, 200) : "(no args)" }
 }
 
-const DIFF_MAX_LINES = 40
-
 function editSummary(
   file: string,
   pairs: [string, string][],
-): Pick<ToolSummary, "diff" | "paths" | "added" | "removed"> {
-  const lines: string[] = []
-  let added = 0
-  let removed = 0
-  for (const [oldS, newS] of pairs) {
-    if (oldS) {
-      for (const l of oldS.split("\n")) {
-        lines.push(`- ${l}`)
-        removed += 1
-      }
-    }
-    if (newS) {
-      for (const l of newS.split("\n")) {
-        lines.push(`+ ${l}`)
-        added += 1
-      }
-    }
-  }
-  const diff =
-    lines.length > DIFF_MAX_LINES
-      ? `${lines.slice(0, DIFF_MAX_LINES).join("\n")}\n… (${lines.length - DIFF_MAX_LINES} more lines)`
-      : lines.join("\n")
+): Pick<ToolSummary, "diff" | "paths" | "added" | "removed" | "absLines"> {
+  // The card is built from the call's own payload, never from git — a folder
+  // that is not a repo still gets a real diff. Reading the file here (before
+  // the edit lands) is only for honest line numbers; without it the hunks are
+  // numbered from 1 and the card says so.
+  const { text, added, removed, absoluteLines } = buildEditDiff(
+    file,
+    pairs.map(([oldText, newText]) => ({ oldText, newText })),
+  )
   return {
-    diff,
+    diff: text,
     paths: file ? [file] : undefined,
     added,
     removed,
+    absLines: absoluteLines ? true : undefined,
   }
 }
 

@@ -25,9 +25,15 @@ echo "Installing to ${DEST}..."
 pkill -x "Chat Hub" 2>/dev/null || true
 sleep 1
 rm -rf "${DEST}"
-cp -R "${APP}" "${DEST}"
-# Unsigned local build: without this Gatekeeper quarantines the copy.
+# ditto, not cp: it is the copy that keeps a bundle's symlinks and metadata
+# intact, which is the difference between an installed app that still verifies
+# and one macOS calls damaged.
+ditto "${APP}" "${DEST}"
+# Strip whatever rode along from the synced tree — quarantine included — then
+# check the signature build-app.sh applied actually survived the trip.
 xattr -cr "${DEST}" 2>/dev/null || true
+codesign --verify --deep --strict "${DEST}" \
+  || echo "WARNING: installed bundle failed codesign --verify"
 
 if [[ "${LOGIN}" == "1" ]]; then
   echo "Enabling launch at login..."

@@ -7,30 +7,35 @@ import { ToolRun } from "./ToolRun"
 /** Lightweight agent-transcript renderer (headings, lists, code, tool runs). */
 export function MarkdownBody({
   text,
+  messageId,
   streaming,
+  cwd,
   onOpenDiff,
 }: {
   text: string
+  /** Scopes each card's remembered expansion — CLIs reuse ids across turns. */
+  messageId?: string
   streaming?: boolean
+  cwd?: string
   onOpenDiff?: (path: string) => void
 }) {
-  const { blocks, changed } = buildTranscript(text)
+  const { blocks, changed } = buildTranscript(text, messageId)
 
   return (
     <div className={`md-body ${streaming ? "streaming" : ""}`}>
       {blocks.map((block, i) => (
-        <Block key={i} block={block} />
+        <Block key={i} block={block} live={streaming === true} />
       ))}
       {streaming ? null : (
-        <ChangedFiles changed={changed} onOpenDiff={onOpenDiff} />
+        <ChangedFiles changed={changed} cwd={cwd} onOpenDiff={onOpenDiff} />
       )}
     </div>
   )
 }
 
-function Block({ block }: { block: TranscriptBlock }) {
+function Block({ block, live }: { block: TranscriptBlock; live: boolean }) {
   if (block.kind === "tools") {
-    return <ToolRun calls={block.calls} />
+    return <ToolRun calls={block.calls} live={live} />
   }
   if (block.kind === "h") {
     const Tag = block.level === 2 ? "h2" : "h3"

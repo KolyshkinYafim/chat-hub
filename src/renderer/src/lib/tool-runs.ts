@@ -43,12 +43,12 @@ const OUTPUT_HEAD_LINES = 6
 const OUTPUT_COLLAPSE_OVER = 12
 const TITLE_MAX = 140
 
-export function buildTranscript(src: string): Transcript {
-  const blocks = pairToolBlocks(splitBlocks(src))
+export function buildTranscript(src: string, scope = ""): Transcript {
+  const blocks = pairToolBlocks(splitBlocks(src), scope)
   return { blocks, changed: changedFiles(blocks) }
 }
 
-function pairToolBlocks(blocks: Block[]): TranscriptBlock[] {
+function pairToolBlocks(blocks: Block[], scope: string): TranscriptBlock[] {
   const out: TranscriptBlock[] = []
   const byId = new Map<string, ToolCall>()
   const calls: ToolCall[] = []
@@ -65,7 +65,7 @@ function pairToolBlocks(blocks: Block[]): TranscriptBlock[] {
 
   for (const block of blocks) {
     if (block.kind === "tool" && !block.result) {
-      const call = makeCall(block, index++)
+      const call = makeCall(block, index++, scope)
       calls.push(call)
       if (call.meta.id) byId.set(call.meta.id, call)
       startRun().calls.push(call)
@@ -79,7 +79,7 @@ function pairToolBlocks(blocks: Block[]): TranscriptBlock[] {
         target.result = toResult(block)
         continue
       }
-      startRun().calls.push(orphanResult(block, index++))
+      startRun().calls.push(orphanResult(block, index++, scope))
       continue
     }
 
@@ -121,12 +121,17 @@ function toResult(block: Extract<Block, { kind: "tool" }>): ToolResult {
   }
 }
 
+function cardKey(scope: string, id: string | undefined, fallback: string): string {
+  return `${scope}/${id ?? fallback}`
+}
+
 function makeCall(
   block: Extract<Block, { kind: "tool" }>,
   index: number,
+  scope: string,
 ): ToolCall {
   return {
-    key: block.meta.id ?? `b${index}`,
+    key: cardKey(scope, block.meta.id, `b${index}`),
     name: block.name,
     args: block.body,
     title: describeCall(block.name, block.body, block.meta),
@@ -139,9 +144,10 @@ function makeCall(
 function orphanResult(
   block: Extract<Block, { kind: "tool" }>,
   index: number,
+  scope: string,
 ): ToolCall {
   return {
-    key: block.meta.id ?? `r${index}`,
+    key: cardKey(scope, block.meta.id, `r${index}`),
     name: block.name,
     args: "",
     title: block.meta.desc ?? block.name,
@@ -159,21 +165,33 @@ export function startsOpen(call: ToolCall): boolean {
   return isFailed(call) || call.diff !== null
 }
 
+export function isEditTool(name: string): boolean {
+  const lower = name.toLowerCase()
+  return (
+    lower === "edit" ||
+    lower === "write" ||
+    lower === "multiedit" ||
+    lower.includes("str_replace")
+  )
+}
+
 export function describeCall(
   name: string,
   args: string,
   meta: ToolCardMeta,
 ): string {
-  if (meta.desc) return clamp(meta.desc)
   const lower = name.toLowerCase()
+  if (meta.desc) {
+    return clamp(`${meta.desc}${isEditTool(lower) ? delta(meta) : ""}`)
+  }
   const head = firstLine(args)
   const path = meta.paths?.[0] ?? head
 
   if (lower === "bash") return clamp(`$ ${unwrapShell(head.replace(/^\$ /, ""))}`)
   if (lower === "read") return clamp(`Read ${baseName(path)}`)
-  if (lower === "write") return clamp(`Write ${baseName(path)}${delta(meta)}`)
+  if (lower === "write") return clamp(`Wrote ${baseName(path)}${delta(meta)}`)
   if (lower === "edit" || lower === "multiedit" || lower.includes("str_replace")) {
-    return clamp(`Edit ${baseName(path)}${delta(meta)}`)
+    return clamp(`Edited ${baseName(path)}${delta(meta)}`)
   }
   if (lower === "grep") return clamp(`Grep ${head.replace(/^pattern: /, "")}`)
   if (lower === "glob") return clamp(head.replace(/^glob: /, "Glob "))

@@ -209,7 +209,7 @@ describe("card titles", () => {
         added: 8,
         removed: 3,
       }),
-    ).toBe("Edit queries.ts +8 −3")
+    ).toBe("Edited queries.ts +8 −3")
     expect(describeCall("Grep", "pattern: TODO · in src", {})).toBe(
       "Grep TODO · in src",
     )
@@ -221,7 +221,7 @@ describe("card titles", () => {
       type: "file_change",
       changes: [{ path: "/p/b.txt", kind: "update" }],
     })
-    expect(firstRun(card)[0]!.title).toBe("Edit b.txt")
+    expect(firstRun(card)[0]!.title).toBe("Edited b.txt")
   })
 })
 
@@ -300,6 +300,32 @@ describe("changed files for the turn", () => {
     )
     expect(changed.files).toEqual([])
     expect(changed.countsKnown).toBe(false)
+  })
+})
+
+describe("card keys", () => {
+  it("scopes a card key per message, since CLIs reuse call ids per turn", () => {
+    const item = renderCodexItem({
+      id: "item_0",
+      type: "command_execution",
+      command: "ls",
+      aggregated_output: "a\n",
+      exit_code: 0,
+      status: "completed",
+    })
+    const [a] = runs(buildTranscript(item, "msg_1").blocks)[0]!
+    const [b] = runs(buildTranscript(item, "msg_2").blocks)[0]!
+    expect(a!.key).not.toBe(b!.key)
+  })
+
+  it("keeps a key stable as later blocks stream in", () => {
+    const first = toolUseBlock("Bash", { command: "one" })
+    const before = runs(buildTranscript(first, "m").blocks)[0]![0]!
+    const after = runs(
+      buildTranscript(first + "\nprose\n" + toolUseBlock("Bash", { command: "two" }), "m")
+        .blocks,
+    )[0]![0]!
+    expect(after.key).toBe(before.key)
   })
 })
 

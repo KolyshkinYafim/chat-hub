@@ -848,24 +848,47 @@ if (process.env.ELECTRON_RENDERER_URL) {
   app.setPath("userData", `${app.getPath("userData")}-dev`)
 }
 
+function focusMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+export interface SingleInstanceHooks {
+  /** Electron's lock — keyed on the userData path chosen just above. */
+  requestLock: () => boolean
+  quit: () => void
+  onSecondInstance: (handler: () => void) => void
+  /** Everything that touches the world: window, permission socket, stores. */
+  boot: () => void
+}
+
+export type SingleInstanceOutcome = "boot" | "quit"
+
 /**
  * One instance only. Two copies would fight over the same state.json, the same
  * bridge and — worst — the same permission socket: the second one unlinks the
  * first's `hub.sock` on boot, and every agent still blocked on an approval then
  * waits on a socket nobody is listening to.
+ *
+ * The decision lives in its own function because the thing worth asserting is
+ * what a losing instance does *not* do: `boot` is the only path to a window, a
+ * socket or a file, and it must stay untouched when the lock is already held.
  */
-if (!app.requestSingleInstanceLock()) {
-  app.quit()
-} else {
-  app.on("second-instance", () => {
-    if (!mainWindow) return
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.show()
-    mainWindow.focus()
-  })
+export function startSingleInstance(
+  hooks: SingleInstanceHooks,
+): SingleInstanceOutcome {
+  if (!hooks.requestLock()) {
+    hooks.quit()
+    return "quit"
+  }
+  hooks.onSecondInstance(focusMainWindow)
+  hooks.boot()
+  return "boot"
 }
 
-app.whenReady().then(async () => {
+async function bootstrap(): Promise<void> {
   if (process.platform === "darwin") {
     app.setName("Chat Hub")
   }
@@ -955,15 +978,26 @@ app.whenReady().then(async () => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
-})
-
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit()
-})
+}
 
 let quitting = false
 
-app.on("before-quit", (e) => {
+/**
+ * Nothing here runs until the lock is ours — including the `whenReady`
+ * registration, which would otherwise still fire in the instance that just
+ * called quit() and give it a window and a socket on the way out.
+ */
+function boot(): void {
+  void app.whenReady().then(bootstrap)
+
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit()
+  })
+
+  app.on("before-quit", onBeforeQuit)
+}
+
+function onBeforeQuit(e: { preventDefault: () => void }): void {
   commandBridge?.stop()
   terminals.killAll()
   // Dropping the socket makes every waiting hook fail open rather than sit on a
@@ -982,5 +1016,16 @@ app.on("before-quit", (e) => {
     clearTimeout(hardExit)
     app.exit(0)
   })
+}
+
+// Last line on purpose: by now every declaration the boot path reaches for
+// exists, so the only work a losing instance does is ask for the lock and quit.
+startSingleInstance({
+  requestLock: () => app.requestSingleInstanceLock(),
+  quit: () => app.quit(),
+  onSecondInstance: (handler) => {
+    app.on("second-instance", handler)
+  },
+  boot,
 })
 

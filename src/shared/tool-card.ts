@@ -6,6 +6,7 @@ export type ToolCardMeta = {
   removed?: number
   exitCode?: number
   error?: boolean
+  absLines?: true
 }
 
 const MARK = "\u001f"
@@ -19,6 +20,7 @@ export function encodeToolCardMeta(meta: ToolCardMeta): string {
   if (typeof meta.removed === "number") kept.removed = meta.removed
   if (typeof meta.exitCode === "number") kept.exitCode = meta.exitCode
   if (meta.error) kept.error = true
+  if (meta.absLines) kept.absLines = true
   if (Object.keys(kept).length === 0) return ""
   return `${MARK}${JSON.stringify(kept)}\n`
 }
@@ -62,6 +64,7 @@ function readMeta(raw: Record<string, unknown>): ToolCardMeta {
   if (typeof raw.removed === "number") meta.removed = raw.removed
   if (typeof raw.exitCode === "number") meta.exitCode = raw.exitCode
   if (raw.error === true) meta.error = true
+  if (raw.absLines === true) meta.absLines = true
   return meta
 }
 

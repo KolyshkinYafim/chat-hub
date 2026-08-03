@@ -25,7 +25,16 @@ else
   TREE_COMMIT="nogit"
 fi
 
+# A broken signature is the difference between an app that launches and one macOS
+# calls damaged, and it survives a version match, so report it separately.
+if codesign --verify --deep --strict "/Applications/Chat Hub.app" 2>/dev/null; then
+  SIGNATURE="signed (ad-hoc), verifies"
+else
+  SIGNATURE="✗ fails codesign --verify — rerun ${ROOT}/packaging/install-app.sh"
+fi
+
 echo "  installed: ${INSTALLED_VERSION} · ${INSTALLED_COMMIT} · ${INSTALLED_DATE}"
+echo "  signature: ${SIGNATURE}"
 echo "  tree:      $(node -p "require('${ROOT}/package.json').version") · ${TREE_COMMIT}"
 
 if [[ "${INSTALLED_COMMIT}" != "${TREE_COMMIT}" ]]; then

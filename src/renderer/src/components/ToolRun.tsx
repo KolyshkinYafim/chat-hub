@@ -6,22 +6,34 @@ import {
   type ToolCall,
 } from "../lib/tool-runs"
 import { DiffBody } from "./DiffBody"
+import { DiffCard } from "./DiffCard"
 
-const expandedByKey = new Map<string, boolean>()
+const expansionRememberedAcrossMounts = new Map<string, boolean>()
 
 function useExpanded(key: string, initial: boolean) {
-  const [open, setOpen] = useState(() => expandedByKey.get(key) ?? initial)
+  const [open, setOpen] = useState(
+    () => expansionRememberedAcrossMounts.get(key) ?? initial,
+  )
   const toggle = () => {
     const next = !open
-    expandedByKey.set(key, next)
+    expansionRememberedAcrossMounts.set(key, next)
     setOpen(next)
   }
   return [open, toggle] as const
 }
 
-function StatusChip({ call }: { call: ToolCall }) {
+function StatusChip({
+  call,
+  live,
+}: {
+  call: ToolCall
+  /** Only a turn still streaming can have a call that has not answered yet. */
+  live: boolean
+}) {
   const result = call.result
-  if (!result) return <span className="tool-status pending">running…</span>
+  if (!result) {
+    return live ? <span className="tool-status pending">running…</span> : null
+  }
   if (result.exitCode !== undefined && result.exitCode !== 0) {
     return <span className="tool-status failed">exit {result.exitCode}</span>
   }
@@ -31,10 +43,12 @@ function StatusChip({ call }: { call: ToolCall }) {
 
 function CallHead({
   call,
+  live,
   open,
   onToggle,
 }: {
   call: ToolCall
+  live: boolean
   open: boolean
   onToggle: () => void
 }) {
@@ -46,12 +60,12 @@ function CallHead({
       onClick={onToggle}
     >
       <span className="tool-caret" aria-hidden>
-        {open ? "▾" : "▸"}
+        {open ? "▼" : "▶"}
       </span>
       <span className="tool-title" title={call.title}>
         {call.title}
       </span>
-      <StatusChip call={call} />
+      <StatusChip call={call} live={live} />
       <span className="tool-kind">{call.name}</span>
     </button>
   )
@@ -79,14 +93,25 @@ function Output({ call }: { call: ToolCall }) {
 
 function CallDetail({ call }: { call: ToolCall }) {
   const args = call.args.trim()
+  const editedPath = call.diff !== null ? (call.meta.paths?.[0] ?? null) : null
   return (
     <div className="tool-detail">
-      {args !== "" && args !== call.title ? (
+      {editedPath === null && args !== "" && args !== call.title ? (
         <pre className="tool-args">
           <code>{call.args}</code>
         </pre>
       ) : null}
-      {call.diff !== null ? <DiffBody code={call.diff} /> : null}
+      {call.diff !== null ? (
+        editedPath !== null ? (
+          <DiffCard
+            path={editedPath}
+            diff={call.diff}
+            absoluteLines={call.meta.absLines === true}
+          />
+        ) : (
+          <DiffBody code={call.diff} />
+        )
+      ) : null}
       {call.result ? <Output call={call} /> : null}
     </div>
   )
@@ -94,28 +119,37 @@ function CallDetail({ call }: { call: ToolCall }) {
 
 function Call({
   call,
+  live,
   wrap,
 }: {
   call: ToolCall
+  live: boolean
   wrap: (className: string, children: ReactNode) => ReactNode
 }) {
   const [open, toggle] = useExpanded(call.key, startsOpen(call))
   return wrap(
     isFailed(call) ? "failed" : "",
     <>
-      <CallHead call={call} open={open} onToggle={toggle} />
+      <CallHead call={call} live={live} open={open} onToggle={toggle} />
       {open ? <CallDetail call={call} /> : null}
     </>,
   )
 }
 
-export function ToolRun({ calls }: { calls: ToolCall[] }) {
+export function ToolRun({
+  calls,
+  live,
+}: {
+  calls: ToolCall[]
+  live: boolean
+}) {
   if (calls.length === 0) return null
 
   if (calls.length === 1) {
     return (
       <Call
         call={calls[0]!}
+        live={live}
         wrap={(cls, children) => (
           <div className={`tool-card ${cls}`}>{children}</div>
         )}
@@ -137,6 +171,7 @@ export function ToolRun({ calls }: { calls: ToolCall[] }) {
           <Call
             key={call.key}
             call={call}
+            live={live}
             wrap={(cls, children) => (
               <li className={`tool-row ${cls}`}>{children}</li>
             )}
