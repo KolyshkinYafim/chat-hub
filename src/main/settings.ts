@@ -1,16 +1,44 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { readFile } from "node:fs/promises"
+import { join } from "node:path"
 import {
   DEFAULT_PERMISSION_MODE,
   type PermissionMode,
 } from "@shared/permission"
-import type { ProviderId } from "@shared/types"
-import type { HubSettings, ProviderConfig } from "@shared/settings-types"
+import { randomUUID } from "node:crypto"
+import { PROVIDERS, type ProviderId } from "@shared/types"
+import type {
+  GeneralConfig,
+  HubSettings,
+  ProviderConfig,
+  ProviderInstance,
+  RedactedProviderConfig,
+} from "@shared/settings-types"
+import { openSecret, sealSecret } from "./secret"
+import { homeEnvFor } from "./instances"
+import { quarantineCorrupt, writeFileAtomic } from "./atomic-write"
+
+const PROVIDER_IDS = new Set<string>(PROVIDERS.map((p) => p.id))
 
 const DEFAULTS: HubSettings = {
   version: 2,
   permissionMode: DEFAULT_PERMISSION_MODE,
   providers: {},
+  instances: [],
+  general: {},
+}
+
+/** Effective config for spawning/probing one instance (default or extra). */
+export type ResolvedInstance = {
+  provider: ProviderId
+  instanceId: string
+  isExtra: boolean
+  label: string
+  binaryPath?: string
+  defaultModel?: string
+  enabled: boolean
+  homeDir?: string
+  /** Decrypted env for spawn (API keys for default, home-env for extras). */
+  env: Record<string, string>
 }
 
 export class SettingsStore {
@@ -26,13 +54,167 @@ export class SettingsStore {
     return this.data.permissionMode
   }
 
+  get general(): GeneralConfig {
+    return { ...this.data.general }
+  }
+
+  async setGeneralConfig(patch: GeneralConfig): Promise<HubSettings> {
+    this.data = {
+      ...this.data,
+      general: { ...this.data.general, ...patch },
+    }
+    await this.save()
+    return this.snapshot
+  }
+
   getProviderConfig(id: ProviderId): ProviderConfig {
     return { ...(this.data.providers[id] ?? {}) }
   }
 
+  isProviderEnabled(id: ProviderId): boolean {
+    return this.data.providers[id]?.enabled !== false
+  }
+
+  /** Env var names set for a provider (values stay sealed). */
+  getProviderEnvKeys(id: ProviderId): string[] {
+    return Object.keys(this.data.providers[id]?.env ?? {})
+  }
+
+  /** Decrypted env for spawning the CLI. Main-process only. */
+  getProviderEnv(id: ProviderId): Record<string, string> {
+    const sealed = this.data.providers[id]?.env ?? {}
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(sealed)) {
+      const plain = openSecret(v)
+      if (plain) out[k] = plain
+    }
+    return out
+  }
+
+  listInstances(): ProviderInstance[] {
+    return this.data.instances.map((i) => ({ ...i }))
+  }
+
+  async addInstance(
+    provider: ProviderId,
+    patch: Partial<ProviderInstance>,
+  ): Promise<ProviderInstance> {
+    const instance: ProviderInstance = {
+      id: randomUUID(),
+      provider,
+      label: patch.label?.trim() || `${provider} (2)`,
+      homeDir: patch.homeDir?.trim() || undefined,
+      binaryPath: patch.binaryPath?.trim() || undefined,
+      defaultModel: patch.defaultModel?.trim() || undefined,
+      enabled: patch.enabled,
+    }
+    this.data = {
+      ...this.data,
+      instances: [...this.data.instances, instance],
+    }
+    await this.save()
+    return instance
+  }
+
+  async updateInstance(
+    id: string,
+    patch: Partial<ProviderInstance>,
+  ): Promise<ProviderInstance | null> {
+    let updated: ProviderInstance | null = null
+    this.data = {
+      ...this.data,
+      instances: this.data.instances.map((i) => {
+        if (i.id !== id) return i
+        updated = {
+          ...i,
+          label: patch.label !== undefined ? patch.label.trim() || i.label : i.label,
+          homeDir:
+            patch.homeDir !== undefined ? patch.homeDir.trim() || undefined : i.homeDir,
+          binaryPath:
+            patch.binaryPath !== undefined
+              ? patch.binaryPath.trim() || undefined
+              : i.binaryPath,
+          defaultModel:
+            patch.defaultModel !== undefined
+              ? patch.defaultModel.trim() || undefined
+              : i.defaultModel,
+          enabled: patch.enabled !== undefined ? patch.enabled : i.enabled,
+        }
+        return updated
+      }),
+    }
+    await this.save()
+    return updated
+  }
+
+  async removeInstance(id: string): Promise<ProviderInstance[]> {
+    this.data = {
+      ...this.data,
+      instances: this.data.instances.filter((i) => i.id !== id),
+    }
+    await this.save()
+    return this.listInstances()
+  }
+
+  /** Resolve one instance (default = provider id, or an extra) for spawn/probe. */
+  resolveInstance(instanceId: string | undefined): ResolvedInstance | null {
+    const extra = instanceId
+      ? this.data.instances.find((i) => i.id === instanceId)
+      : undefined
+    if (extra) {
+      return {
+        provider: extra.provider,
+        instanceId: extra.id,
+        isExtra: true,
+        label: extra.label,
+        binaryPath: extra.binaryPath,
+        defaultModel: extra.defaultModel,
+        enabled: extra.enabled !== false,
+        homeDir: extra.homeDir,
+        env: homeEnvFor(extra.provider, extra.homeDir),
+      }
+    }
+    // Default instance: id is the provider id. A removed extra's uuid must not
+    // land here — that silently re-points its sessions at the personal account.
+    if (!instanceId || !PROVIDER_IDS.has(instanceId)) return null
+    const provider = instanceId as ProviderId
+    const cfg = this.data.providers[provider] ?? {}
+    return {
+      provider,
+      instanceId: provider,
+      isExtra: false,
+      label: provider,
+      binaryPath: cfg.binaryPath,
+      defaultModel: cfg.defaultModel,
+      enabled: cfg.enabled !== false,
+      homeDir: undefined,
+      env: this.getProviderEnv(provider),
+    }
+  }
+
+  /** Providers with secrets stripped — safe to hand to the renderer. */
+  redactedProviders(): Partial<Record<ProviderId, RedactedProviderConfig>> {
+    const out: Partial<Record<ProviderId, RedactedProviderConfig>> = {}
+    for (const [id, cfg] of Object.entries(this.data.providers)) {
+      if (!cfg) continue
+      out[id as ProviderId] = {
+        binaryPath: cfg.binaryPath,
+        defaultModel: cfg.defaultModel,
+        enabled: cfg.enabled,
+      }
+    }
+    return out
+  }
+
   async load(): Promise<HubSettings> {
+    let raw: string
     try {
-      const raw = await readFile(this.filePath, "utf8")
+      raw = await readFile(this.filePath, "utf8")
+    } catch {
+      this.data = structuredClone(DEFAULTS)
+      return this.snapshot
+    }
+    try {
       const parsed = JSON.parse(raw) as Partial<HubSettings> & {
         version?: number
       }
@@ -45,8 +227,21 @@ export class SettingsStore {
           parsed.providers && typeof parsed.providers === "object"
             ? (parsed.providers as HubSettings["providers"])
             : {},
+        instances: Array.isArray(parsed.instances)
+          ? (parsed.instances as ProviderInstance[]).filter(
+              (i) => i && typeof i.id === "string" && typeof i.provider === "string",
+            )
+          : [],
+        general:
+          parsed.general && typeof parsed.general === "object"
+            ? (parsed.general as GeneralConfig)
+            : {},
       }
-    } catch {
+    } catch (err) {
+      // Defaults here mean losing every sealed API key: park the file first so the
+      // user can still recover it by hand.
+      const parked = await quarantineCorrupt(this.filePath)
+      console.error("[settings] unreadable settings parked at", parked, err)
       this.data = structuredClone(DEFAULTS)
     }
     return this.snapshot
@@ -63,13 +258,29 @@ export class SettingsStore {
     patch: ProviderConfig,
   ): Promise<HubSettings> {
     const prev = this.data.providers[id] ?? {}
+
+    // Merge env: empty value deletes the key, otherwise seal + store.
+    let env = prev.env
+    if (patch.env !== undefined) {
+      const next: Record<string, string> = { ...(prev.env ?? {}) }
+      for (const [rawKey, rawVal] of Object.entries(patch.env)) {
+        const key = rawKey.trim()
+        if (!key) continue
+        if (rawVal === "" || rawVal == null) {
+          delete next[key]
+        } else {
+          next[key] = sealSecret(String(rawVal))
+        }
+      }
+      env = Object.keys(next).length > 0 ? next : undefined
+    }
+
     this.data = {
       ...this.data,
       providers: {
         ...this.data.providers,
         [id]: {
           ...prev,
-          ...patch,
           binaryPath:
             patch.binaryPath !== undefined
               ? patch.binaryPath.trim() || undefined
@@ -78,6 +289,9 @@ export class SettingsStore {
             patch.defaultModel !== undefined
               ? patch.defaultModel.trim() || undefined
               : prev.defaultModel,
+          enabled:
+            patch.enabled !== undefined ? patch.enabled : prev.enabled,
+          env,
         },
       },
     }
@@ -86,10 +300,7 @@ export class SettingsStore {
   }
 
   private async save(): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true })
-    const tmp = `${this.filePath}.tmp`
-    await writeFile(tmp, JSON.stringify(this.data, null, 2), "utf8")
-    await rename(tmp, this.filePath)
+    await writeFileAtomic(this.filePath, JSON.stringify(this.data, null, 2))
   }
 
   static defaultPath(userData: string): string {
