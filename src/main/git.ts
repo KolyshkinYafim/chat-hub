@@ -1,5 +1,10 @@
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
+import type {
+  GitBranchList,
+  GitFileChange,
+  GitWorkingCopy,
+} from "@shared/types"
 
 const execFileAsync = promisify(execFile)
 
@@ -7,6 +12,18 @@ export type GitCheckoutInfo = {
   branch: string
   dirty: boolean
   root: string | null
+}
+
+/**
+ * `git` refuses paths it reads as options, and a repo can legitimately hold a
+ * file called `-f`, so every path argument travels after `--` and a leading
+ * dash is rejected outright rather than quietly turned into a flag.
+ */
+function assertPathspec(path: string): string {
+  if (!path || path.startsWith("-") || path.includes("\0")) {
+    throw new Error(`Refusing path: ${path}`)
+  }
+  return path
 }
 
 export async function getGitCheckout(cwd: string): Promise<GitCheckoutInfo> {
@@ -35,6 +52,226 @@ export async function getGitCheckout(cwd: string): Promise<GitCheckoutInfo> {
     }
   } catch {
     return { branch: "no-git", dirty: false, root: null }
+  }
+}
+
+/** Big repos blow past execFile's 1 MB default on both status and diff. */
+const BUFFER = 8 * 1024 * 1024
+
+function parseAheadBehind(header: string): { ahead: number; behind: number } {
+  const ahead = /\bahead (\d+)/.exec(header)
+  const behind = /\bbehind (\d+)/.exec(header)
+  return {
+    ahead: ahead ? Number(ahead[1]) : 0,
+    behind: behind ? Number(behind[1]) : 0,
+  }
+}
+
+/**
+ * `-z` instead of the human format: paths with spaces, quotes or non-ASCII are
+ * emitted raw, and a rename's source arrives as its own record instead of
+ * inside an ` -> ` string we would have to un-escape.
+ */
+function parsePorcelainZ(out: string): {
+  branch: string
+  ahead: number
+  behind: number
+  files: GitFileChange[]
+} {
+  const records = out.split("\0")
+  let branch = "HEAD"
+  let ahead = 0
+  let behind = 0
+  const files: GitFileChange[] = []
+  for (let i = 0; i < records.length; i++) {
+    const rec = records[i]
+    if (!rec) continue
+    if (rec.startsWith("## ")) {
+      const header = rec.slice(3)
+      branch = header.split(/\.\.\.| /)[0] || "HEAD"
+      ;({ ahead, behind } = parseAheadBehind(header))
+      continue
+    }
+    const index = rec[0] ?? " "
+    const work = rec[1] ?? " "
+    const path = rec.slice(3)
+    if (!path) continue
+    const renamed = index === "R" || index === "C"
+    const from = renamed ? records[++i] : undefined
+    files.push({ path, index, work, ...(from ? { from } : {}) })
+  }
+  files.sort((a, b) => a.path.localeCompare(b.path))
+  return { branch, ahead, behind, files }
+}
+
+export async function getWorkingCopy(cwd: string): Promise<GitWorkingCopy> {
+  const empty: GitWorkingCopy = {
+    root: null,
+    branch: "no-git",
+    ahead: 0,
+    behind: 0,
+    files: [],
+  }
+  try {
+    const { stdout: rootOut } = await execFileAsync(
+      "git",
+      ["rev-parse", "--show-toplevel"],
+      { cwd, timeout: 4000 },
+    )
+    const { stdout } = await execFileAsync(
+      "git",
+      [
+        "-c",
+        "core.quotepath=false",
+        "status",
+        "--porcelain=v1",
+        "--branch",
+        "-z",
+        "--untracked-files=all",
+      ],
+      { cwd, timeout: 15_000, maxBuffer: BUFFER },
+    )
+    return { root: rootOut.trim() || null, ...parsePorcelainZ(stdout) }
+  } catch {
+    return empty
+  }
+}
+
+/**
+ * The diff of one path. Untracked files have no blob to diff against, so they
+ * go through `--no-index` from /dev/null — which exits 1 by design, hence the
+ * stdout-off-the-error read.
+ */
+export async function getFileDiff(
+  cwd: string,
+  path: string,
+  staged: boolean,
+  untracked = false,
+): Promise<string> {
+  assertPathspec(path)
+  const args = untracked
+    ? ["diff", "--no-color", "--no-index", "--", "/dev/null", path]
+    : [
+        "diff",
+        "--no-color",
+        ...(staged ? ["--cached"] : []),
+        "--",
+        path,
+      ]
+  try {
+    const { stdout } = await execFileAsync("git", args, {
+      cwd,
+      timeout: 15_000,
+      maxBuffer: BUFFER,
+    })
+    return stdout
+  } catch (err) {
+    const out = (err as { stdout?: string }).stdout
+    if (typeof out === "string" && out.length > 0) return out
+    const msg = err instanceof Error ? err.message : String(err)
+    // Binary files and deleted-on-disk paths land here; say so in the pane
+    // rather than leaving it blank as if the file were unchanged.
+    return `# no diff available\n# ${msg.split("\n")[0]}`
+  }
+}
+
+export async function stagePaths(
+  cwd: string,
+  paths: string[],
+): Promise<GitWorkingCopy> {
+  if (paths.length > 0) {
+    await execFileAsync(
+      "git",
+      ["add", "--", ...paths.map(assertPathspec)],
+      { cwd, timeout: 30_000 },
+    )
+  }
+  return getWorkingCopy(cwd)
+}
+
+export async function unstagePaths(
+  cwd: string,
+  paths: string[],
+): Promise<GitWorkingCopy> {
+  if (paths.length > 0) {
+    // `reset -q HEAD --` rather than `restore --staged`: it is the one that
+    // also works before the first commit, where HEAD does not resolve yet.
+    await execFileAsync(
+      "git",
+      ["reset", "-q", "HEAD", "--", ...paths.map(assertPathspec)],
+      { cwd, timeout: 30_000 },
+    ).catch(async () => {
+      await execFileAsync(
+        "git",
+        ["rm", "--cached", "-q", "--", ...paths.map(assertPathspec)],
+        { cwd, timeout: 30_000 },
+      )
+    })
+  }
+  return getWorkingCopy(cwd)
+}
+
+export async function listBranches(cwd: string): Promise<GitBranchList> {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+      { cwd, timeout: 8000, maxBuffer: BUFFER },
+    )
+    const { stdout: head } = await execFileAsync(
+      "git",
+      ["rev-parse", "--abbrev-ref", "HEAD"],
+      { cwd, timeout: 4000 },
+    )
+    return {
+      current: head.trim() || "HEAD",
+      branches: stdout.split("\n").filter(Boolean),
+    }
+  } catch {
+    return { current: "no-git", branches: [] }
+  }
+}
+
+/**
+ * Plain `git checkout`, so a switch that would drop uncommitted work fails with
+ * git's own message instead of us deciding to stash or discard it for the user.
+ */
+export async function checkoutBranch(
+  cwd: string,
+  branch: string,
+): Promise<{ ok: boolean; output: string }> {
+  if (!branch || branch.startsWith("-")) throw new Error("Invalid branch")
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      "git",
+      ["checkout", branch],
+      { cwd, timeout: 30_000 },
+    )
+    return { ok: true, output: (stderr || stdout || `on ${branch}`).trim() }
+  } catch (err) {
+    const e = err as { stderr?: string; message?: string }
+    return { ok: false, output: (e.stderr || e.message || "").trim() }
+  }
+}
+
+/** Commits what the user staged in the panel — never an implicit `add -A`. */
+export async function gitCommitStaged(
+  cwd: string,
+  message: string,
+): Promise<{ ok: boolean; output: string }> {
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      "git",
+      ["commit", "-m", message],
+      { cwd, timeout: 30_000 },
+    )
+    return { ok: true, output: (stdout || stderr || "committed").trim() }
+  } catch (err) {
+    const e = err as { stdout?: string; stderr?: string; message?: string }
+    return {
+      ok: false,
+      output: (e.stdout || e.stderr || e.message || "commit failed").trim(),
+    }
   }
 }
 

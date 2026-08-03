@@ -2,19 +2,26 @@ import { randomUUID } from "node:crypto"
 import type {
   ChatMessage,
   CreateSessionInput,
+  PermissionRequestInfo,
   ProviderId,
+  QueuedMessage,
   SessionMeta,
   SessionSnapshot,
   SessionStatus,
+  SessionUsage,
+  TurnUsage,
 } from "@shared/types"
 import { normalizeProject } from "@shared/project"
 import { getAdapter } from "./adapters"
-import type { AdapterCallbacks } from "./adapters/types"
+import { resolveBinaryForSpawn } from "./provider-probe"
+import type { AdapterCallbacks, EffortLevel } from "./adapters/types"
 import type { EventBus } from "./event-bus"
 import type { SessionMonitorBridge } from "./bridge"
 import type { NotificationService } from "./notifications"
 import type { Persistence, PersistedState } from "./persistence"
 import { buildDemoState } from "./demo-seed"
+import { addUsage } from "./adapters/usage"
+import type { PermissionBroker } from "./permission-broker"
 import { realpathSync, statSync } from "node:fs"
 import type { PermissionMode } from "@shared/permission"
 import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
@@ -22,12 +29,36 @@ import type { SettingsStore } from "./settings"
 
 const MAX_MESSAGES_PER_SESSION = 200
 
+export type SendOpts = {
+  effort?: EffortLevel
+  attachments?: string[]
+}
+
+/** Watchdog cadence and how long a turn may stay silent before we call it dead. */
+export type WatchdogConfig = { intervalMs: number; silenceMs: number }
+
+const WATCHDOG: WatchdogConfig = {
+  intervalMs: 15_000,
+  // Generous on purpose: a legitimate tool call (test suite, install) goes quiet
+  // for minutes, and killing a live agent is worse than a late status.
+  silenceMs: 10 * 60_000,
+}
+
+/** Queue entry: the shared QueuedMessage the UI renders plus its send opts. */
+type QueuedTurn = { id: string; content: string; createdAt: number; opts?: SendOpts }
+
 export class SessionManager {
   private sessions = new Map<string, SessionMeta>()
   private messages = new Map<string, ChatMessage[]>()
   private activeSessionId: string | null = null
   private saveTimer: ReturnType<typeof setTimeout> | null = null
   private started = false
+  /** In-flight turns: presence means a live adapter process belongs to the id. */
+  private turns = new Map<string, { lastActivityAt: number }>()
+  private queued = new Map<string, QueuedTurn[]>()
+  private watchdogTimer: ReturnType<typeof setInterval> | null = null
+  private usage = new Map<string, SessionUsage>()
+  private permissions: PermissionBroker | null = null
 
   constructor(
     private readonly bus: EventBus,
@@ -35,15 +66,74 @@ export class SessionManager {
     private readonly bridge: SessionMonitorBridge,
     private readonly notifications: NotificationService,
     private readonly settings: SettingsStore,
+    private readonly watchdog: WatchdogConfig = WATCHDOG,
   ) {}
+
+  /**
+   * The broker is built after the manager (it needs a session lookup that only
+   * exists once the manager does), so it arrives by setter rather than by ctor.
+   */
+  setPermissionBroker(broker: PermissionBroker): void {
+    this.permissions = broker
+  }
+
+  /**
+   * Map a hook's agent-side id back onto a Hub session. Hooks namespace the id
+   * ("claude-<uuid>"); we persist the bare CLI id, hence the prefix tolerance.
+   * The cwd fallback catches the first permission of a turn, which can arrive
+   * before the CLI has told us its session id at all.
+   */
+  findSessionForAgent(agentSessionId: string, cwd?: string): string | null {
+    const bare = agentSessionId.replace(/^(claude|codex|grok|opencode)-/, "")
+    for (const s of this.sessions.values()) {
+      if (!s.agentSessionId) continue
+      if (s.agentSessionId === agentSessionId || s.agentSessionId === bare) {
+        return s.id
+      }
+    }
+    if (!cwd) return null
+    const live = this.listSessions().filter(
+      (s) => s.cwd === cwd && this.turns.has(s.id),
+    )
+    return live[0]?.id ?? null
+  }
 
   getPermissionMode(): PermissionMode {
     return this.settings.permissionMode
   }
 
+  /** The global default, used by every session that has not overridden it. */
   async setPermissionMode(mode: PermissionMode): Promise<PermissionMode> {
     const next = await this.settings.setPermissionMode(mode)
     return next.permissionMode
+  }
+
+  /** What this session's next turn will actually run with. */
+  permissionModeFor(session: SessionMeta): PermissionMode {
+    return (
+      session.permissionMode ??
+      this.settings.permissionMode ??
+      DEFAULT_PERMISSION_MODE
+    )
+  }
+
+  /**
+   * Override the mode for one session. `undefined` clears the override, so the
+   * session goes back to following the global default rather than freezing
+   * whatever the default happened to be at the time.
+   */
+  setSessionPermissionMode(
+    sessionId: string,
+    mode: PermissionMode | undefined,
+  ): SessionMeta {
+    const session = this.sessions.get(sessionId)
+    if (!session) throw new Error("Session not found")
+    const next: SessionMeta = { ...session, permissionMode: mode, updatedAt: Date.now() }
+    this.sessions.set(sessionId, next)
+    this.publishSessionEvent({ type: "session.upsert", session: next })
+    this.bus.emit({ type: "sessions.replaced", sessions: this.listSessions() })
+    this.scheduleSave()
+    return next
   }
 
   setSessionModel(sessionId: string, model: string): SessionMeta {
@@ -53,6 +143,39 @@ export class SessionManager {
       ...session,
       model: model.trim() || undefined,
       updatedAt: Date.now(),
+    }
+    this.sessions.set(sessionId, next)
+    this.publishSessionEvent({ type: "session.upsert", session: next })
+    this.bus.emit({ type: "sessions.replaced", sessions: this.listSessions() })
+    this.scheduleSave()
+    return next
+  }
+
+  /**
+   * Attach (or clear) a mode preset. `modeId`/`systemPrompt` are always set —
+   * passing them undefined clears the mode — while model/permission only change
+   * when the mode actually specifies them, so "No mode" never resets those.
+   */
+  applySessionMode(
+    sessionId: string,
+    patch: {
+      modeId?: string
+      systemPrompt?: string
+      model?: string
+      permissionMode?: PermissionMode
+    },
+  ): SessionMeta {
+    const session = this.sessions.get(sessionId)
+    if (!session) throw new Error("Session not found")
+    const next: SessionMeta = {
+      ...session,
+      modeId: patch.modeId,
+      systemPrompt: patch.systemPrompt?.trim() || undefined,
+      updatedAt: Date.now(),
+    }
+    if (patch.model !== undefined) next.model = patch.model.trim() || undefined
+    if (patch.permissionMode !== undefined) {
+      next.permissionMode = patch.permissionMode
     }
     this.sessions.set(sessionId, next)
     this.publishSessionEvent({ type: "session.upsert", session: next })
@@ -114,6 +237,9 @@ export class SessionManager {
         msgs.map((m) => ({ ...m, streaming: false })),
       )
     }
+    for (const [id, total] of Object.entries(state.usage ?? {})) {
+      if (this.sessions.has(id)) this.usage.set(id, total)
+    }
     this.activeSessionId = state.activeSessionId
     if (
       this.activeSessionId &&
@@ -131,6 +257,41 @@ export class SessionManager {
       type: "sessions.replaced",
       sessions: this.listSessions(),
     })
+
+    // Re-register restored sessions with their adapter so follow-up turns work
+    // after a restart (otherwise send() throws "Session not started"), seeding
+    // the persisted CLI session id for resume.
+    for (const session of this.listSessions()) {
+      await this.restoreAdapter(session)
+    }
+
+    this.startWatchdog()
+  }
+
+  private async restoreAdapter(session: SessionMeta): Promise<void> {
+    try {
+      const adapter = getAdapter(session.provider)
+      const resolved = this.settings.resolveInstance(
+        session.instanceId ?? session.provider,
+      )
+      await adapter.start(
+        {
+          sessionId: session.id,
+          cwd: session.cwd,
+          title: session.title,
+          binaryPath: resolved?.binaryPath,
+          resumeId: session.agentSessionId,
+        },
+        this.callbacks(),
+      )
+    } catch (err) {
+      // Missing binary / login — session stays visible; send() surfaces the error.
+      console.warn(
+        "[session-manager] restore adapter failed",
+        session.id,
+        err instanceof Error ? err.message : err,
+      )
+    }
   }
 
   getSnapshot(): SessionSnapshot {
@@ -138,11 +299,26 @@ export class SessionManager {
     for (const [id, msgs] of this.messages) {
       messages[id] = msgs
     }
+    const queued: Record<string, QueuedMessage[]> = {}
+    for (const id of this.queued.keys()) {
+      queued[id] = this.listQueued(id)
+    }
+    const usage: Record<string, SessionUsage> = {}
+    for (const [id, total] of this.usage) {
+      usage[id] = total
+    }
     return {
       sessions: this.listSessions(),
       messages,
+      queued,
+      usage,
+      permissions: this.permissions?.list() ?? [],
       activeSessionId: this.activeSessionId,
     }
+  }
+
+  getUsage(sessionId: string): SessionUsage | undefined {
+    return this.usage.get(sessionId)
   }
 
   listSessions(): SessionMeta[] {
@@ -179,10 +355,21 @@ export class SessionManager {
   }
 
   async createSession(input: CreateSessionInput): Promise<SessionMeta> {
-    const adapter = getAdapter(input.provider)
-    if (!adapter.available) {
+    const instanceId = input.instanceId ?? input.provider
+    const resolved = this.settings.resolveInstance(instanceId)
+    if (!resolved) {
+      throw new Error(`Unknown provider/instance "${instanceId}"`)
+    }
+    const provider = resolved.provider
+    const adapter = getAdapter(provider)
+    // Availability honors a Settings binary-path override, not just PATH.
+    const bin =
+      provider === "mock"
+        ? "mock"
+        : resolveBinaryForSpawn(provider, resolved.binaryPath)
+    if (!bin && !adapter.available) {
       throw new Error(
-        `Provider "${input.provider}" is not available. Install the CLI or pick another agent.`,
+        `Provider "${provider}" is not available. Install the CLI, set a binary path in Settings, or pick another agent.`,
       )
     }
 
@@ -190,14 +377,14 @@ export class SessionManager {
     const id = randomUUID()
     const cwd = resolveSessionCwd(input.cwd)
     const project = normalizeProject(input.project, cwd)
-    const cfg = this.settings.getProviderConfig(input.provider)
     const model =
-      input.model?.trim() || cfg.defaultModel || undefined
+      input.model?.trim() || resolved.defaultModel || undefined
     const session: SessionMeta = {
       id,
-      title: input.title?.trim() || defaultTitle(input.provider, project, now),
+      title: input.title?.trim() || defaultTitle(provider, project, now),
       project,
-      provider: input.provider,
+      provider,
+      instanceId,
       model,
       cwd,
       status: "idle",
@@ -205,15 +392,30 @@ export class SessionManager {
       updatedAt: now,
     }
 
+    const previousActive = this.activeSessionId
     this.sessions.set(id, session)
     this.messages.set(id, [])
     this.activeSessionId = id
 
     const cb = this.callbacks()
-    await adapter.start(
-      { sessionId: id, cwd: session.cwd, title: session.title },
-      cb,
-    )
+    try {
+      await adapter.start(
+        {
+          sessionId: id,
+          cwd: session.cwd,
+          title: session.title,
+          binaryPath: resolved.binaryPath,
+        },
+        cb,
+      )
+    } catch (err) {
+      // start() throws on a missing binary: a session the UI never rendered must
+      // not survive in the map and reappear from state.json after a restart.
+      this.sessions.delete(id)
+      this.messages.delete(id)
+      this.activeSessionId = previousActive
+      throw err
+    }
 
     this.publishSessionEvent({ type: "session.upsert", session })
     this.bus.emit({ type: "sessions.replaced", sessions: this.listSessions() })
@@ -229,10 +431,7 @@ export class SessionManager {
   async sendMessage(
     sessionId: string,
     text: string,
-    opts?: {
-      effort?: import("./adapters/types").EffortLevel
-      attachments?: string[]
-    },
+    opts?: SendOpts,
   ): Promise<void> {
     const session = this.sessions.get(sessionId)
     if (!session) throw new Error("Session not found")
@@ -262,23 +461,58 @@ export class SessionManager {
       preview: userContent.slice(0, 160),
     })
 
+    // turns.has() as well as the status: dispatch() registers the turn
+    // synchronously, while "running" only arrives once the adapter says so — two
+    // quick sends would otherwise both dispatch and the adapter would reject the
+    // second, failing the session while the first turn is still alive.
+    if (this.turns.has(sessionId) || this.sessions.get(sessionId)?.status === "running") {
+      // Sending now would pre-empt the live turn mid-tool-call and lose its work;
+      // hold the text and hand it over when the turn reports back.
+      const queue = this.queued.get(sessionId) ?? []
+      queue.push({ id: randomUUID(), content, createdAt: Date.now(), opts })
+      this.queued.set(sessionId, queue)
+      this.emitQueue(sessionId)
+      return
+    }
+
+    this.dispatch(sessionId, content, opts)
+  }
+
+  private dispatch(sessionId: string, content: string, opts?: SendOpts): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+
     const adapter = getAdapter(session.provider)
-    const permissionMode =
-      this.settings.permissionMode || DEFAULT_PERMISSION_MODE
+    const permissionMode = this.permissionModeFor(session)
+    const resolved = this.settings.resolveInstance(
+      session.instanceId ?? session.provider,
+    )
+    const env = {
+      ...(resolved?.env ?? {}),
+      ...this.permissionEnv(session),
+      ...this.hookIdentityEnv(session),
+    }
+    this.turns.set(sessionId, { lastActivityAt: Date.now() })
     // Fire-and-forget: stream/status arrive via event bus; UI stays responsive.
     void adapter
       .send(sessionId, content || "Please review the attached files.", this.callbacks(), {
         permissionMode,
         model: session.model,
         effort: opts?.effort,
+        systemPrompt: session.systemPrompt,
         attachments: opts?.attachments,
+        binaryPath: resolved?.binaryPath,
+        env: Object.keys(env).length > 0 ? env : undefined,
       })
       .then(() => {
+        this.turns.delete(sessionId)
         if (this.sessions.get(sessionId)?.status === "running") {
           this.applyStatus(sessionId, "idle")
         }
+        this.flushQueued(sessionId)
       })
       .catch((err) => {
+        this.turns.delete(sessionId)
         console.error("[session-manager] send failed", err)
         this.applyStatus(sessionId, "error")
         this.publishSessionEvent({
@@ -286,14 +520,197 @@ export class SessionManager {
           id: sessionId,
           reason: "error",
         })
+        this.dropQueued(sessionId, "the turn failed")
       })
+  }
+
+  /**
+   * Point the CLI's agent-desktop hook at the Hub's socket so its permission
+   * prompts land in the transcript. Only the two CLIs that speak the blocking
+   * hook protocol: for OpenCode the same variable addresses its plugin's event
+   * push, which belongs to the island, not to us.
+   */
+  private permissionEnv(session: SessionMeta): Record<string, string> {
+    const socket = this.permissions?.socketPath
+    if (!socket) return {}
+    if (session.provider !== "claude" && session.provider !== "codex") return {}
+    return { AGENT_DESKTOP_SOCKET: socket }
+  }
+
+  /**
+   * The user's globally-installed Claude Code hook fires for the `claude` we
+   * spawn too, so one Hub turn used to raise two island cards — ours, plus the
+   * hook's, mislabelled "Terminal" because a spawned CLI has no TERM_PROGRAM.
+   * Handing the hook our session id makes both producers write the same card,
+   * which keeps the hook's richer data (tool activity, permissions) on it.
+   */
+  private hookIdentityEnv(session: SessionMeta): Record<string, string> {
+    return {
+      AGENT_DESKTOP_HUB_SESSION: session.id,
+      AGENT_DESKTOP_HUB_BUNDLE: "com.agentdesktop.ChatHub",
+    }
+  }
+
+  /** Hand the next queued message to the adapter now that the turn is over. */
+  private flushQueued(sessionId: string): void {
+    const queue = this.queued.get(sessionId)
+    const next = queue?.shift()
+    if (!next) return
+    if (queue && queue.length === 0) this.queued.delete(sessionId)
+    this.emitQueue(sessionId)
+    this.dispatch(sessionId, next.content, next.opts)
+  }
+
+  /** Never leave the user guessing whether a queued message was delivered. */
+  private dropQueued(sessionId: string, reason: string): void {
+    const queue = this.queued.get(sessionId)
+    if (!queue || queue.length === 0) return
+    this.queued.delete(sessionId)
+    this.emitQueue(sessionId)
+    this.systemNote(
+      sessionId,
+      `${queue.length} queued message(s) were not sent — ${reason}.`,
+    )
+  }
+
+  /** Undelivered follow-ups, oldest first. The renderer renders exactly this. */
+  listQueued(sessionId: string): QueuedMessage[] {
+    return (this.queued.get(sessionId) ?? []).map((q) => ({
+      id: q.id,
+      sessionId,
+      text: q.content,
+      createdAt: q.createdAt,
+    }))
+  }
+
+  /** Take a follow-up back out of the queue before it reaches the CLI. */
+  cancelQueued(sessionId: string, queuedId: string): QueuedMessage[] {
+    const queue = this.queued.get(sessionId)
+    if (queue) {
+      const next = queue.filter((q) => q.id !== queuedId)
+      if (next.length === 0) this.queued.delete(sessionId)
+      else this.queued.set(sessionId, next)
+      if (next.length !== queue.length) this.emitQueue(sessionId)
+    }
+    return this.listQueued(sessionId)
+  }
+
+  private emitQueue(sessionId: string): void {
+    this.bus.emit({
+      type: "queue.changed",
+      sessionId,
+      queued: this.listQueued(sessionId),
+    })
   }
 
   async abortSession(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId)
     if (!session) return
+    this.turns.delete(sessionId)
     await getAdapter(session.provider).abort(sessionId)
     this.applyStatus(sessionId, "idle")
+    this.dropQueued(sessionId, "the turn was stopped")
+  }
+
+  /**
+   * Quit path: the CLIs run detached (own process group), so nothing signals them
+   * when Electron exits — a YOLO agent would keep editing the repo with no UI.
+   */
+  async shutdown(): Promise<void> {
+    this.stopWatchdog()
+    const live = [...this.sessions.values()].filter(
+      (s) => s.status === "running" || this.turns.has(s.id),
+    )
+    await Promise.all(
+      live.map(async (s) => {
+        try {
+          await getAdapter(s.provider).abort(s.id)
+        } catch (err) {
+          console.warn("[session-manager] abort on quit failed", s.id, err)
+        }
+      }),
+    )
+    this.turns.clear()
+    // The queue is in-memory only: say so in the transcript before quitting,
+    // otherwise the user comes back to their own message that never ran.
+    for (const id of [...this.queued.keys()]) {
+      this.dropQueued(id, "Chat Hub quit")
+    }
+    for (const s of live) {
+      this.applyStatus(s.id, "idle")
+    }
+    await this.flush()
+    await this.bridge.flush()
+  }
+
+  private startWatchdog(): void {
+    if (this.watchdogTimer) return
+    this.watchdogTimer = setInterval(
+      () => this.checkStuckSessions(),
+      this.watchdog.intervalMs,
+    )
+    // A background timer must not keep the process alive on its own.
+    this.watchdogTimer.unref?.()
+  }
+
+  private stopWatchdog(): void {
+    if (!this.watchdogTimer) return
+    clearInterval(this.watchdogTimer)
+    this.watchdogTimer = null
+  }
+
+  /**
+   * A session must never sit in "running" with nothing behind it: either no turn
+   * owns it (process gone / never started) or the CLI went silent for good.
+   * Public so the behaviour is testable without waiting for the interval.
+   */
+  checkStuckSessions(now = Date.now()): void {
+    for (const session of [...this.sessions.values()]) {
+      if (session.status !== "running") continue
+      const turn = this.turns.get(session.id)
+      if (!turn) {
+        this.systemNote(
+          session.id,
+          "Marked idle — no agent process is attached to this session.",
+        )
+        this.applyStatus(session.id, "idle")
+        this.dropQueued(session.id, "the session had no live process")
+        continue
+      }
+      if (now - turn.lastActivityAt < this.watchdog.silenceMs) continue
+
+      this.turns.delete(session.id)
+      try {
+        void getAdapter(session.provider)
+          .abort(session.id)
+          .catch(() => undefined)
+      } catch {
+        /* provider gone — the status fix below still matters */
+      }
+      const minutes = Math.round(this.watchdog.silenceMs / 60_000)
+      this.systemNote(
+        session.id,
+        `Marked failed — no output from ${session.provider} for ${minutes} min. The process was stopped.`,
+      )
+      this.applyStatus(session.id, "error")
+      this.publishSessionEvent({
+        type: "session.ended",
+        id: session.id,
+        reason: "error",
+      })
+      this.dropQueued(session.id, "the turn stopped responding")
+    }
+  }
+
+  private systemNote(sessionId: string, content: string): void {
+    this.appendMessage({
+      id: randomUUID(),
+      sessionId,
+      role: "system",
+      content,
+      createdAt: Date.now(),
+    })
+    this.scheduleSave()
   }
 
   async deleteSession(sessionId: string): Promise<void> {
@@ -308,6 +725,11 @@ export class SessionManager {
 
     this.sessions.delete(sessionId)
     this.messages.delete(sessionId)
+    this.turns.delete(sessionId)
+    this.queued.delete(sessionId)
+    this.usage.delete(sessionId)
+    // The CLI is dead, so nothing is left to answer its permission any more.
+    this.permissions?.cancelForSession(sessionId)
     if (this.activeSessionId === sessionId) {
       const next = this.listSessions()[0]
       this.activeSessionId = next?.id ?? null
@@ -322,6 +744,29 @@ export class SessionManager {
     this.scheduleSave()
   }
 
+  /** Remove every session + transcript. Used by Settings → Advanced → Reset. */
+  async wipeSessions(): Promise<void> {
+    const ids = [...this.sessions.keys()]
+    for (const id of ids) {
+      this.permissions?.cancelForSession(id)
+      try {
+        await getAdapter(this.sessions.get(id)!.provider).dispose(id)
+      } catch {
+        /* ignore */
+      }
+      this.publishSessionEvent({ type: "session.ended", id, reason: "killed" })
+    }
+    this.sessions.clear()
+    this.messages.clear()
+    this.turns.clear()
+    this.queued.clear()
+    this.usage.clear()
+    this.activeSessionId = null
+    this.bus.emit({ type: "sessions.replaced", sessions: [] })
+    this.bus.emit({ type: "session.active", sessionId: null })
+    await this.flush()
+  }
+
   async flush(): Promise<void> {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer)
@@ -333,6 +778,7 @@ export class SessionManager {
   private callbacks(): AdapterCallbacks {
     return {
       onSessionEvent: (event) => {
+        if ("id" in event) this.markActivity(event.id)
         if (event.type === "session.status") {
           this.applyStatus(event.id, event.status)
           return
@@ -350,11 +796,13 @@ export class SessionManager {
         this.publishSessionEvent(event)
       },
       onMessage: (message) => {
+        this.markActivity(message.sessionId)
         this.appendMessage(message)
         this.touch(message.sessionId)
         this.scheduleSave()
       },
       onDelta: (sessionId, messageId, delta) => {
+        this.markActivity(sessionId)
         const list = this.messages.get(sessionId)
         if (!list) return
         const idx = list.findIndex((m) => m.id === messageId)
@@ -374,6 +822,7 @@ export class SessionManager {
         this.touch(sessionId)
       },
       onStreamDone: (sessionId, messageId) => {
+        this.markActivity(sessionId)
         const list = this.messages.get(sessionId)
         if (list) {
           const idx = list.findIndex((m) => m.id === messageId)
@@ -384,7 +833,45 @@ export class SessionManager {
         this.bus.emit({ type: "chat.done", sessionId, messageId })
         this.scheduleSave()
       },
+      onUsage: (sessionId, turn, messageId) => {
+        this.recordUsage(sessionId, turn, messageId)
+      },
+      onAgentSession: (sessionId, agentSessionId) => {
+        const s = this.sessions.get(sessionId)
+        if (!s || s.agentSessionId === agentSessionId) return
+        // Persist for cross-restart resume; no visible change → no re-render.
+        this.sessions.set(sessionId, { ...s, agentSessionId })
+        this.scheduleSave()
+      },
     }
+  }
+
+  /**
+   * Fold a finished turn into the session total and stamp it on the assistant
+   * message, so the footer shows the session and the transcript shows the turn.
+   */
+  private recordUsage(
+    sessionId: string,
+    turn: TurnUsage,
+    messageId?: string,
+  ): void {
+    if (!this.sessions.has(sessionId)) return
+    const total = addUsage(this.usage.get(sessionId), turn)
+    this.usage.set(sessionId, total)
+
+    const list = this.messages.get(sessionId)
+    const idx = messageId ? (list?.findIndex((m) => m.id === messageId) ?? -1) : -1
+    if (list && idx !== -1) {
+      list[idx] = { ...list[idx], usage: turn }
+    }
+    this.bus.emit({
+      type: "usage.changed",
+      sessionId,
+      messageId: idx === -1 ? undefined : messageId,
+      turn,
+      total,
+    })
+    this.scheduleSave()
   }
 
   private applyStatus(id: string, status: SessionStatus): void {
@@ -409,6 +896,12 @@ export class SessionManager {
     this.bus.emit({ type: "chat.message", message })
   }
 
+  /** Any sign of life from the CLI resets the watchdog's silence timer. */
+  private markActivity(sessionId: string): void {
+    const turn = this.turns.get(sessionId)
+    if (turn) turn.lastActivityAt = Date.now()
+  }
+
   private touch(id: string): void {
     const session = this.sessions.get(id)
     if (!session) return
@@ -419,7 +912,14 @@ export class SessionManager {
     event: import("@shared/types").SessionEvent,
   ): void {
     this.bus.emitSession(event)
-    this.bridge.publish(event)
+    // The island decides a card's host from `source`; without it every Hub
+    // session had to be guessed at from an empty focusApp. Stamped here so no
+    // upsert site can forget it.
+    this.bridge.publish(
+      event.type === "session.upsert"
+        ? { ...event, session: { ...event.session, source: "hub" } }
+        : event,
+    )
     this.notifications.handle(event)
   }
 
@@ -432,10 +932,15 @@ export class SessionManager {
         return rest
       })
     }
+    const usage: Record<string, SessionUsage> = {}
+    for (const [id, total] of this.usage) {
+      usage[id] = total
+    }
     return {
       version: 1,
       sessions: this.listSessions(),
       messages,
+      usage,
       activeSessionId: this.activeSessionId,
     }
   }
@@ -463,7 +968,12 @@ function defaultTitle(
 }
 
 function resolveSessionCwd(input?: string): string {
-  const raw = input?.trim() || process.cwd()
+  const raw = input?.trim()
+  // Never fall back to process.cwd(): for the packaged app that is "/", which
+  // would root a YOLO agent at the filesystem root.
+  if (!raw) {
+    throw new Error("Project folder required — pick one before starting a session")
+  }
   try {
     const real = realpathSync(raw)
     if (!statSync(real).isDirectory()) {
