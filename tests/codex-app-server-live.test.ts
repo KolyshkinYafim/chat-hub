@@ -19,6 +19,13 @@ describe.runIf(live)("installed Codex app-server", () => {
     })
     expect(response.data.length).toBeGreaterThan(0)
     expect(response.data.every((model) => Boolean(model.id))).toBe(true)
+    const byId = new Map(response.data.map((model) => [model.id, model]))
+    expect(byId.get("gpt-5.6-sol")?.supportedReasoningEfforts.map((item) => item.reasoningEffort))
+      .toEqual(["low", "medium", "high", "xhigh", "max", "ultra"])
+    expect(byId.get("gpt-5.6-terra")?.supportedReasoningEfforts.map((item) => item.reasoningEffort))
+      .toEqual(["low", "medium", "high", "xhigh", "max", "ultra"])
+    expect(byId.get("gpt-5.6-luna")?.supportedReasoningEfforts.map((item) => item.reasoningEffort))
+      .toEqual(["low", "medium", "high", "xhigh", "max"])
   }, 30_000)
 
   it("streams and completes a real ephemeral turn", async () => {
