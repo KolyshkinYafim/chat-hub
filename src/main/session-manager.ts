@@ -833,6 +833,27 @@ export class SessionManager {
         this.bus.emit({ type: "chat.done", sessionId, messageId })
         this.scheduleSave()
       },
+      onTurnItem: (sessionId, messageId, item) => {
+        this.markActivity(sessionId)
+        const list = this.messages.get(sessionId)
+        if (!list) return
+        const idx = list.findIndex((m) => m.id === messageId)
+        if (idx === -1) return
+        const message = list[idx]
+        const items = [...(message.items ?? [])]
+        const itemIdx = items.findIndex((candidate) => candidate.id === item.id)
+        if (itemIdx === -1) items.push(item)
+        else items[itemIdx] = item
+        list[idx] = { ...message, items }
+        this.bus.emit({
+          type: "chat.item",
+          sessionId,
+          messageId,
+          item,
+        })
+        this.touch(sessionId)
+        this.scheduleSave()
+      },
       onUsage: (sessionId, turn, messageId) => {
         this.recordUsage(sessionId, turn, messageId)
       },

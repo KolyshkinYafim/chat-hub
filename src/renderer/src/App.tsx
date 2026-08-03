@@ -191,6 +191,22 @@ export default function App() {
           }
         })
         break
+      case "chat.item":
+        setMessagesBySession((curr) => {
+          const list = curr[event.sessionId] ?? []
+          return {
+            ...curr,
+            [event.sessionId]: list.map((message) => {
+              if (message.id !== event.messageId) return message
+              const items = [...(message.items ?? [])]
+              const index = items.findIndex((item) => item.id === event.item.id)
+              if (index === -1) items.push(event.item)
+              else items[index] = event.item
+              return { ...message, items }
+            }),
+          }
+        })
+        break
       case "chat.done":
         setMessagesBySession((curr) => {
           const list = curr[event.sessionId] ?? []

@@ -1,4 +1,5 @@
 import type {
+  AgentTurnItem,
   ChatMessage,
   ProviderId,
   SessionEvent,
@@ -38,6 +39,12 @@ export type AdapterCallbacks = {
   onMessage: (message: ChatMessage) => void
   onDelta: (sessionId: string, messageId: string, delta: string) => void
   onStreamDone: (sessionId: string, messageId: string) => void
+  /** Add or replace one structured item on an assistant turn. */
+  onTurnItem: (
+    sessionId: string,
+    messageId: string,
+    item: AgentTurnItem,
+  ) => void
   /** The CLI reported its own session id — persist it for cross-restart resume. */
   onAgentSession?: (sessionId: string, agentSessionId: string) => void
   /**
