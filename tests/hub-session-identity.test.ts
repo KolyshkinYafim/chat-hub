@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { readFile } from "node:fs/promises"
+import { existsSync } from "node:fs"
 import { join } from "node:path"
 
 const HOOK = join(
@@ -7,13 +8,18 @@ const HOOK = join(
   "../../session-monitor/hooks/agent-desktop-claude-hook.py",
 )
 
+// The hook lives in the sibling repo, so a checkout of chat-hub alone cannot
+// assert it. Skipping beats failing: the Hub half below still runs, and it is
+// the half this repo can actually break.
+const hookSide = existsSync(HOOK) ? describe : describe.skip
+
 /**
  * The Hub and the globally-installed Claude Code hook both watch the same
  * spawned `claude`. These assert the two halves of the agreement that keeps
  * one turn from raising two island cards. The Swift side has no say here — it
  * just renders whatever id it is given.
  */
-describe("hub ↔ hook session identity", () => {
+hookSide("hook half of the agreement", () => {
   it("the hook adopts the Hub's session id when the Hub names one", async () => {
     const src = await readFile(HOOK, "utf8")
     expect(src).toContain('os.environ.get("AGENT_DESKTOP_HUB_SESSION")')
@@ -28,6 +34,9 @@ describe("hub ↔ hook session identity", () => {
     expect(src).toContain('os.environ.get("AGENT_DESKTOP_HUB_BUNDLE")')
   })
 
+})
+
+describe("hub ↔ hook session identity", () => {
   it("the Hub passes both variables to every turn it spawns", async () => {
     const src = await readFile(join(__dirname, "../src/main/session-manager.ts"), "utf8")
     expect(src).toContain("AGENT_DESKTOP_HUB_SESSION: session.id")
