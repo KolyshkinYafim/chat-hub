@@ -1,0 +1,18 @@
+import { resolve } from "node:path"
+import { defineConfig } from "vitest/config"
+
+// Unit tests run against main-process modules directly (node env, no Electron).
+// Anything importing `electron` must be stubbed by the test itself.
+export default defineConfig({
+  resolve: {
+    alias: {
+      "@shared": resolve(__dirname, "src/shared"),
+      "@renderer": resolve(__dirname, "src/renderer/src"),
+    },
+  },
+  test: {
+    environment: "node",
+    include: ["src/**/*.test.ts", "tests/**/*.test.ts"],
+    reporters: ["default"],
+  },
+})
