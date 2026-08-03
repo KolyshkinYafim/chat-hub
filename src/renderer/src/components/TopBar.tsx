@@ -1,3 +1,4 @@
+import { useState } from "react"
 import type { GitCheckoutInfo, SessionMeta } from "@shared/types"
 import { StatusDot } from "./StatusDot"
 import { shortCwd, statusLabel } from "../lib/format"
@@ -5,7 +6,6 @@ import { shortCwd, statusLabel } from "../lib/format"
 type Props = {
   session: SessionMeta
   git: GitCheckoutInfo | null
-  onAbort: () => void
   onOpenFolder: () => void
   onOpenEditor: () => void
   onCommit: () => void
@@ -15,12 +15,12 @@ type Props = {
 export function TopBar({
   session,
   git,
-  onAbort,
   onOpenFolder,
   onOpenEditor,
   onCommit,
   onRename,
 }: Props) {
+  const [menuOpen, setMenuOpen] = useState(false)
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -56,30 +56,74 @@ export function TopBar({
           ) : null}
         </div>
       </div>
+      {/* No Stop here: the only Stop lives next to Send, where the hand is. */}
       <div className="topbar-actions">
-        {session.status === "running" ? (
-          <button type="button" className="tb-btn danger" onClick={onAbort}>
-            Stop
-          </button>
-        ) : null}
         <div className="tb-split">
-          <button type="button" className="tb-btn" onClick={onOpenFolder}>
+          <button
+            type="button"
+            className="tb-btn"
+            title="Open folder in Finder"
+            onClick={onOpenFolder}
+          >
             Open
           </button>
           <button
             type="button"
             className="tb-btn tb-btn-narrow"
-            title="Open in editor"
-            onClick={onOpenEditor}
+            title="More…"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((o) => !o)}
           >
             ▾
           </button>
+          {menuOpen ? (
+            <>
+              <div
+                className="menu-backdrop"
+                role="presentation"
+                onClick={() => setMenuOpen(false)}
+              />
+              <div className="tb-menu" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    onOpenEditor()
+                  }}
+                >
+                  Open in editor
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    void navigator.clipboard.writeText(session.cwd)
+                  }}
+                >
+                  Copy path
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    onOpenFolder()
+                  }}
+                >
+                  Reveal in Finder
+                </button>
+              </div>
+            </>
+          ) : null}
         </div>
         <button
           type="button"
           className="tb-btn"
           onClick={onCommit}
-          title="git add -A && git commit"
+          title="Source control — stage, diff, commit (⌘G)"
         >
           Commit
         </button>

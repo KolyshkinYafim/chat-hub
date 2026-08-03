@@ -1,0 +1,54 @@
+import { useEffect } from "react"
+
+type Props = {
+  onClose: () => void
+}
+
+const SHORTCUTS: { keys: string; what: string }[] = [
+  { keys: "⌘K", what: "Switch session — fuzzy over title / project / agent" },
+  { keys: "⌘N", what: "New session" },
+  { keys: "⌘,", what: "Settings" },
+  { keys: "⌘/", what: "This list" },
+  { keys: "⌘G", what: "Source control — stage, diff, commit" },
+  { keys: "Enter", what: "Send · Shift+Enter for a newline" },
+  { keys: "⌘Enter", what: "Send from anywhere in the composer" },
+  { keys: "Esc", what: "Stop the running turn" },
+]
+
+/** Discoverability for the keymap — the bindings are useless if unlisted. */
+export function ShortcutsOverlay({ onClose }: Props) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [onClose])
+
+  return (
+    <div className="modal-backdrop" onClick={onClose} role="presentation">
+      <div
+        className="modal-panel shortcuts-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Keyboard shortcuts"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="modal-header">
+          <h2>Keyboard</h2>
+          <button type="button" className="icon-chip" onClick={onClose}>
+            ×
+          </button>
+        </header>
+        <div className="modal-body shortcuts-body">
+          {SHORTCUTS.map((s) => (
+            <div key={s.keys} className="shortcut-row">
+              <span className="kbd">{s.keys}</span>
+              <span>{s.what}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}

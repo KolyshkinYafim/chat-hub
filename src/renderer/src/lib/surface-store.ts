@@ -1,0 +1,73 @@
+import type { SurfaceKind } from "./surface-bridge"
+
+const WIDTH_KEY = "chat-hub.surfaceDock.width"
+const OPEN_KEY = "chat-hub.surfaceDock.open"
+const BY_SESSION_KEY = "chat-hub.surfaceDock.bySession"
+
+export const SURFACE_KINDS: readonly SurfaceKind[] = [
+  "browser",
+  "terminal",
+  "files",
+  "diff",
+]
+
+export const MIN_DOCK_WIDTH = 320
+export const DEFAULT_DOCK_WIDTH = 460
+const MIN_TRANSCRIPT_WIDTH = 420
+
+export function maxDockWidth(viewportWidth: number): number {
+  return Math.max(MIN_DOCK_WIDTH, viewportWidth - MIN_TRANSCRIPT_WIDTH)
+}
+
+export function clampDockWidth(px: number, viewportWidth: number): number {
+  const upper = maxDockWidth(viewportWidth)
+  return Math.min(upper, Math.max(MIN_DOCK_WIDTH, Math.round(px)))
+}
+
+export function loadDockWidth(): number {
+  const raw = localStorage.getItem(WIDTH_KEY)
+  const parsed = raw === null ? Number.NaN : Number.parseInt(raw, 10)
+  if (!Number.isFinite(parsed)) return DEFAULT_DOCK_WIDTH
+  return Math.max(MIN_DOCK_WIDTH, parsed)
+}
+
+export function saveDockWidth(px: number): void {
+  localStorage.setItem(WIDTH_KEY, String(Math.round(px)))
+}
+
+export function loadDockOpen(): boolean {
+  return localStorage.getItem(OPEN_KEY) === "1"
+}
+
+export function saveDockOpen(open: boolean): void {
+  localStorage.setItem(OPEN_KEY, open ? "1" : "0")
+}
+
+function isSurfaceKind(value: unknown): value is SurfaceKind {
+  return (
+    typeof value === "string" &&
+    SURFACE_KINDS.some((kind) => kind === value)
+  )
+}
+
+export function loadSurfaceBySession(): Record<string, SurfaceKind> {
+  const raw = localStorage.getItem(BY_SESSION_KEY)
+  if (raw === null) return {}
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== "object" || parsed === null) return {}
+    const out: Record<string, SurfaceKind> = {}
+    for (const [sessionId, kind] of Object.entries(
+      parsed as Record<string, unknown>,
+    )) {
+      if (isSurfaceKind(kind)) out[sessionId] = kind
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+export function saveSurfaceBySession(map: Record<string, SurfaceKind>): void {
+  localStorage.setItem(BY_SESSION_KEY, JSON.stringify(map))
+}

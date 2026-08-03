@@ -1,23 +1,44 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type {
   ChatMessage,
   GitCheckoutInfo,
   HubEvent,
+  PermissionRequestInfo,
+  Project,
   ProviderId,
   ProviderInfo,
+  QueuedMessage,
   SessionMeta,
+  SessionUsage,
 } from "@shared/types"
 import type { PermissionMode } from "@shared/permission"
 import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
-import type { ProviderStatus } from "@shared/settings-types"
+import type {
+  EffortLevel,
+  GeneralConfig,
+  Mode,
+  ProviderStatus,
+} from "@shared/settings-types"
+import { DEFAULT_MODES } from "@shared/settings-types"
 import { projectFromCwd } from "@shared/project"
+import { loadArchived, pruneArchived, saveArchived } from "./lib/archive"
 import { Sidebar } from "./components/Sidebar"
 import { ChatView } from "./components/ChatView"
+import { SourceControl } from "./components/SourceControl"
 import { SettingsModal } from "./components/SettingsModal"
 import {
   NewSessionDialog,
   type NewSessionDraft,
 } from "./components/NewSessionDialog"
+import { FirstRunWizard } from "./components/FirstRunWizard"
+import { CommandPalette } from "./components/CommandPalette"
+import { ShortcutsOverlay } from "./components/ShortcutsOverlay"
+
+/**
+ * The auth nag lives in the renderer: settings has no field for it, and a
+ * dismissal that dies with the window is worse than no button at all.
+ */
+const AUTH_NAG_KEY = "chat-hub.authNagDismissed"
 
 export default function App() {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
@@ -25,15 +46,21 @@ export default function App() {
     Record<string, ChatMessage[]>
   >({})
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [projects, setProjects] = useState<Project[]>([])
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>(
     [],
   )
   const [provider, setProvider] = useState<ProviderId>("claude")
+  const [modes, setModes] = useState<Mode[]>(DEFAULT_MODES)
+  const [effort, setEffort] = useState<EffortLevel>("high")
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(
     DEFAULT_PERMISSION_MODE,
   )
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [wizardOpen, setWizardOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [newSessionHint, setNewSessionHint] = useState<{
     project?: string
@@ -43,16 +70,48 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [sending, setSending] = useState(false)
   const [git, setGit] = useState<GitCheckoutInfo | null>(null)
+  const [scmOpen, setScmOpen] = useState(false)
+  const [gitRefresh, setGitRefresh] = useState(0)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [onboardDismissed, setOnboardDismissed] = useState(false)
+  const [onboardDismissed, setOnboardDismissed] = useState(
+    () => localStorage.getItem(AUTH_NAG_KEY) === "1",
+  )
+  const [queuedBySession, setQueuedBySession] = useState<
+    Record<string, QueuedMessage[]>
+  >({})
+  const [usageBySession, setUsageBySession] = useState<
+    Record<string, SessionUsage>
+  >({})
+  const [permissions, setPermissions] = useState<PermissionRequestInfo[]>([])
+  const [archived, setArchived] = useState<Set<string>>(() => loadArchived())
+  const [highlight, setHighlight] = useState<{
+    sessionId: string
+    messageId: string
+  } | null>(null)
+
+  const activeIdRef = useRef<string | null>(null)
+  const selectSessionRef = useRef<(id: string) => void>(() => {})
 
   const applyEvent = useCallback((event: HubEvent) => {
     switch (event.type) {
       case "sessions.replaced":
         setSessions(event.sessions)
         break
+      case "queue.changed":
+        setQueuedBySession((curr) => ({
+          ...curr,
+          [event.sessionId]: event.queued,
+        }))
+        break
       case "session.active":
-        setActiveId(event.sessionId)
+        // The notch island focuses a session by pushing this event straight at
+        // the renderer, so adopt it exactly like a sidebar click — otherwise
+        // main keeps (and persists) the previous session as the active one.
+        if (event.sessionId && event.sessionId !== activeIdRef.current) {
+          selectSessionRef.current(event.sessionId)
+        } else {
+          setActiveId(event.sessionId)
+        }
         break
       case "session.upsert":
         setSessions((curr) => {
@@ -123,6 +182,37 @@ export default function App() {
           }
         })
         break
+      case "usage.changed":
+        setUsageBySession((curr) => ({
+          ...curr,
+          [event.sessionId]: event.total,
+        }))
+        if (event.messageId && event.turn) {
+          const turn = event.turn
+          const messageId = event.messageId
+          setMessagesBySession((curr) => {
+            const list = curr[event.sessionId] ?? []
+            return {
+              ...curr,
+              [event.sessionId]: list.map((m) =>
+                m.id === messageId ? { ...m, usage: turn } : m,
+              ),
+            }
+          })
+        }
+        break
+      case "permission.request":
+        setPermissions((curr) =>
+          curr.some((p) => p.requestId === event.request.requestId)
+            ? curr
+            : [...curr, event.request],
+        )
+        break
+      case "permission.resolved":
+        setPermissions((curr) =>
+          curr.filter((p) => p.requestId !== event.requestId),
+        )
+        break
       case "session.ended":
         setSessions((curr) =>
           curr.map((s) =>
@@ -147,21 +237,50 @@ export default function App() {
     let unsub = () => {}
     ;(async () => {
       try {
-        const [snap, prov, settings] = await Promise.all([
+        const [snap, prov, settings, pinned] = await Promise.all([
           window.chatHub.getSnapshot(),
           window.chatHub.listProviders(),
           window.chatHub.getSettings(),
+          window.chatHub.listProjects(),
         ])
         setSessions(snap.sessions)
         setMessagesBySession(snap.messages)
+        setQueuedBySession(snap.queued)
+        setUsageBySession(snap.usage)
+        setPermissions(snap.permissions)
         setActiveId(snap.activeSessionId)
+        setProjects(pinned)
         setProviders(prov)
         setPermissionMode(settings.permissionMode)
         setProviderStatuses(settings.statuses)
+        if (settings.general.defaultEffort) {
+          setEffort(settings.general.defaultEffort)
+        }
+        setModes(
+          settings.general.modes?.length
+            ? settings.general.modes
+            : DEFAULT_MODES,
+        )
+        const enabled = new Set(
+          settings.statuses
+            .filter((s) => !s.isExtra && s.enabled)
+            .map((s) => s.id),
+        )
+        const isOn = (id: ProviderId) => enabled.size === 0 || enabled.has(id)
+        const saved = settings.general.defaultProvider
+        const savedOk =
+          saved && prov.find((p) => p.id === saved && p.available && isOn(saved))
         const firstAvailable =
+          prov.find((p) => p.available && p.id !== "mock" && isOn(p.id)) ??
+          prov.find((p) => p.available && isOn(p.id)) ??
           prov.find((p) => p.available && p.id !== "mock") ??
           prov.find((p) => p.available)
-        if (firstAvailable) setProvider(firstAvailable.id)
+        if (savedOk) setProvider(saved)
+        else if (firstAvailable) setProvider(firstAvailable.id)
+        // First run: no onboarding done and nothing to show yet → wizard.
+        if (!settings.general.onboarded && snap.sessions.length === 0) {
+          setWizardOpen(true)
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
       }
@@ -169,16 +288,8 @@ export default function App() {
 
     unsub = window.chatHub.onHubEvent(applyEvent)
 
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
-        e.preventDefault()
-        setSettingsOpen(true)
-      }
-    }
-    window.addEventListener("keydown", onKey)
     return () => {
       unsub()
-      window.removeEventListener("keydown", onKey)
     }
   }, [applyEvent])
 
@@ -187,12 +298,62 @@ export default function App() {
     [sessions, activeId],
   )
 
+  useEffect(() => {
+    activeIdRef.current = activeId
+  }, [activeId])
+
   const messages = activeId ? (messagesBySession[activeId] ?? []) : []
 
+  useEffect(() => {
+    // Sessions deleted elsewhere (or wiped) would otherwise leave their ids in
+    // the archive forever. Never prune against an empty list — that is the
+    // pre-snapshot state, not an empty app.
+    if (sessions.length === 0) return
+    setArchived((curr) => {
+      const next = pruneArchived(
+        curr,
+        sessions.map((s) => s.id),
+      )
+      if (next.size === curr.size) return curr
+      saveArchived(next)
+      return next
+    })
+  }, [sessions])
+
+  function setSessionArchived(id: string, archive: boolean) {
+    setArchived((curr) => {
+      const next = new Set(curr)
+      if (archive) next.add(id)
+      else next.delete(id)
+      saveArchived(next)
+      return next
+    })
+  }
+
+  function jumpToMessage(sessionId: string, messageId: string) {
+    setHighlight({ sessionId, messageId })
+    if (sessionId !== activeIdRef.current) void selectSession(sessionId)
+  }
+
+  const clearHighlight = useCallback(() => setHighlight(null), [])
+
   const sessionModels = useMemo(() => {
+    if (activeSession) {
+      const wantInstance = activeSession.instanceId ?? activeSession.provider
+      const byInst = providerStatuses.find((s) => s.instanceId === wantInstance)
+      if (byInst) return byInst.models
+    }
     const id = activeSession?.provider ?? provider
-    return providerStatuses.find((s) => s.id === id)?.models ?? []
-  }, [activeSession?.provider, provider, providerStatuses])
+    return providerStatuses.find((s) => s.id === id && !s.isExtra)?.models ?? []
+  }, [activeSession, provider, providerStatuses])
+
+  const enabledProviderIds = useMemo<ProviderId[]>(() => {
+    if (providerStatuses.length === 0) return providers.map((p) => p.id)
+    // Provider pickers care about the base provider = its default instance.
+    return providerStatuses
+      .filter((s) => !s.isExtra && s.enabled)
+      .map((s) => s.id)
+  }, [providerStatuses, providers])
 
   useEffect(() => {
     if (!activeSession?.cwd) {
@@ -206,17 +367,69 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [activeSession?.id, activeSession?.cwd, activeSession?.status])
+  }, [activeSession?.id, activeSession?.cwd, activeSession?.status, gitRefresh])
 
-  function openNewSession(projectHint?: string) {
-    let cwd: string | undefined
-    if (projectHint && activeSession?.project === projectHint) {
+  useEffect(() => {
+    // A finished turn is exactly when the working copy changed under us, so the
+    // source-control panel re-reads then instead of polling while the agent runs.
+    if (activeSession && activeSession.status !== "running") {
+      setGitRefresh((n) => n + 1)
+    }
+  }, [activeSession?.id, activeSession?.status])
+
+  const refreshGit = useCallback(() => setGitRefresh((n) => n + 1), [])
+
+  async function resolvePermission(requestId: string, allow: boolean) {
+    // Optimistic: main echoes permission.resolved, but the island may have
+    // answered first — in which case the card is already gone either way.
+    setPermissions((curr) => curr.filter((p) => p.requestId !== requestId))
+    try {
+      await window.chatHub.resolvePermission(requestId, allow)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setPermissions(await window.chatHub.listPermissions())
+    }
+  }
+
+  function openNewSession(hint?: { project?: string; cwd?: string }) {
+    const projectHint = hint?.project
+    let cwd = hint?.cwd
+    if (!cwd && projectHint && activeSession?.project === projectHint) {
       cwd = activeSession.cwd
-    } else if (projectHint) {
+    } else if (!cwd && projectHint) {
       cwd = sessions.find((s) => s.project === projectHint)?.cwd
     }
     setNewSessionHint({ project: projectHint, cwd })
     setNewSessionOpen(true)
+  }
+
+  async function addProject() {
+    setError(null)
+    try {
+      const res = await window.chatHub.addProject()
+      if (res) setProjects(res.projects)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function renameProject(id: string, currentName: string) {
+    const next = window.prompt("Rename project", currentName)
+    if (!next?.trim() || next.trim() === currentName) return
+    try {
+      setProjects(await window.chatHub.renameProject(id, next.trim()))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function removeProject(id: string, name: string) {
+    if (!window.confirm(`Remove project "${name}" from the sidebar?`)) return
+    try {
+      setProjects(await window.chatHub.removeProject(id))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
   }
 
   async function createSessionFromDraft(draft: NewSessionDraft) {
@@ -230,6 +443,7 @@ export default function App() {
       setProvider(draft.provider)
       const session = await window.chatHub.createSession({
         provider: draft.provider,
+        instanceId: draft.instanceId,
         cwd: draft.cwd,
         project: projectFromCwd(draft.cwd),
         model: draft.model,
@@ -241,6 +455,8 @@ export default function App() {
         return [session, ...curr]
       })
       setMessagesBySession((curr) => ({ ...curr, [session.id]: [] }))
+      // The folder is auto-pinned as a project in main — reflect it.
+      void window.chatHub.listProjects().then(setProjects)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
       throw err
@@ -251,6 +467,9 @@ export default function App() {
 
   async function selectSession(id: string) {
     setActiveId(id)
+    // Kept in step synchronously: main echoes session.active back at us, and a
+    // ref that is one render stale would bounce the selection forever.
+    activeIdRef.current = id
     setError(null)
     try {
       await window.chatHub.setActiveSession(id)
@@ -263,14 +482,31 @@ export default function App() {
     }
   }
 
+  useEffect(() => {
+    selectSessionRef.current = (id: string) => void selectSession(id)
+  })
+
   async function deleteSession(id: string) {
+    const title = sessions.find((s) => s.id === id)?.title ?? id
+    // Delete drops the transcript from memory and state.json — no archive, no
+    // undo — and the × sits under the cursor right after a row click.
+    if (
+      !window.confirm(`Delete session "${title}" and its transcript? No undo.`)
+    ) {
+      return
+    }
     setError(null)
     try {
       await window.chatHub.deleteSession(id)
+      setSessionArchived(id, false)
       const snap = await window.chatHub.getSnapshot()
       setSessions(snap.sessions)
       setMessagesBySession(snap.messages)
+      setQueuedBySession(snap.queued)
+        setUsageBySession(snap.usage)
+        setPermissions(snap.permissions)
       setActiveId(snap.activeSessionId)
+      activeIdRef.current = snap.activeSessionId
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -278,21 +514,39 @@ export default function App() {
 
   async function sendMessage(
     text: string,
-    opts?: {
-      effort?: "low" | "medium" | "high" | "max"
-      attachments?: string[]
-    },
+    opts?: { effort?: EffortLevel; attachments?: string[] },
   ) {
     if (!activeId) return
     setError(null)
     setSending(true)
     try {
-      await window.chatHub.sendMessage(activeId, text, opts)
+      // Always straight through: main owns the queue, so a follow-up typed
+      // mid-turn lands in the transcript and is flushed when the turn ends —
+      // queueing here too would leave the notch island's replies invisible.
+      await window.chatHub.sendMessage(activeId, text, {
+        effort: opts?.effort ?? effort,
+        attachments: opts?.attachments,
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+      // Rethrown so the composer can hand the typed prompt back.
+      throw err
     } finally {
       setSending(false)
     }
+  }
+
+  function cancelQueued(queuedId: string) {
+    if (!activeId) return
+    const sessionId = activeId
+    void window.chatHub
+      .cancelQueued(sessionId, queuedId)
+      .then((queued) =>
+        setQueuedBySession((curr) => ({ ...curr, [sessionId]: queued })),
+      )
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : String(err))
+      })
   }
 
   async function renameSession() {
@@ -310,7 +564,30 @@ export default function App() {
     }
   }
 
+  function changeEffort(next: EffortLevel) {
+    setEffort(next)
+    void window.chatHub.setGeneralConfig({ defaultEffort: next }).catch(() => {})
+  }
+
+  /**
+   * The composer chip belongs to the session in front of you. Without an active
+   * session there is nothing to scope it to, so it falls back to editing the
+   * global default — which is also what Settings edits.
+   */
   async function changePermission(mode: PermissionMode) {
+    try {
+      if (activeId) {
+        await window.chatHub.setSessionPermission(activeId, mode)
+        return
+      }
+      await changeGlobalPermission(mode)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  /** Settings edits the default for sessions that have no override of their own. */
+  async function changeGlobalPermission(mode: PermissionMode) {
     setPermissionMode(mode)
     try {
       const next = await window.chatHub.setPermissionMode(mode)
@@ -328,6 +605,51 @@ export default function App() {
       setError(err instanceof Error ? err.message : String(err))
     }
   }
+
+  const anyOverlayOpen =
+    settingsOpen || wizardOpen || newSessionOpen || paletteOpen || shortcutsOpen
+
+  useEffect(() => {
+    // Re-registered whenever the state it reads changes, so a binding never
+    // fires against a stale session or an overlay that has since closed.
+    const onKey = (e: KeyboardEvent) => {
+      const meta = e.metaKey || e.ctrlKey
+      if (meta && e.key === ",") {
+        e.preventDefault()
+        setSettingsOpen(true)
+        return
+      }
+      if (meta && e.key.toLowerCase() === "k") {
+        e.preventDefault()
+        setPaletteOpen((o) => !o)
+        return
+      }
+      if (meta && e.key.toLowerCase() === "n") {
+        e.preventDefault()
+        openNewSession()
+        return
+      }
+      if (meta && e.key === "/") {
+        e.preventDefault()
+        setShortcutsOpen((o) => !o)
+        return
+      }
+      if (meta && e.key.toLowerCase() === "g") {
+        e.preventDefault()
+        if (activeSession) setScmOpen((o) => !o)
+        return
+      }
+      // Overlays own their own Escape; only a bare Escape stops the agent.
+      if (e.key === "Escape" && !anyOverlayOpen) {
+        if (activeSession?.status === "running") {
+          e.preventDefault()
+          void abortSession()
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [anyOverlayOpen, activeSession?.id, activeSession?.status])
 
   async function openFolder() {
     if (!activeSession) return
@@ -347,26 +669,6 @@ export default function App() {
     }
   }
 
-  async function commit() {
-    if (!activeSession) return
-    const message = window.prompt(
-      "Commit message",
-      `chat-hub: updates in ${activeSession.project}`,
-    )
-    if (!message) return
-    try {
-      const res = await window.chatHub.gitCommit(activeSession.cwd, message)
-      if (!res.ok) setError(res.output)
-      else {
-        setError(null)
-        const info = await window.chatHub.getGitInfo(activeSession.cwd)
-        setGit(info)
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
   async function changeModel(model: string) {
     if (!activeId) return
     try {
@@ -377,11 +679,31 @@ export default function App() {
     }
   }
 
+  async function applyMode(modeId: string) {
+    if (!activeId) return
+    // Empty id = "No mode": clears the preset but leaves model/permission alone.
+    const mode = modeId ? modes.find((m) => m.id === modeId) : undefined
+    try {
+      const next = await window.chatHub.applySessionMode(activeId, {
+        modeId: mode?.id,
+        systemPrompt: mode?.systemPrompt,
+        model: mode?.model,
+        permissionMode: mode?.permissionMode,
+      })
+      setSessions((curr) => curr.map((s) => (s.id === next.id ? next : s)))
+      // Effort is composer state, not a session field — set it here so the mode's
+      // effort actually takes hold on the next turn.
+      if (mode?.effort) setEffort(mode.effort)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  // Only the agent this Hub is set to use — a CLI the user installed but never
+  // signed into is not a problem worth a banner on every launch.
   const needsAuth = providerStatuses.some(
     (s) =>
-      s.id !== "mock" &&
-      s.installed &&
-      (s.auth === "needs_login" || s.auth === "not_installed"),
+      s.id === provider && !s.isExtra && s.installed && s.auth === "needs_login",
   )
   const noneInstalled =
     providerStatuses.length > 0 &&
@@ -396,17 +718,24 @@ export default function App() {
     <div className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""}`}>
       <Sidebar
         sessions={sessions}
+        messagesBySession={messagesBySession}
+        projects={projects}
         activeId={activeId}
-        providers={providers}
-        provider={provider}
+        archived={archived}
         busy={busy}
         collapsed={sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
-        onProviderChange={setProvider}
-        onCreate={(project) => openNewSession(project)}
+        onCreate={(hint) => openNewSession(hint)}
         onSelect={(id) => void selectSession(id)}
+        onArchive={setSessionArchived}
+        onJumpToMessage={jumpToMessage}
         onDelete={(id) => void deleteSession(id)}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSwitcher={() => setPaletteOpen(true)}
+        onShowShortcuts={() => setShortcutsOpen(true)}
+        onAddProject={() => void addProject()}
+        onRenameProject={(id, name) => void renameProject(id, name)}
+        onRemoveProject={(id, name) => void removeProject(id, name)}
         onOpenProject={(cwd) => {
           void window.chatHub.openPath(cwd).catch((err) => {
             setError(err instanceof Error ? err.message : String(err))
@@ -414,54 +743,66 @@ export default function App() {
         }}
       />
       <div className="main-column">
-        {showOnboard ? (
-          <div className="onboard-strip">
-            <span>
-              {noneInstalled
-                ? "No agent CLIs found on PATH."
-                : "Some agents need login."}{" "}
-              Open Settings to connect accounts and pick default models.
-            </span>
-            <div className="onboard-actions">
-              <button
-                type="button"
-                className="tb-btn primary"
-                onClick={() => setSettingsOpen(true)}
-              >
-                Open Settings
-              </button>
-              <button
-                type="button"
-                className="tb-btn"
-                onClick={() => setOnboardDismissed(true)}
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
-        ) : null}
         <ChatView
           session={activeSession}
+          onboard={
+            showOnboard
+              ? {
+                  text: noneInstalled
+                    ? "No agent CLIs found on PATH."
+                    : "Some agents need login.",
+                  onOpenSettings: () => setSettingsOpen(true),
+                  onDismiss: () => {
+                    setOnboardDismissed(true)
+                    localStorage.setItem(AUTH_NAG_KEY, "1")
+                  },
+                }
+              : null
+          }
+          highlightMessageId={
+            highlight && highlight.sessionId === activeId
+              ? highlight.messageId
+              : null
+          }
+          onHighlightShown={clearHighlight}
+          usage={activeId ? (usageBySession[activeId] ?? null) : null}
+          pendingPermissions={
+            activeId ? permissions.filter((p) => p.sessionId === activeId) : []
+          }
+          onResolvePermission={(id, allow) => void resolvePermission(id, allow)}
           messages={messages}
           providers={providers}
-          provider={provider}
           models={sessionModels}
-          permissionMode={permissionMode}
+          modes={modes}
+          onApplyMode={(id) => void applyMode(id)}
+          permissionMode={activeSession?.permissionMode ?? permissionMode}
+          effort={effort}
           git={git}
           error={error}
           sending={sending}
-          onProviderChange={setProvider}
+          queued={activeId ? (queuedBySession[activeId] ?? []) : []}
+          onCancelQueued={cancelQueued}
+          onShowShortcuts={() => setShortcutsOpen(true)}
           onModelChange={(m) => void changeModel(m)}
           onPermissionChange={(m) => void changePermission(m)}
+          onEffortChange={changeEffort}
           onSend={sendMessage}
           onAbort={() => void abortSession()}
           onCreate={() => openNewSession()}
           onOpenFolder={() => void openFolder()}
           onOpenEditor={() => void openEditor()}
-          onCommit={() => void commit()}
+          onCommit={() => setScmOpen(true)}
           onRename={() => void renameSession()}
         />
       </div>
+      {scmOpen && activeSession ? (
+        <SourceControl
+          cwd={activeSession.cwd}
+          refreshKey={gitRefresh}
+          onClose={() => setScmOpen(false)}
+          onChanged={refreshGit}
+        />
+      ) : null}
       {settingsOpen ? (
         <SettingsModal
           open={settingsOpen}
@@ -470,15 +811,58 @@ export default function App() {
             void window.chatHub.getSettings().then((s) => {
               setProviderStatuses(s.statuses)
               setPermissionMode(s.permissionMode)
+              if (s.general.defaultEffort) setEffort(s.general.defaultEffort)
+              if (
+                s.general.defaultProvider &&
+                s.statuses.find(
+                  (st) => st.id === s.general.defaultProvider && st.enabled,
+                )
+              ) {
+                setProvider(s.general.defaultProvider)
+              }
             })
           }}
           permissionMode={permissionMode}
-          onPermissionChange={(m) => void changePermission(m)}
+          onPermissionChange={(m) => void changeGlobalPermission(m)}
         />
+      ) : null}
+      {wizardOpen ? (
+        <FirstRunWizard
+          onFinish={() => {
+            setWizardOpen(false)
+            void Promise.all([
+              window.chatHub.getSnapshot(),
+              window.chatHub.getSettings(),
+              window.chatHub.listProjects(),
+            ]).then(([snap, s, pinned]) => {
+              setSessions(snap.sessions)
+              setMessagesBySession(snap.messages)
+              setQueuedBySession(snap.queued)
+        setUsageBySession(snap.usage)
+        setPermissions(snap.permissions)
+              setActiveId(snap.activeSessionId)
+              setProjects(pinned)
+              setProviderStatuses(s.statuses)
+              if (s.general.defaultProvider) setProvider(s.general.defaultProvider)
+            })
+          }}
+        />
+      ) : null}
+      {paletteOpen ? (
+        <CommandPalette
+          sessions={sessions}
+          activeId={activeId}
+          onSelect={(id) => void selectSession(id)}
+          onClose={() => setPaletteOpen(false)}
+        />
+      ) : null}
+      {shortcutsOpen ? (
+        <ShortcutsOverlay onClose={() => setShortcutsOpen(false)} />
       ) : null}
       <NewSessionDialog
         open={newSessionOpen}
         providers={providers}
+        enabledProviderIds={enabledProviderIds}
         statuses={providerStatuses}
         initialProvider={provider}
         projectHint={newSessionHint.project}
