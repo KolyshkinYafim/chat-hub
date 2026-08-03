@@ -4,13 +4,24 @@ import {
   pruneArchived,
   serializeArchived,
 } from "@renderer/lib/archive"
-import { foldToolFollowUps, parseTranscript } from "@renderer/lib/markdown"
+import {
+  buildTranscript,
+  type ToolCall,
+  type TranscriptBlock,
+} from "@renderer/lib/tool-runs"
 import {
   formatSessionUsage,
   formatTokens,
   formatUsage,
   formatUsd,
 } from "@renderer/lib/usage"
+
+function onlyCall(block: TranscriptBlock | undefined): ToolCall {
+  if (!block || block.kind !== "tools" || block.calls.length !== 1) {
+    throw new Error(`expected one tool call, got ${JSON.stringify(block)}`)
+  }
+  return block.calls[0]!
+}
 
 describe("archive set", () => {
   it("round-trips through storage", () => {
@@ -34,32 +45,31 @@ describe("archive set", () => {
 
 describe("transcript blocks", () => {
   it("folds a diff into the tool call above it", () => {
-    const blocks = parseTranscript(
+    const { blocks } = buildTranscript(
       "```tool:Edit\nsrc/a.ts\n```\n```diff\n-old\n+new\n```",
     )
     expect(blocks).toHaveLength(1)
-    expect(blocks[0]).toMatchObject({ kind: "tool", name: "Edit" })
-    expect(blocks[0]).toHaveProperty("attached")
-    const attached = (blocks[0] as { attached: unknown[] }).attached
-    expect(attached).toHaveLength(1)
-    expect(attached[0]).toMatchObject({ kind: "diff" })
+    const call = onlyCall(blocks[0])
+    expect(call.name).toBe("Edit")
+    expect(call.diff).toBe("-old\n+new")
   })
 
   it("folds a tool-result into its call but leaves prose alone", () => {
-    const blocks = parseTranscript(
+    const { blocks } = buildTranscript(
       "```tool:Bash\npnpm test\n```\n```tool-result:Bash\n2 passed\n```\nAll green.",
     )
     expect(blocks).toHaveLength(2)
-    expect((blocks[0] as { attached: unknown[] }).attached).toHaveLength(1)
+    expect(onlyCall(blocks[0]).result?.text).toBe("2 passed")
     expect(blocks[1]).toMatchObject({ kind: "p" })
   })
 
   it("does not attach a diff that follows a result rather than a call", () => {
-    const folded = foldToolFollowUps([
-      { kind: "tool", name: "Bash", body: "", result: true },
-      { kind: "diff", code: "+x" },
-    ])
-    expect(folded).toHaveLength(2)
+    const { blocks } = buildTranscript(
+      "```tool-result:Bash\nboom\n```\n```diff\n+x\n```",
+    )
+    expect(blocks).toHaveLength(2)
+    expect(onlyCall(blocks[0]).diff).toBeNull()
+    expect(blocks[1]).toMatchObject({ kind: "diff" })
   })
 })
 

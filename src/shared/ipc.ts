@@ -15,6 +15,7 @@ export const IpcChannels = {
   openPath: "shell:open-path",
   openInEditor: "shell:open-editor",
   getGitInfo: "git:info",
+  gitInit: "git:init",
   gitCommit: "git:commit",
   gitStatus: "git:status",
   gitDiff: "git:diff",

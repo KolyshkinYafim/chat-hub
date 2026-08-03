@@ -1,26 +1,37 @@
 import type { ReactNode } from "react"
-import { parseTranscript, type Block as TranscriptBlock } from "../lib/markdown"
+import { buildTranscript, type TranscriptBlock } from "../lib/tool-runs"
+import { ChangedFiles } from "./ChangedFiles"
+import { DiffBody } from "./DiffBody"
+import { ToolRun } from "./ToolRun"
 
-/** Lightweight agent-transcript renderer (headings, lists, code, bold, tables-ish). */
+/** Lightweight agent-transcript renderer (headings, lists, code, tool runs). */
 export function MarkdownBody({
   text,
   streaming,
+  onOpenDiff,
 }: {
   text: string
   streaming?: boolean
+  onOpenDiff?: (path: string) => void
 }) {
-  const blocks = parseTranscript(text)
+  const { blocks, changed } = buildTranscript(text)
 
   return (
     <div className={`md-body ${streaming ? "streaming" : ""}`}>
       {blocks.map((block, i) => (
         <Block key={i} block={block} />
       ))}
+      {streaming ? null : (
+        <ChangedFiles changed={changed} onOpenDiff={onOpenDiff} />
+      )}
     </div>
   )
 }
 
 function Block({ block }: { block: TranscriptBlock }) {
+  if (block.kind === "tools") {
+    return <ToolRun calls={block.calls} />
+  }
   if (block.kind === "h") {
     const Tag = block.level === 2 ? "h2" : "h3"
     return (
@@ -49,69 +60,16 @@ function Block({ block }: { block: TranscriptBlock }) {
     )
   }
   if (block.kind === "diff") {
-    const lines = block.code.split("\n")
-    const added = lines.filter((l) => l.startsWith("+")).length
-    const removed = lines.filter((l) => l.startsWith("-")).length
-    return (
-      <div className="md-diff">
-        <div className="md-diff-head">
-          <span className="diff-ico">±</span>
-          <span className="diff-stat add">+{added}</span>
-          <span className="diff-stat del">−{removed}</span>
-        </div>
-        <pre>
-          <code>
-            {lines.map((l, i) => {
-              const cls = l.startsWith("+")
-                ? "add"
-                : l.startsWith("-")
-                  ? "del"
-                  : "ctx"
-              return (
-                <span key={i} className={`diff-line ${cls}`}>
-                  {l || " "}
-                  {"\n"}
-                </span>
-              )
-            })}
-          </code>
-        </pre>
-      </div>
-    )
+    return <DiffBody code={block.code} />
   }
   if (block.kind === "reasoning") {
     return (
-      <details className="md-reasoning" open>
+      <details className="md-reasoning">
         <summary>
           <span className="reasoning-ico">🧠</span> Reasoning
         </summary>
         <div className="reasoning-body">{block.text}</div>
       </details>
-    )
-  }
-  if (block.kind === "tool") {
-    return (
-      <div className={`tool-card ${block.result ? "result" : "call"}`}>
-        <div className="tool-card-head">
-          <span className="tool-ico">{block.result ? "↓" : "⚙"}</span>
-          {block.desc ? (
-            <span className="tool-desc">{block.desc}</span>
-          ) : (
-            <span className="tool-name">{block.name}</span>
-          )}
-          <span className="tool-kind">{block.desc ? block.name : block.result ? "result" : "tool"}</span>
-        </div>
-        {block.body ? (
-          <pre className="tool-body">
-            <code>{block.body}</code>
-          </pre>
-        ) : null}
-        {block.attached?.map((part, i) => (
-          <div key={i} className="tool-card-part">
-            <Block block={part} />
-          </div>
-        ))}
-      </div>
     )
   }
   return (

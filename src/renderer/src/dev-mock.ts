@@ -17,6 +17,7 @@ import type {
   ProviderStatus,
   SettingsSnapshot,
 } from "@shared/settings-types"
+import { encodeToolCardMeta, type ToolCardMeta } from "@shared/tool-card"
 import type {
   Board,
   SurfaceBridge,
@@ -27,6 +28,141 @@ import type {
 type ChatHubApi = Window["chatHub"]
 
 const now = Date.UTC(2026, 6, 22, 15, 40)
+
+// The transcript is a markdown string, exactly as the adapters emit it — the
+// mock has to speak that format or it proves nothing about the real renderer.
+function call(name: string, head: string, meta: ToolCardMeta = {}): string {
+  return `\n\n\`\`\`tool:${name}\n${encodeToolCardMeta(meta)}${head}\n\`\`\`\n\n`
+}
+
+function result(name: string, body: string, meta: ToolCardMeta = {}): string {
+  return `\n\n\`\`\`tool-result:${name}\n${encodeToolCardMeta(meta)}${body}\n\`\`\`\n\n`
+}
+
+function diff(code: string): string {
+  return `\`\`\`diff\n${code}\n\`\`\`\n\n`
+}
+
+const suitePass = [
+  "> proxy-flash-admin@0.1.0 test",
+  "> vitest run --reporter verbose",
+  "",
+  " RUN  v3.2.7 /Users/lic/ProxyFlash/proxy-flash-admin",
+  "",
+  " ✓ tests/auth.test.ts (4 tests) 21ms",
+  "   ✓ verifyJwt > rejects an expired token",
+  "   ✓ verifyJwt > rejects a malformed token",
+  "   ✓ verifyJwt > accepts a valid token",
+  "   ✓ requireAuth > passes the decoded user downstream",
+  " ✓ tests/routes.test.ts (6 tests) 44ms",
+  " ✓ tests/webhooks.test.ts (9 tests) 91ms",
+  " ✓ tests/reward.test.ts (3 tests) 12ms",
+  " ✓ tests/settings.test.ts (11 tests) 63ms",
+  "",
+  " Test Files  5 passed (5)",
+  "      Tests  33 passed (33)",
+  "   Start at  15:38:04",
+  "   Duration  1.62s",
+].join("\n")
+
+const suiteFail = [
+  " FAIL  tests/expiry.test.ts > expiry > rejects a token past its exp",
+  "AssertionError: expected null to be an object",
+  "",
+  "- Expected",
+  "+ Received",
+  "",
+  "- { sub: 'u_31', exp: 1750000000 }",
+  "+ null",
+  "",
+  " ❯ tests/expiry.test.ts:18:24",
+  "    16|   it('rejects a token past its exp', () => {",
+  "    17|     const claims = verifyJwt(expired)",
+  "    18|     expect(claims).toBeNull()",
+  "      |                    ^",
+  "",
+  " Test Files  1 failed (1)",
+  "      Tests  1 failed (1)",
+].join("\n")
+
+// One turn that has to answer all three questions at a glance: several Bash
+// calls, one of them failing, an Edit with its diff, and output long enough
+// that showing it whole would bury the reply.
+const busyTurn =
+  "The expiry test is red — I'll reproduce it, read the middleware and fix the claim it checks.\n\n" +
+  call("Bash", "$ pnpm test", {
+    id: "t1",
+    desc: "Run the whole suite",
+  }) +
+  result("Bash", suitePass, { id: "t1", exitCode: 0 }) +
+  call("Bash", "$ pnpm test -- expiry", {
+    id: "t2",
+    desc: "Reproduce the expiry failure",
+  }) +
+  result("Bash", suiteFail, { id: "t2", exitCode: 1, error: true }) +
+  call("Read", "/Users/lic/ProxyFlash/proxy-flash-admin/src/lib/jwt.ts", {
+    id: "t3",
+  }) +
+  result(
+    "Read",
+    [
+      "export function verifyJwt(token: string) {",
+      "  const claims = decode(token)",
+      "  if (!claims) return null",
+      "  if (claims.iat < Date.now() / 1000) return null",
+      "  return claims",
+      "}",
+    ].join("\n"),
+    { id: "t3" },
+  ) +
+  "\nThere it is: the guard compares `iat` (issued-at) instead of `exp`, so every token looks expired the moment it is issued. Two files need the fix — the check itself and the middleware that duplicates it.\n\n" +
+  call("Edit", "/Users/lic/ProxyFlash/proxy-flash-admin/src/lib/jwt.ts", {
+    id: "t4",
+    desc: "Compare exp, not iat",
+    paths: ["/Users/lic/ProxyFlash/proxy-flash-admin/src/lib/jwt.ts"],
+    added: 2,
+    removed: 1,
+  }) +
+  diff(
+    [
+      "-   if (claims.iat < Date.now() / 1000) return null",
+      "+   const nowSeconds = Math.floor(Date.now() / 1000)",
+      "+   if (claims.exp <= nowSeconds) return null",
+    ].join("\n"),
+  ) +
+  result("Edit", "The file has been updated.", { id: "t4" }) +
+  call(
+    "Edit",
+    "/Users/lic/ProxyFlash/proxy-flash-admin/src/middleware/auth.ts",
+    {
+      id: "t5",
+      desc: "Drop the duplicated expiry guard",
+      paths: [
+        "/Users/lic/ProxyFlash/proxy-flash-admin/src/middleware/auth.ts",
+      ],
+      added: 1,
+      removed: 3,
+    },
+  ) +
+  diff(
+    [
+      "-   const decoded = verifyJwt(token)",
+      "-   if (!decoded) return res.status(401).end()",
+      "-   if (decoded.iat < Date.now() / 1000) return res.status(401).end()",
+      "+   const decoded = verifyJwt(token)",
+    ].join("\n"),
+  ) +
+  result("Edit", "The file has been updated.", { id: "t5" }) +
+  call("Bash", "$ /bin/zsh -lc 'pnpm test -- expiry auth'", {
+    id: "t6",
+    desc: "Re-run the two affected suites",
+  }) +
+  result(
+    "Bash",
+    " ✓ tests/expiry.test.ts (2 tests) 9ms\n ✓ tests/auth.test.ts (4 tests) 18ms\n\n Test Files  2 passed (2)\n      Tests  6 passed (6)",
+    { id: "t6", exitCode: 0 },
+  ) +
+  "\nFixed. `verifyJwt` now compares `exp` against the current second, and the middleware no longer re-implements the same check with the wrong claim. Both suites are green."
 
 const projects: Project[] = [
   { id: "p1", name: "proxy-flash-admin", cwd: "/Users/lic/ProxyFlash/proxy-flash-admin", createdAt: now - 5e6 },
@@ -44,6 +180,8 @@ const messages: Record<string, ChatMessage[]> = {
   s1: [
     { id: "m1", sessionId: "s1", role: "user", content: "Extract the JWT verification into a reusable middleware and add tests.", createdAt: now - 25e4 },
     { id: "m2", sessionId: "s1", role: "assistant", content: "I'll extract the verification logic.\n\n```tool:Edit\nsrc/middleware/auth.ts\n```\n```diff\n- const decoded = jwt.verify(token, process.env.JWT_SECRET)\n- if (!decoded) throw new Error('bad token')\n+ const decoded = verifyJwt(token)\n```\n\nDone — `verifyJwt()` now lives in `auth.ts` and both routes import it. Added 4 tests covering expired, malformed, and valid tokens.", createdAt: now - 24e4, usage: { inputTokens: 13300, outputTokens: 1370, cacheReadTokens: 96000, costUsd: 0.36, durationMs: 21800 } },
+    { id: "m8", sessionId: "s1", role: "user", content: "The expiry test is failing. Find out why and fix it.", createdAt: now - 22e4 },
+    { id: "m9", sessionId: "s1", role: "assistant", content: busyTurn, createdAt: now - 21e4, usage: { inputTokens: 41200, outputTokens: 3100, cacheReadTokens: 128000, costUsd: 0.71, durationMs: 48300 } },
     { id: "m3", sessionId: "s1", role: "assistant", content: "Running the suite now…", createdAt: now - 2e4, streaming: true },
   ],
   s2: [
@@ -328,7 +466,10 @@ export function installDevMock(): void {
       ahead: 2,
       behind: 0,
       files: [
-        { path: "src/middleware/auth.ts", index: "M", work: " " },
+        { path: "src/middleware/auth.ts", index: " ", work: "M" },
+        // The busy mock turn edits this one; the changed-files row must be able
+        // to land on it from the absolute path the agent reported.
+        { path: "src/lib/jwt.ts", index: " ", work: "M" },
         { path: "src/routes/session.ts", index: " ", work: "M" },
         { path: "tests/auth.test.ts", index: "A", work: " " },
         { path: "notes/scratch.md", index: " ", work: "?" },

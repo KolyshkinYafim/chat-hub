@@ -73,6 +73,8 @@ const api = {
     ipcRenderer.invoke(IpcChannels.openInEditor, path),
   getGitInfo: (cwd: string): Promise<GitCheckoutInfo> =>
     ipcRenderer.invoke(IpcChannels.getGitInfo, cwd),
+  gitInit: (cwd: string): Promise<GitCheckoutInfo> =>
+    ipcRenderer.invoke(IpcChannels.gitInit, cwd),
   gitCommit: (
     cwd: string,
     message: string,

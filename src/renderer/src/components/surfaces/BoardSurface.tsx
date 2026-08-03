@@ -37,7 +37,10 @@ export function BoardSurface({ cwd }: { cwd: string }) {
       void bridge
         .boardRead(cwd)
         .then((b) => {
-          if (alive && (b.updatedAt ?? 0) !== updatedRef.current) adopt(b)
+          // Only ever move FORWARD: an in-flight read that started before our own
+          // optimistic write would otherwise resolve with the pre-write board and
+          // regress the UI (dropping the just-added item). `>` ignores those.
+          if (alive && (b.updatedAt ?? 0) > updatedRef.current) adopt(b)
         })
         .catch(() => undefined)
     }, 1500)

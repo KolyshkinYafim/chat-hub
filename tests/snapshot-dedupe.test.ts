@@ -60,9 +60,13 @@ describe("assistant snapshot dedupe", () => {
     // Each message's own text appears exactly once…
     expect(out.match(/Checking\./g)).toHaveLength(1)
     expect(out.match(/Now editing\./g)).toHaveLength(1)
-    // …and both tool cards survive with their fences unbroken.
+    // …and both tool cards survive with their fences unbroken. The Edit card
+    // also carries its \x1f-marked meta line (paths + line counts), which is
+    // what the renderer reads to pair, title and tally the call.
     expect(out).toContain("```tool:Bash\n$ ls -la\n```")
-    expect(out).toContain("```tool:Edit\n/a.ts\n```")
+    expect(out).toMatch(
+      /```tool:Edit\n\x1f\{"paths":\["\/a\.ts"\],"added":1,"removed":1\}\n\/a\.ts\n```/,
+    )
     expect(out).toContain("```diff\n- old\n+ new\n```")
     // The old cumulative-length heuristic sliced INTO the second card.
     expect(out).not.toMatch(/^\s*f\n/m)

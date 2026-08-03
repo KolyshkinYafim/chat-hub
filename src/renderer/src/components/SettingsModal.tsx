@@ -6,10 +6,12 @@ import type {
   EditorPref,
   EffortLevel,
   GeneralConfig,
+  Mode,
   ProviderConfig,
   ProviderStatus,
   SettingsSnapshot,
 } from "@shared/settings-types"
+import { DEFAULT_MODES } from "@shared/settings-types"
 
 function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -36,6 +38,8 @@ type Props = {
   onClose: () => void
   permissionMode: PermissionMode
   onPermissionChange: (mode: PermissionMode) => void
+  autoOpenDock: boolean
+  onAutoOpenDockChange: (enabled: boolean) => void
 }
 
 function authBadge(auth: ProviderStatus["auth"]): { text: string; cls: string } {
@@ -131,6 +135,8 @@ export function SettingsModal({
   onClose,
   permissionMode,
   onPermissionChange,
+  autoOpenDock,
+  onAutoOpenDockChange,
 }: Props) {
   const [tab, setTab] = useState<Tab>("providers")
   const [statuses, setStatuses] = useState<ProviderStatus[]>([])
@@ -144,6 +150,7 @@ export function SettingsModal({
     claude: true,
   })
   const [general, setGeneral] = useState<GeneralConfig>({})
+  const [modesDraft, setModesDraft] = useState<Mode[]>(DEFAULT_MODES)
   const [dataPaths, setDataPaths] = useState<DataPaths | null>(null)
   const [tests, setTests] = useState<
     Record<string, { ok: boolean; detail: string; ms: number } | "running">
@@ -280,6 +287,41 @@ export function SettingsModal({
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
+  }
+
+  // Keep the editable copy in sync with what's persisted; fall back to the
+  // seeded defaults until the user has saved any of their own.
+  useEffect(() => {
+    setModesDraft(general.modes?.length ? general.modes : DEFAULT_MODES)
+  }, [general.modes])
+
+  /** Live text edits stay local; callers persist on blur / structural change. */
+  function editMode(id: string, patch: Partial<Mode>) {
+    setModesDraft((curr) =>
+      curr.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+    )
+  }
+
+  function commitModes(next: Mode[] = modesDraft) {
+    // Drop nameless rows so a half-added mode never persists as a blank chip.
+    const clean = next
+      .map((m) => ({ ...m, name: m.name.trim() }))
+      .filter((m) => m.name.length > 0)
+    void patchGeneral({ modes: clean })
+  }
+
+  function addMode() {
+    const next: Mode[] = [
+      ...modesDraft,
+      { id: crypto.randomUUID(), name: "New mode", systemPrompt: "" },
+    ]
+    setModesDraft(next)
+  }
+
+  function removeMode(id: string) {
+    const next = modesDraft.filter((m) => m.id !== id)
+    setModesDraft(next)
+    commitModes(next)
   }
 
   async function reveal(path: string) {
@@ -452,7 +494,119 @@ export function SettingsModal({
                     <option value="finder">Finder</option>
                   </select>
                 </label>
+
+                <div className="settings-row">
+                  <div>
+                    <div className="row-title">Auto-open diff on file edits</div>
+                    <div className="row-desc">
+                      Pop the dock open to Diff when the agent writes or edits
+                      a file, unless you're already using Terminal, Browser or
+                      Board.
+                    </div>
+                  </div>
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={autoOpenDock}
+                      onChange={(e) => onAutoOpenDockChange(e.target.checked)}
+                    />
+                    <span className="switch-track" />
+                  </label>
+                </div>
               </div>
+
+              <h2 className="section-label modes-head">Modes</h2>
+              <p className="modes-intro">
+                Presets you can attach to a session from the composer. The system
+                prompt is appended every turn (Claude Code); model / effort /
+                permission pre-set the session’s knobs.
+              </p>
+              <div className="modes-list">
+                {modesDraft.map((m) => (
+                  <div key={m.id} className="mode-card">
+                    <div className="mode-card-row">
+                      <input
+                        className="mode-name"
+                        value={m.name}
+                        placeholder="Mode name"
+                        onChange={(e) => editMode(m.id, { name: e.target.value })}
+                        onBlur={() => commitModes()}
+                      />
+                      <button
+                        type="button"
+                        className="mode-del"
+                        title="Delete mode"
+                        onClick={() => removeMode(m.id)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <textarea
+                      className="mode-prompt"
+                      rows={3}
+                      value={m.systemPrompt ?? ""}
+                      placeholder="System prompt — how the agent should behave…"
+                      onChange={(e) =>
+                        editMode(m.id, { systemPrompt: e.target.value })
+                      }
+                      onBlur={() => commitModes()}
+                    />
+                    <div className="mode-knobs">
+                      <input
+                        className="mode-model"
+                        value={m.model ?? ""}
+                        placeholder="model (optional)"
+                        onChange={(e) =>
+                          editMode(m.id, { model: e.target.value || undefined })
+                        }
+                        onBlur={() => commitModes()}
+                      />
+                      <select
+                        value={m.effort ?? ""}
+                        aria-label="Effort"
+                        onChange={(e) => {
+                          editMode(m.id, {
+                            effort: (e.target.value || undefined) as
+                              | EffortLevel
+                              | undefined,
+                          })
+                          commitModes()
+                        }}
+                      >
+                        <option value="">effort —</option>
+                        <option value="low">low</option>
+                        <option value="medium">medium</option>
+                        <option value="high">high</option>
+                        <option value="max">max</option>
+                      </select>
+                      <select
+                        value={m.permissionMode ?? ""}
+                        aria-label="Permission"
+                        onChange={(e) => {
+                          editMode(m.id, {
+                            permissionMode: (e.target.value || undefined) as
+                              | PermissionMode
+                              | undefined,
+                          })
+                          commitModes()
+                        }}
+                      >
+                        <option value="">permission —</option>
+                        <option value="yolo">yolo</option>
+                        <option value="acceptEdits">acceptEdits</option>
+                        <option value="default">default</option>
+                      </select>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="tb-btn modes-add"
+                onClick={addMode}
+              >
+                + Add mode
+              </button>
             </div>
           ) : null}
 

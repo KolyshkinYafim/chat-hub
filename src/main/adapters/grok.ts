@@ -4,6 +4,7 @@ import { runProcess, type RunningProcess } from "./process-runner"
 import {
   beginAssistant,
   extractTextFromContent,
+  extractTouchedFiles,
   finishTurn,
   newSnapshot,
   noteSnapshotDelta,
@@ -11,6 +12,7 @@ import {
   safeJson,
   snapshotDelta,
   toolUseBlock,
+  touchedFileFromTool,
   type StreamTurn,
 } from "./stream-parse"
 import { readUsage } from "./usage"
@@ -199,14 +201,22 @@ export class GrokAdapter implements AgentAdapter {
             if (extra) pushDelta(turn, sessionId, extra, cb)
             sawText = true
           }
+          const touched = extractTouchedFiles(msg.content)
+          if (touched.length) {
+            if (!turn) turn = beginAssistant(sessionId, cb)
+            cb.onTouchedFiles?.(sessionId, turn.messageId, touched)
+          }
         }
 
         if (type === "tool" || type === "tool_use") {
           const name = String(ev.name ?? "tool")
           if (!turn) turn = beginAssistant(sessionId, cb)
           // A bare tool name says nothing about what the agent did to the repo.
-          pushDelta(turn, sessionId, toolUseBlock(name, ev.input ?? ev.arguments), cb)
+          const input = ev.input ?? ev.arguments
+          pushDelta(turn, sessionId, toolUseBlock(name, input), cb)
           sawText = true
+          const file = touchedFileFromTool(name, input)
+          if (file) cb.onTouchedFiles?.(sessionId, turn.messageId, [file])
         }
       },
       onStderrLine: (line) => {

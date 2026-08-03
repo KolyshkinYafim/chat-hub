@@ -2,6 +2,7 @@ import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import App from "./App"
 import "./styles.css"
+import "./transcript.css"
 
 async function boot() {
   // Dev-only: `?mock=1` renders the UI with sample data (no Electron bridge).
