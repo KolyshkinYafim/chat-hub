@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, type PointerEvent } from "react"
+import type { HookRun } from "@shared/hooks"
 import type { SessionMeta } from "@shared/types"
+import type { AgentAction } from "../../lib/agent-actions"
 import type { SurfaceKind } from "../../lib/surface-bridge"
 import {
   clampDockWidth,
@@ -21,6 +23,10 @@ type Props = {
   gitRefreshKey: number
   /** File the transcript asked the Diff panel to show; `at` re-fires a repeat. */
   diffFocus: { path: string; at: number } | null
+  /** Project hooks that have fired for this session (terminal banner). */
+  hookRuns?: HookRun[]
+  /** Tool calls from the transcript for the Diff audit trail. */
+  agentActions?: AgentAction[]
   onGitChanged: () => void
   onSelectKind: (kind: SurfaceKind | null) => void
   onWidthChange: (width: number) => void
@@ -34,6 +40,8 @@ export function SurfaceDock({
   width,
   gitRefreshKey,
   diffFocus,
+  hookRuns = [],
+  agentActions = [],
   onGitChanged,
   onSelectKind,
   onWidthChange,
@@ -121,7 +129,11 @@ export function SurfaceDock({
         {kind === "board" ? <BoardSurface key={session.id} cwd={session.cwd} /> : null}
         {kind === "browser" ? <BrowserSurface key={session.id} /> : null}
         {kind === "terminal" ? (
-          <TerminalSurface key={session.id} cwd={session.cwd} />
+          <TerminalSurface
+            key={session.id}
+            cwd={session.cwd}
+            hookRuns={hookRuns}
+          />
         ) : null}
         {kind === "files" ? (
           <FilesSurface key={session.id} cwd={session.cwd} />
@@ -132,6 +144,7 @@ export function SurfaceDock({
             cwd={session.cwd}
             refreshKey={gitRefreshKey}
             focus={diffFocus}
+            actions={agentActions}
             onClose={onClose}
             onChanged={onGitChanged}
           />

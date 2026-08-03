@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
+  actionForPath,
+  collectAgentActions,
+} from "@renderer/lib/agent-actions"
+import {
   parseArchived,
   pruneArchived,
   serializeArchived,
@@ -15,6 +19,10 @@ import {
   formatUsage,
   formatUsd,
 } from "@renderer/lib/usage"
+import type { ChatMessage } from "@shared/types"
+import { encodeToolCardMeta } from "@shared/tool-card"
+import { groupHookBanners } from "@renderer/lib/hook-banners"
+import type { HookRun } from "@shared/hooks"
 
 function onlyCall(block: TranscriptBlock | undefined): ToolCall {
   if (!block || block.kind !== "tools" || block.calls.length !== 1) {
@@ -70,6 +78,96 @@ describe("transcript blocks", () => {
     expect(blocks).toHaveLength(2)
     expect(onlyCall(blocks[0]).diff).toBeNull()
     expect(blocks[1]).toMatchObject({ kind: "diff" })
+  })
+})
+
+describe("agent audit trail", () => {
+  function msg(
+    id: string,
+    content: string,
+    role: ChatMessage["role"] = "assistant",
+  ): ChatMessage {
+    return {
+      id,
+      sessionId: "s1",
+      role,
+      content,
+      createdAt: 1,
+    }
+  }
+
+  it("returns an empty list when the turn has not run yet", () => {
+    expect(collectAgentActions([])).toEqual([])
+    expect(collectAgentActions([msg("u1", "hi", "user")])).toEqual([])
+  })
+
+  it("collects tool calls from assistant messages", () => {
+    const meta = encodeToolCardMeta({
+      paths: ["src/a.ts"],
+      exitCode: 0,
+    })
+    const content =
+      "```tool:Read\nsrc/a.ts\n```\n" +
+      "```tool:Bash\npnpm test\n```\n" +
+      "```tool-result:Bash\n" +
+      meta +
+      "ok\n```"
+    const actions = collectAgentActions([msg("m1", content)])
+    expect(actions.length).toBeGreaterThanOrEqual(2)
+    expect(actions.some((a) => a.name === "Read")).toBe(true)
+    expect(actions.some((a) => a.name === "Bash")).toBe(true)
+  })
+
+  it("links a path only when the trail already knows it", () => {
+    const actions = collectAgentActions([
+      msg(
+        "m1",
+        "```tool:Edit\n" +
+          encodeToolCardMeta({ paths: ["src/foo.ts"] }) +
+          "src/foo.ts\n```",
+      ),
+    ])
+    expect(actionForPath(actions, "src/foo.ts")?.name).toBe("Edit")
+    expect(actionForPath(actions, "src/other.ts")).toBeNull()
+  })
+})
+
+describe("hook terminal banners", () => {
+  function run(over: Partial<HookRun>): HookRun {
+    return {
+      id: over.id ?? "r1",
+      sessionId: "s1",
+      hookName: over.hookName ?? "h",
+      trigger: over.trigger ?? "session_start",
+      startedAt: over.startedAt ?? 1000,
+      finishedAt: over.finishedAt ?? 1100,
+      status: over.status ?? "ok",
+      ...over,
+    }
+  }
+
+  it("groups same-trigger runs into one banner with a count", () => {
+    const banners = groupHookBanners([
+      run({ id: "1", trigger: "session_start", startedAt: 1000, hookName: "a" }),
+      run({ id: "2", trigger: "session_start", startedAt: 1001, hookName: "b" }),
+      run({ id: "3", trigger: "session_start", startedAt: 1002, hookName: "c" }),
+    ])
+    expect(banners).toHaveLength(1)
+    expect(banners[0]).toMatchObject({
+      trigger: "session_start",
+      count: 3,
+    })
+  })
+
+  it("splits banners when the trigger changes", () => {
+    const banners = groupHookBanners([
+      run({ id: "1", trigger: "session_start", startedAt: 1000 }),
+      run({ id: "2", trigger: "turn_done", startedAt: 1001 }),
+    ])
+    expect(banners.map((b) => b.trigger)).toEqual([
+      "session_start",
+      "turn_done",
+    ])
   })
 })
 
