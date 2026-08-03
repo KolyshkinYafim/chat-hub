@@ -3886,6 +3886,41 @@ button {
   color: var(--text-muted);
 }
 
+/* Project hooks: ◆ session_start   [hooks: 3] */
+.surface-terminal-hooks {
+  flex: none;
+  max-height: 30%;
+  overflow: auto;
+  padding: 6px 10px 4px;
+  border-bottom: 1px solid var(--border-soft);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--code-bg) 88%, var(--accent) 12%);
+}
+
+.surface-terminal-hook {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: pre;
+}
+
+.surface-terminal-hook-mark {
+  color: var(--accent);
+  flex: none;
+}
+
+.surface-terminal-hook-trigger {
+  color: var(--text);
+  min-width: 10ch;
+}
+
+.surface-terminal-hook-count {
+  color: var(--text-muted);
+}
+
 /* ——— Surfaces: browser ——— */
 
 .surface-browser {
@@ -3973,8 +4008,19 @@ button {
   display: flex;
 }
 
+.surface-diff-stack {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .surface-diff .scm {
   position: static;
+  flex: 1;
+  min-height: 0;
   width: 100%;
   min-width: 0;
   z-index: auto;
@@ -3985,4 +4031,137 @@ button {
 
 .surface-diff .scm-head {
   display: none;
+}
+
+/* ——— Diff: agent audit trail ——— */
+
+.scm-audit {
+  flex: none;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-elevated);
+}
+
+.scm-audit-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.scm-audit-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.scm-audit-chevron {
+  width: 1em;
+  color: var(--text-muted);
+}
+
+.scm-audit-title {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.scm-audit-count {
+  margin-left: auto;
+  font-size: 11px;
+}
+
+.scm-audit-empty {
+  padding: 0 12px 10px;
+  margin: 0;
+}
+
+.scm-audit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 8px;
+  max-height: 140px;
+  overflow: auto;
+}
+
+.scm-audit-more {
+  padding: 2px 6px 6px;
+  font-size: 11px;
+}
+
+.scm-audit-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+
+.scm-audit-row:hover {
+  background: var(--bg-hover);
+}
+
+.scm-audit-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transform: translateY(-1px);
+}
+
+.scm-audit-dot.status-ok {
+  background: #3ecf8e;
+}
+
+.scm-audit-dot.status-error {
+  background: #f07178;
+}
+
+.scm-audit-dot.status-running {
+  background: var(--accent);
+}
+
+.scm-audit-name {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 4.5em;
+}
+
+.scm-audit-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.scm-audit-code {
+  flex: none;
+  font-size: 10.5px;
+}
+
+.scm-why {
+  flex: none;
+  width: 16px;
+  text-align: center;
+  color: var(--accent);
+  font-size: 11px;
+  cursor: help;
+  opacity: 0.85;
+}
+
+.scm-why:hover {
+  opacity: 1;
 }

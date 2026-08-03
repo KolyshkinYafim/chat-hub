@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { GitFileChange, GitWorkingCopy } from "@shared/types"
+import {
+  actionForPath,
+  type AgentAction,
+} from "../lib/agent-actions"
 import { matchPath } from "../lib/path-match"
 
 type Props = {
@@ -8,6 +12,8 @@ type Props = {
   refreshKey: number
   /** File the transcript asked for; `at` re-selects it on a repeated click. */
   focus?: { path: string; at: number } | null
+  /** Session tool trail — optional "why changed" hint per file when linkable. */
+  actions?: AgentAction[]
   onClose: () => void
   /** Lets the rest of the app re-read the branch/dirty chip after a write. */
   onChanged: () => void
@@ -88,6 +94,7 @@ export function SourceControl({
   cwd,
   refreshKey,
   focus,
+  actions = [],
   onClose,
   onChanged,
 }: Props) {
@@ -253,6 +260,8 @@ export function SourceControl({
   function fileRow(row: Row) {
     const key = rowKey(row)
     const active = selected ? rowKey(selected) === key : false
+    // Only show when the trail already links this path to a tool call.
+    const why = actionForPath(actions, row.file.path)
     return (
       <li key={key} className={`scm-row ${active ? "active" : ""}`}>
         <button
@@ -267,6 +276,15 @@ export function SourceControl({
           <span className="scm-path">{row.file.path}</span>
         </button>
         <span className="scm-row-actions">
+          {why ? (
+            <span
+              className="scm-why"
+              title={`Why: ${why.summary}`}
+              aria-label={`Why changed: ${why.summary}`}
+            >
+              ◈
+            </span>
+          ) : null}
           <span className="scm-code-label">{CODE_LABEL[row.code] ?? row.code}</span>
           <button
             type="button"
