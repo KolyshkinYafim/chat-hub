@@ -1,4 +1,5 @@
 import type { PermissionMode } from "./permission"
+import type { HookRun } from "./hooks"
 
 export type SessionStatus =
   | "idle"
@@ -202,6 +203,8 @@ export type HubEvent =
       outcome: PermissionDecision | "cancelled"
       decidedBy: PermissionDecider
     }
+  /** One project-local hook finished (shell or prompt). See `src/main/hooks.ts`. */
+  | { type: "hook.ran"; run: HookRun }
 
 export type CreateSessionInput = {
   provider: ProviderId
