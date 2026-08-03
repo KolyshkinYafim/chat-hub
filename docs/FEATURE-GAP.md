@@ -204,7 +204,7 @@ Kiro — это IDE (форк Code OSS) + CLI + web + iOS от AWS. Другая
 | Steering / AGENTS.md / Skills | ❌ | 🟡 | ✅ |
 | MCP-менеджер | ❌ | ✅ | ✅ |
 | Мультимодальный ввод | 🟡 attach путей | 🟡 | ✅ |
-| In-app Allow/Deny | ❌ (написано, не прокинуто) | ✅ | ✅ |
+| In-app Allow/Deny | ✅ прокинуто (`App.tsx:938` → `ChatView.tsx:479,486`) | ✅ | ✅ |
 | Mobile | ❌ | ✅ iOS+Android | ✅ iOS |
 | Windows / Linux | ❌ | ✅ | ✅ |
 | Подписанный билд | ❌ | ✅ | ✅ |
@@ -214,6 +214,10 @@ Kiro — это IDE (форк Code OSS) + CLI + web + iOS от AWS. Другая
 **Где ты уже сильнее обоих:** честный статус из event bus, watchdog, очередь сообщений, sealed keys, единый permission-сокет с зеркалом в menubar-остров, встроенный браузер как сурфейс.
 
 **Где отстаёшь болезненно:** git-флоу (ветка на тред → PR), worktrees, отсутствие MCP, отсутствие планирования задач уровня spec.
+
+**В работе прямо сейчас (2026-08-04, две параллельные ветки, не дублировать):**
+- Основная сессия в `chat-hub/` (main): worktree-per-session → разведение двух `touchedFiles` → History-панель (коммиты→дифф) → run-spec/журнал прогона.
+- Отдельный worktree `agent-desktop-suite-worktrees/chat-hub-panes-features` (ветка `feature/panes-hooks-audit`, задачи расписаны в `TASKS-FOR-GROK.md` этого worktree, исполнитель — Grok): хуки на события (`.chathub/hooks/*.json`, индикатор `[hooks: N]` в терминал-сурфейсе) + pre-commit audit-trail (дифф + трейл действий агента рядом в `DiffSurface.tsx`). Идеи — из Panes и Kiro, см. разделы 2 и 3c выше.
 
 ---
 
