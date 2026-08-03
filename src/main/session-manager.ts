@@ -863,6 +863,9 @@ export class SessionManager {
         if (!this.permissions) return {}
         return this.permissions.requestInputFromAdapter(request)
       },
+      onServerRequestResolved: (requestIds) => {
+        this.permissions?.resolveExternally(requestIds)
+      },
       onUsage: (sessionId, turn, messageId) => {
         this.recordUsage(sessionId, turn, messageId)
       },

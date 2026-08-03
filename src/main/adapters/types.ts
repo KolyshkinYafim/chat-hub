@@ -63,6 +63,7 @@ export type AdapterCallbacks = {
     source: string
     questions: AgentInputQuestion[]
   }) => Promise<Record<string, string[]>>
+  onServerRequestResolved?: (requestIds: string[]) => void
   /** The CLI reported its own session id — persist it for cross-restart resume. */
   onAgentSession?: (sessionId: string, agentSessionId: string) => void
   /**

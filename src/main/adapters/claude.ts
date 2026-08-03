@@ -131,15 +131,9 @@ export class ClaudeAdapter implements AgentAdapter {
     const snap = newSnapshot()
     const stderr: string[] = []
 
-    // Claude streams reasoning as separate `thinking` deltas that used to be
-    // dropped. We fold them into the transcript as a ```thinking fence and close
-    // it the moment real answer text (or a tool call) starts, so the renderer
-    // can show reasoning as its own collapsible block above the reply.
-    let thinkingOpen = false
-    const closeThinking = () => {
-      if (thinkingOpen && turn) pushDelta(turn, sessionId, "\n```\n\n", cb)
-      thinkingOpen = false
-    }
+    // Reasoning is activity metadata, not answer prose. Keep it in the same
+    // first-class collapsible item used by Codex instead of synthetic Markdown.
+    let thinking = ""
 
     const proc = runProcess({
       command: bin,
@@ -195,18 +189,18 @@ export class ClaudeAdapter implements AgentAdapter {
           const think = extractThinkingDelta(ev)
           if (think) {
             if (!turn) turn = beginAssistant(sessionId, cb)
-            if (!thinkingOpen) {
-              pushDelta(turn, sessionId, "```thinking\n", cb)
-              thinkingOpen = true
-            }
-            pushDelta(turn, sessionId, think, cb)
-            sawText = true
+            thinking += think
+            cb.onTurnItem(sessionId, turn.messageId, {
+              id: "claude-reasoning",
+              kind: "reasoning",
+              status: "running",
+              summary: thinking,
+            })
             return
           }
           const delta = extractPartialDelta(ev)
           if (delta) {
             if (!turn) turn = beginAssistant(sessionId, cb)
-            closeThinking()
             pushDelta(turn, sessionId, delta, cb)
             noteSnapshotDelta(snap, delta)
             sawText = true
@@ -223,7 +217,6 @@ export class ClaudeAdapter implements AgentAdapter {
             const extra = snapshotDelta(snap, messageIdOf(msg), text)
             if (extra) {
               if (!turn) turn = beginAssistant(sessionId, cb)
-              closeThinking()
               pushDelta(turn, sessionId, extra, cb)
             }
             sawText = true
@@ -248,7 +241,6 @@ export class ClaudeAdapter implements AgentAdapter {
         if (type === "tool_use" || type === "tool_result") {
           const name = String(ev.name ?? type)
           if (!turn) turn = beginAssistant(sessionId, cb)
-          closeThinking()
           pushDelta(turn, sessionId, `\n\n🔧 **${name}**\n`, cb)
           sawText = true
         }
@@ -262,9 +254,14 @@ export class ClaudeAdapter implements AgentAdapter {
         stderr.push(err.message)
       },
       onExit: (code) => {
-        // A turn that produced only reasoning (no answer text) still has an open
-        // fence — close it so the transcript is never left mid-block.
-        closeThinking()
+        if (thinking && turn) {
+          cb.onTurnItem(sessionId, turn.messageId, {
+            id: "claude-reasoning",
+            kind: "reasoning",
+            status: code === 0 ? "completed" : "interrupted",
+            summary: thinking,
+          })
+        }
         const messageId = turn?.messageId
         finishTurn(turn, sessionId, cb)
         turn = null
