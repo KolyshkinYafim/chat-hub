@@ -1,17 +1,21 @@
-import { findBinary } from "./binary"
+import { findBinary, isExecutable } from "./binary"
+import { buildGrokArgs } from "./args"
 import { runProcess, type RunningProcess } from "./process-runner"
 import {
   beginAssistant,
   extractTextFromContent,
   finishTurn,
+  newSnapshot,
+  noteSnapshotDelta,
   pushDelta,
   safeJson,
+  snapshotDelta,
+  toolUseBlock,
   type StreamTurn,
 } from "./stream-parse"
-import {
-  DEFAULT_PERMISSION_MODE,
-  grokPermissionArgs,
-} from "@shared/permission"
+import { readUsage } from "./usage"
+import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
+import type { TurnUsage } from "@shared/types"
 import type {
   AdapterCallbacks,
   AdapterSendOpts,
@@ -28,7 +32,14 @@ export class GrokAdapter implements AgentAdapter {
   private binary: string | null
   private sessions = new Map<
     string,
-    { cwd: string; grokSession?: string; proc?: RunningProcess }
+    {
+      cwd: string
+      grokSession?: string
+      binaryPath?: string
+      proc?: RunningProcess
+      /** Set by abort() so the dying turn hands the session to the next send. */
+      aborting?: boolean
+    }
   >()
 
   constructor() {
@@ -44,8 +55,17 @@ export class GrokAdapter implements AgentAdapter {
   }
 
   async start(opts: AdapterStartOpts, cb: AdapterCallbacks): Promise<void> {
-    if (!this.binary) throw new Error("Grok Build CLI not found (grok)")
-    this.sessions.set(opts.sessionId, { cwd: opts.cwd })
+    const bin = opts.binaryPath || this.binary
+    if (!bin) throw new Error("Grok Build CLI not found (grok)")
+    // A bad Settings override must fail here, not as a silent ENOENT per turn.
+    if (opts.binaryPath && !isExecutable(opts.binaryPath)) {
+      throw new Error(`Grok binary is not executable: ${opts.binaryPath}`)
+    }
+    this.sessions.set(opts.sessionId, {
+      cwd: opts.cwd,
+      binaryPath: opts.binaryPath,
+      grokSession: opts.resumeId,
+    })
     cb.onSessionEvent({
       type: "session.status",
       id: opts.sessionId,
@@ -59,12 +79,23 @@ export class GrokAdapter implements AgentAdapter {
     cb: AdapterCallbacks,
     opts?: AdapterSendOpts,
   ): Promise<void> {
-    const bin = this.binary
-    if (!bin) throw new Error("Grok Build CLI not found")
     const state = this.sessions.get(sessionId)
     if (!state) throw new Error("Session not started")
+    const bin = opts?.binaryPath || state.binaryPath || this.binary
+    if (!bin) throw new Error("Grok Build CLI not found")
+    if (opts?.binaryPath) state.binaryPath = opts.binaryPath
 
-    state.proc?.abort()
+    // One turn at a time — refuse rather than kill the in-flight turn. After an
+    // explicit Stop the dying process hands the session over instead.
+    if (state.proc) {
+      if (!state.aborting) {
+        throw new Error(
+          "This session is already running a turn — stop it or wait for it to finish.",
+        )
+      }
+      state.proc = undefined
+      state.aborting = false
+    }
 
     const mode =
       opts?.permissionMode ??
@@ -75,26 +106,14 @@ export class GrokAdapter implements AgentAdapter {
         | undefined) ??
       DEFAULT_PERMISSION_MODE
 
-    const args = [
-      "--single",
+    const args = buildGrokArgs({
       message,
-      "--output-format",
-      "streaming-json",
-      "--cwd",
-      state.cwd,
-      ...grokPermissionArgs(mode),
-    ]
-    if (opts?.model) {
-      args.push("--model", opts.model)
-    }
-    if (opts?.attachments?.length) {
-      // Grok may accept files via prompt annotation if flags differ
-      const listed = opts.attachments.map((p) => `@${p}`).join(" ")
-      args[1] = `${message}\n\nAttachments: ${listed}`
-    }
-    if (state.grokSession) {
-      args.push("--resume", state.grokSession)
-    }
+      cwd: state.cwd,
+      permissionMode: mode,
+      model: opts?.model,
+      attachments: opts?.attachments,
+      resumeId: state.grokSession,
+    })
 
     cb.onSessionEvent({
       type: "session.status",
@@ -104,12 +123,15 @@ export class GrokAdapter implements AgentAdapter {
 
     let turn: StreamTurn | null = null
     let sawText = false
+    let usage: TurnUsage | null = null
+    const snapshot = newSnapshot()
     const stderr: string[] = []
 
     const proc = runProcess({
       command: bin,
       args,
       cwd: state.cwd,
+      env: opts?.env,
       onStdoutLine: (line) => {
         const ev = safeJson(line)
         if (!ev) {
@@ -121,8 +143,17 @@ export class GrokAdapter implements AgentAdapter {
           return
         }
 
-        if (typeof ev.session_id === "string") state.grokSession = ev.session_id
-        if (typeof ev.sessionId === "string") state.grokSession = ev.sessionId
+        const gsid =
+          (typeof ev.session_id === "string" && ev.session_id) ||
+          (typeof ev.sessionId === "string" && ev.sessionId) ||
+          ""
+        if (gsid && gsid !== state.grokSession) {
+          state.grokSession = gsid
+          cb.onAgentSession?.(sessionId, gsid)
+        }
+
+        // Grok tags its totals onto whichever line it feels like; last one wins.
+        usage = readUsage(ev) ?? usage
 
         const type = String(ev.type ?? ev.event ?? "")
 
@@ -138,6 +169,9 @@ export class GrokAdapter implements AgentAdapter {
         if (delta) {
           if (!turn) turn = beginAssistant(sessionId, cb)
           pushDelta(turn, sessionId, delta, cb)
+          // Grok streams deltas AND repeats the finished message: the snapshot
+          // has to know what the deltas already put on screen.
+          noteSnapshotDelta(snapshot, delta)
           sawText = true
           return
         }
@@ -156,11 +190,13 @@ export class GrokAdapter implements AgentAdapter {
             (typeof ev.content === "string" ? ev.content : "")
           if (text) {
             if (!turn) turn = beginAssistant(sessionId, cb)
-            if (text.length > turn.text.length) {
-              pushDelta(turn, sessionId, text.slice(turn.text.length), cb)
-            } else if (!turn.text) {
-              pushDelta(turn, sessionId, text, cb)
-            }
+            // Same trap as Claude had: diffing a per-message snapshot against
+            // the whole run's buffer silences every message after the first
+            // (its text is shorter than the buffer) and slices any that is
+            // longer at a meaningless offset.
+            const msgId = typeof msg.id === "string" ? msg.id : undefined
+            const extra = snapshotDelta(snapshot, msgId, text)
+            if (extra) pushDelta(turn, sessionId, extra, cb)
             sawText = true
           }
         }
@@ -168,7 +204,8 @@ export class GrokAdapter implements AgentAdapter {
         if (type === "tool" || type === "tool_use") {
           const name = String(ev.name ?? "tool")
           if (!turn) turn = beginAssistant(sessionId, cb)
-          pushDelta(turn, sessionId, `\n\n🔧 **${name}**\n`, cb)
+          // A bare tool name says nothing about what the agent did to the repo.
+          pushDelta(turn, sessionId, toolUseBlock(name, ev.input ?? ev.arguments), cb)
           sawText = true
         }
       },
@@ -176,8 +213,19 @@ export class GrokAdapter implements AgentAdapter {
         stderr.push(line)
         if (stderr.length > 40) stderr.shift()
       },
+      onSpawnError: (err) => {
+        // ENOENT/EACCES never reaches stderr — without this the turn dies silent.
+        stderr.push(err.message)
+      },
       onExit: (code) => {
+        const messageId = turn?.messageId
         finishTurn(turn, sessionId, cb)
+        if (usage) cb.onUsage?.(sessionId, usage, messageId)
+        // A newer turn may already own this session (Stop then immediate
+        // resend): a dead process must not overwrite the live turn's status.
+        if (state.proc !== proc) return
+        state.proc = undefined
+        state.aborting = false
         if (code === 0) {
           cb.onSessionEvent({
             type: "session.status",
@@ -201,7 +249,7 @@ export class GrokAdapter implements AgentAdapter {
             pushDelta(
               t,
               sessionId,
-              `Grok exited with code ${code}.\n\n\`\`\`\n${stderr.slice(-8).join("\n")}\n\`\`\``,
+              `Grok exited with code ${code}.\n\n\`\`\`\n${stderr.slice(-8).join("\n") || "(no stderr output)"}\n\`\`\``,
               cb,
             )
             finishTurn(t, sessionId, cb)
@@ -217,7 +265,6 @@ export class GrokAdapter implements AgentAdapter {
             reason: "error",
           })
         }
-        if (state.proc === proc) state.proc = undefined
       },
     })
 
@@ -226,7 +273,10 @@ export class GrokAdapter implements AgentAdapter {
   }
 
   async abort(sessionId: string): Promise<void> {
-    this.sessions.get(sessionId)?.proc?.abort()
+    const state = this.sessions.get(sessionId)
+    if (!state?.proc) return
+    state.aborting = true
+    state.proc.abort()
   }
 
   async dispose(sessionId: string): Promise<void> {

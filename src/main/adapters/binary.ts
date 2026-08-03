@@ -1,21 +1,36 @@
-import { accessSync, constants } from "node:fs"
+import { accessSync, constants, readdirSync } from "node:fs"
 import { delimiter, join } from "node:path"
 import { homedir } from "node:os"
+
+const NVM_ROOT = join(homedir(), ".nvm", "versions", "node")
 
 const EXTRA_DIRS = [
   "/opt/homebrew/bin",
   "/usr/local/bin",
   join(homedir(), ".local", "bin"),
   join(homedir(), ".grok", "bin"),
-  join(homedir(), ".nvm", "versions", "node"),
 ]
 
-function isExecutable(path: string): boolean {
+export function isExecutable(path: string): boolean {
   try {
     accessSync(path, constants.X_OK)
     return true
   } catch {
     return false
+  }
+}
+
+/**
+ * ~/.nvm/versions/node holds version folders, never binaries — a CLI installed
+ * only through nvm lives one level deeper, and the GUI PATH has no nvm shim.
+ */
+function nvmBinDirs(): string[] {
+  try {
+    return readdirSync(NVM_ROOT, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => join(NVM_ROOT, e.name, "bin"))
+  } catch {
+    return []
   }
 }
 
@@ -25,23 +40,15 @@ export function findBinary(names: string[]): string | null {
   const dirs = [
     ...pathEnv.split(delimiter).filter(Boolean),
     ...EXTRA_DIRS,
+    ...nvmBinDirs(),
   ]
-
-  // Expand nvm node bins one level
-  const expanded: string[] = []
-  for (const dir of dirs) {
-    expanded.push(dir)
-    if (dir.includes(`${join("nvm", "versions", "node")}`) && !dir.endsWith("bin")) {
-      // skip bulk scan — specific nvm bin already in PATH usually
-    }
-  }
 
   for (const name of names) {
     if (name.includes("/")) {
       if (isExecutable(name)) return name
       continue
     }
-    for (const dir of expanded) {
+    for (const dir of dirs) {
       const full = join(dir, name)
       if (isExecutable(full)) return full
     }
