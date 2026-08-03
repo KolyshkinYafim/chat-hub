@@ -1,44 +1,63 @@
 import { useMemo, useState } from "react"
-import type { ProviderId, ProviderInfo, SessionMeta } from "@shared/types"
+import type { ChatMessage, Project, SessionMeta } from "@shared/types"
 import { formatRelative, statusLabel } from "../lib/format"
+import { searchTranscripts, type TranscriptHit } from "../lib/search"
 import { StatusDot } from "./StatusDot"
 
 type Props = {
   sessions: SessionMeta[]
+  messagesBySession: Record<string, ChatMessage[]>
+  projects: Project[]
   activeId: string | null
-  providers: ProviderInfo[]
-  provider: ProviderId
+  archived: ReadonlySet<string>
   busy: boolean
   collapsed: boolean
   onToggleCollapsed: () => void
-  onProviderChange: (id: ProviderId) => void
-  onCreate: (project?: string) => void
+  onCreate: (hint?: { project?: string; cwd?: string }) => void
   onSelect: (id: string) => void
+  onArchive: (id: string, archived: boolean) => void
   onDelete: (id: string) => void
+  onJumpToMessage: (sessionId: string, messageId: string) => void
   onOpenSettings: () => void
+  onOpenSwitcher: () => void
+  onShowShortcuts: () => void
+  onAddProject: () => void
+  onRenameProject: (id: string, name: string) => void
+  onRemoveProject: (id: string, name: string) => void
   onOpenProject: (cwd: string) => void
 }
 
 type ProjectGroup = {
+  key: string
   name: string
   cwd: string
+  /** Persisted project id, when this group is a pinned project. */
+  projectId: string | null
   sessions: SessionMeta[]
   collapsed: boolean
+  sortTs: number
 }
 
 export function Sidebar({
   sessions,
+  messagesBySession,
+  projects,
   activeId,
-  providers,
-  provider,
+  archived,
   busy,
   collapsed: railCollapsed,
   onToggleCollapsed,
-  onProviderChange,
   onCreate,
   onSelect,
+  onArchive,
   onDelete,
+  onJumpToMessage,
   onOpenSettings,
+  onOpenSwitcher,
+  onShowShortcuts,
+  onAddProject,
+  onRenameProject,
+  onRemoveProject,
   onOpenProject,
 }: Props) {
   const [query, setQuery] = useState("")
@@ -46,10 +65,24 @@ export function Sidebar({
     "all" | "waiting" | "running"
   >("all")
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [showArchived, setShowArchived] = useState(false)
+
+  const hits = useMemo(
+    () => searchTranscripts(query, messagesBySession),
+    [query, messagesBySession],
+  )
+
+  const archivedSessions = useMemo(
+    () =>
+      sessions
+        .filter((s) => archived.has(s.id))
+        .sort((a, b) => b.updatedAt - a.updatedAt),
+    [sessions, archived],
+  )
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase()
-    let filtered = sessions
+    let filtered = sessions.filter((s) => !archived.has(s.id))
     if (statusFilter === "waiting") {
       filtered = filtered.filter((s) => s.status === "waiting_input")
     } else if (statusFilter === "running") {
@@ -60,36 +93,149 @@ export function Sidebar({
         (s) =>
           s.title.toLowerCase().includes(q) ||
           s.project.toLowerCase().includes(q) ||
-          s.provider.toLowerCase().includes(q),
+          s.provider.toLowerCase().includes(q) ||
+          // A transcript hit keeps the row even when the label says nothing.
+          hits.has(s.id),
       )
     }
 
-    const map = new Map<string, SessionMeta[]>()
+    // Group by folder (cwd) so a pinned project and its sessions share a group.
+    const map = new Map<string, ProjectGroup>()
+    const keyFor = (cwd: string, name: string) => cwd || `name:${name}`
+
+    // Seed pinned projects first so empty ones still get a group.
+    const showEmpty = statusFilter === "all"
+    for (const p of projects) {
+      if (!showEmpty) continue
+      if (q && !p.name.toLowerCase().includes(q)) continue
+      const key = keyFor(p.cwd, p.name)
+      map.set(key, {
+        key,
+        name: p.name,
+        cwd: p.cwd,
+        projectId: p.id,
+        sessions: [],
+        collapsed: collapsed[key] === true,
+        sortTs: p.createdAt,
+      })
+    }
+
+    // Fold sessions into groups (creating ad-hoc groups for unpinned folders).
     for (const s of filtered) {
-      const key = s.project || "Workspace"
-      const list = map.get(key) ?? []
-      list.push(s)
-      map.set(key, list)
+      const name = s.project || "Workspace"
+      const key = keyFor(s.cwd, name)
+      const existing = map.get(key)
+      if (existing) {
+        existing.sessions.push(s)
+        existing.sortTs = Math.max(existing.sortTs, s.updatedAt)
+      } else {
+        const pinned = projects.find((p) => p.cwd && p.cwd === s.cwd)
+        map.set(key, {
+          key,
+          name: pinned?.name ?? name,
+          cwd: s.cwd,
+          projectId: pinned?.id ?? null,
+          sessions: [s],
+          collapsed: collapsed[key] === true,
+          sortTs: s.updatedAt,
+        })
+      }
     }
 
-    const order = [...map.keys()].sort((a, b) => {
-      const aT = Math.max(...(map.get(a) ?? []).map((s) => s.updatedAt))
-      const bT = Math.max(...(map.get(b) ?? []).map((s) => s.updatedAt))
-      return bT - aT
-    })
+    const list = [...map.values()]
+    for (const g of list) {
+      g.sessions.sort((a, b) => b.updatedAt - a.updatedAt)
+    }
+    return list.sort((a, b) => b.sortTs - a.sortTs)
+  }, [sessions, projects, query, collapsed, statusFilter, archived, hits])
 
-    return order.map((name): ProjectGroup => {
-      const list = (map.get(name) ?? []).sort(
-        (a, b) => b.updatedAt - a.updatedAt,
-      )
-      return {
-        name,
-        cwd: list[0]?.cwd ?? "",
-        sessions: list,
-        collapsed: collapsed[name] === true,
-      }
-    })
-  }, [sessions, query, collapsed, statusFilter])
+  const transcriptOnly = useMemo(
+    () =>
+      query.trim()
+        ? [...hits.values()].filter((h) => {
+            const s = sessions.find((x) => x.id === h.sessionId)
+            if (!s || archived.has(s.id)) return false
+            const q = query.trim().toLowerCase()
+            return !(
+              s.title.toLowerCase().includes(q) ||
+              s.project.toLowerCase().includes(q)
+            )
+          }).length
+        : 0,
+    [hits, sessions, query, archived],
+  )
+
+  function renderRow(s: SessionMeta, isArchived: boolean) {
+    const live = s.status === "running" || s.status === "waiting_input"
+    const hit = hits.get(s.id)
+    return (
+      <div
+        key={s.id}
+        role="treeitem"
+        aria-selected={s.id === activeId}
+        className={`session-row ${s.id === activeId ? "active" : ""} ${live ? "live" : ""}`}
+        onClick={() => onSelect(s.id)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") onSelect(s.id)
+        }}
+        tabIndex={0}
+      >
+        <div className="session-row-main t3">
+          {live ? <StatusDot status={s.status} showLabel /> : null}
+          <span className="session-row-title" title={s.title}>
+            {s.title}
+          </span>
+          <span className="session-row-time">{formatRelative(s.updatedAt)}</span>
+        </div>
+        {hit ? (
+          <button
+            type="button"
+            className="session-hit"
+            title="Jump to this message"
+            onClick={(e) => {
+              e.stopPropagation()
+              onJumpToMessage(s.id, hit.messageId)
+            }}
+          >
+            <span className="session-hit-count">
+              {hit.hits} {hit.hits === 1 ? "hit" : "hits"}
+            </span>
+            <span className="session-hit-text">
+              <Marked hit={hit} />
+            </span>
+          </button>
+        ) : null}
+        <div className="session-row-actions">
+          <button
+            type="button"
+            className="row-act"
+            title={
+              isArchived
+                ? "Unarchive session"
+                : "Archive session (hides it, keeps the transcript)"
+            }
+            onClick={(e) => {
+              e.stopPropagation()
+              onArchive(s.id, !isArchived)
+            }}
+          >
+            {isArchived ? "⤒" : "⤓"}
+          </button>
+          <button
+            type="button"
+            className="row-act row-delete"
+            title="Delete session"
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete(s.id)
+            }}
+          >
+            ×
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   if (railCollapsed) {
     return (
@@ -129,9 +275,7 @@ export function Sidebar({
         <div className="brand-row">
           <div className="brand-mark">
             <span className="brand-glyph">⌘</span>
-            <div className="brand-name">
-              Chat Hub <span className="alpha">MVP</span>
-            </div>
+            <div className="brand-name">Chat Hub</div>
           </div>
           <div className="brand-actions">
             <button
@@ -153,7 +297,7 @@ export function Sidebar({
             <button
               type="button"
               className="icon-chip"
-              title="New session"
+              title="New session (⌘N)"
               disabled={busy}
               onClick={() => onCreate()}
             >
@@ -168,16 +312,45 @@ export function Sidebar({
           </span>
           <input
             className="search-input"
-            placeholder="Search"
+            placeholder="Search sessions & messages"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            aria-label="Search sessions"
+            aria-label="Search sessions and transcripts"
           />
+          {query ? (
+            <button
+              type="button"
+              className="kbd kbd-btn"
+              title="Clear search"
+              onClick={() => setQuery("")}
+            >
+              ×
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="kbd kbd-btn"
+              title="Switch session"
+              onClick={onOpenSwitcher}
+            >
+              ⌘K
+            </button>
+          )}
         </div>
       </div>
 
       <div className="projects-label">
-        <span>Projects</span>
+        <div className="projects-label-left">
+          <span>Projects</span>
+          <button
+            type="button"
+            className="icon-chip xs"
+            title="Add project folder"
+            onClick={onAddProject}
+          >
+            +
+          </button>
+        </div>
         <div className="filter-chips">
           {(
             [
@@ -198,30 +371,59 @@ export function Sidebar({
         </div>
       </div>
 
+      {transcriptOnly > 0 ? (
+        <div className="search-note">
+          {transcriptOnly} found by message text only
+        </div>
+      ) : null}
+
       <div className="session-scroll" role="tree">
         {groups.length === 0 ? (
           <div className="sidebar-empty">
-            No sessions. Create one with a real project folder.
+            {query ? (
+              <>
+                Nothing matches <b>{query}</b> in titles or transcripts.
+              </>
+            ) : (
+              <>
+                No projects yet. Use <b>＋ Add project</b> to pin a folder, or
+                start a session.
+              </>
+            )}
           </div>
         ) : (
           groups.map((g) => (
-            <div key={g.name} className="project-group" role="group">
+            <div key={g.key} className="project-group" role="group">
               <div className="project-head-row">
                 <button
                   type="button"
                   className="project-head"
                   onClick={() =>
-                    setCollapsed((c) => ({ ...c, [g.name]: !g.collapsed }))
+                    setCollapsed((c) => ({ ...c, [g.key]: !g.collapsed }))
                   }
                 >
                   <span className={`chev ${g.collapsed ? "" : "open"}`}>▸</span>
                   <span className="folder-ico" aria-hidden>
-                    📁
+                    {g.projectId ? "📌" : "📁"}
                   </span>
-                  <span className="project-name">{g.name}</span>
+                  <span className="project-name" title={g.cwd}>
+                    {g.name}
+                  </span>
                   <span className="project-count">{g.sessions.length}</span>
                 </button>
                 <div className="project-hover-actions">
+                  {g.projectId ? (
+                    <button
+                      type="button"
+                      className="icon-chip sm"
+                      title="Rename project"
+                      onClick={() =>
+                        onRenameProject(g.projectId as string, g.name)
+                      }
+                    >
+                      ✎
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="icon-chip sm"
@@ -235,77 +437,63 @@ export function Sidebar({
                     className="icon-chip sm"
                     title={`New in ${g.name}`}
                     disabled={busy}
-                    onClick={() => onCreate(g.name)}
+                    onClick={() => onCreate({ project: g.name, cwd: g.cwd })}
                   >
                     +
                   </button>
+                  {g.projectId ? (
+                    <button
+                      type="button"
+                      className="icon-chip sm"
+                      title="Remove project from sidebar"
+                      onClick={() =>
+                        onRemoveProject(g.projectId as string, g.name)
+                      }
+                    >
+                      ×
+                    </button>
+                  ) : null}
                 </div>
               </div>
-              {!g.collapsed
-                ? g.sessions.map((s) => {
-                    const live =
-                      s.status === "running" || s.status === "waiting_input"
-                    return (
-                      <div
-                        key={s.id}
-                        role="treeitem"
-                        aria-selected={s.id === activeId}
-                        className={`session-row ${s.id === activeId ? "active" : ""} ${live ? "live" : ""}`}
-                        onClick={() => onSelect(s.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") onSelect(s.id)
-                        }}
-                        tabIndex={0}
-                      >
-                        <div className="session-row-main t3">
-                          {s.status === "running" ||
-                          s.status === "waiting_input" ? (
-                            <StatusDot status={s.status} showLabel />
-                          ) : null}
-                          <span className="session-row-title" title={s.title}>
-                            {s.title}
-                          </span>
-                          <span className="session-row-time">
-                            {formatRelative(s.updatedAt)}
-                          </span>
-                        </div>
-                        {s.id === activeId ? (
-                          <button
-                            type="button"
-                            className="row-delete"
-                            title="Delete session"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              onDelete(s.id)
-                            }}
-                          >
-                            ×
-                          </button>
-                        ) : null}
-                      </div>
-                    )
-                  })
-                : null}
+              {!g.collapsed && g.sessions.length === 0 ? (
+                <button
+                  type="button"
+                  className="project-empty-row"
+                  disabled={busy}
+                  onClick={() => onCreate({ project: g.name, cwd: g.cwd })}
+                >
+                  No sessions yet · New session…
+                </button>
+              ) : null}
+              {!g.collapsed ? g.sessions.map((s) => renderRow(s, false)) : null}
             </div>
           ))
         )}
+
+        {archivedSessions.length > 0 ? (
+          <div className="project-group archived-group" role="group">
+            <div className="project-head-row">
+              <button
+                type="button"
+                className="project-head"
+                onClick={() => setShowArchived((v) => !v)}
+              >
+                <span className={`chev ${showArchived ? "open" : ""}`}>▸</span>
+                <span className="folder-ico" aria-hidden>
+                  ⤓
+                </span>
+                <span className="project-name">Archived</span>
+                <span className="project-count">{archivedSessions.length}</span>
+              </button>
+            </div>
+            {showArchived
+              ? archivedSessions.map((s) => renderRow(s, true))
+              : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="sidebar-bottom">
-        <label className="provider-mini">
-          <span>Default agent (new sessions)</span>
-          <select
-            value={provider}
-            onChange={(e) => onProviderChange(e.target.value as ProviderId)}
-          >
-            {providers.map((p) => (
-              <option key={p.id} value={p.id} disabled={!p.available}>
-                {p.label}
-                {!p.available ? " · install" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
         <div className="status-legend">
           <span>
             <i className="status-dot running" /> {statusLabel.running}
@@ -314,8 +502,26 @@ export function Sidebar({
             <i className="status-dot waiting_input" />{" "}
             {statusLabel.waiting_input}
           </span>
+          <span>
+            <i className="status-dot error" /> {statusLabel.error}
+          </span>
+          <button type="button" className="link-btn" onClick={onShowShortcuts}>
+            Keys <span className="kbd">⌘/</span>
+          </button>
         </div>
       </div>
     </aside>
+  )
+}
+
+/** Renders a transcript excerpt with the matched run highlighted. */
+function Marked({ hit }: { hit: TranscriptHit }) {
+  const { snippet, matchStart, matchLength } = hit
+  return (
+    <>
+      {snippet.slice(0, matchStart)}
+      <mark>{snippet.slice(matchStart, matchStart + matchLength)}</mark>
+      {snippet.slice(matchStart + matchLength)}
+    </>
   )
 }

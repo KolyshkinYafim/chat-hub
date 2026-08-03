@@ -11,6 +11,7 @@ import { projectFromCwd } from "@shared/project"
 export type NewSessionDraft = {
   cwd: string
   provider: ProviderId
+  instanceId?: string
   model?: string
   title?: string
   permissionMode: PermissionMode
@@ -19,6 +20,7 @@ export type NewSessionDraft = {
 type Props = {
   open: boolean
   providers: ProviderInfo[]
+  enabledProviderIds: ProviderId[]
   statuses: ProviderStatus[]
   initialProvider: ProviderId
   projectHint?: string
@@ -30,6 +32,7 @@ type Props = {
 export function NewSessionDialog({
   open,
   providers,
+  enabledProviderIds,
   statuses,
   initialProvider,
   projectHint,
@@ -38,7 +41,7 @@ export function NewSessionDialog({
   onCreate,
 }: Props) {
   const [cwd, setCwd] = useState(hintCwd ?? "")
-  const [provider, setProvider] = useState<ProviderId>(initialProvider)
+  const [instanceId, setInstanceId] = useState<string>(initialProvider)
   const [model, setModel] = useState("")
   const [title, setTitle] = useState("")
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(
@@ -47,16 +50,29 @@ export function NewSessionDialog({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Selectable agents = enabled, installed instances (default + shadow homes).
+  const agents = useMemo(
+    () =>
+      statuses.filter(
+        (s) =>
+          s.id !== "mock" &&
+          s.enabled &&
+          (s.installed || s.instanceId === instanceId),
+      ),
+    [statuses, instanceId],
+  )
   const status = useMemo(
-    () => statuses.find((s) => s.id === provider),
-    [statuses, provider],
+    () =>
+      statuses.find((s) => s.instanceId === instanceId) ??
+      statuses.find((s) => s.id === (instanceId as ProviderId)),
+    [statuses, instanceId],
   )
   const models = status?.models ?? []
 
   useEffect(() => {
     if (!open) return
     setCwd(hintCwd ?? "")
-    setProvider(initialProvider)
+    setInstanceId(initialProvider)
     setTitle(projectHint ? `New · ${projectHint}` : "")
     setPermissionMode(DEFAULT_PERMISSION_MODE)
     setError(null)
@@ -64,9 +80,9 @@ export function NewSessionDialog({
 
   useEffect(() => {
     if (!open) return
-    const st = statuses.find((s) => s.id === provider)
+    const st = statuses.find((s) => s.instanceId === instanceId)
     setModel(st?.defaultModel ?? st?.models[0]?.id ?? "")
-  }, [provider, statuses, open])
+  }, [instanceId, statuses, open])
 
   useEffect(() => {
     if (!open) return
@@ -94,7 +110,8 @@ export function NewSessionDialog({
     try {
       await onCreate({
         cwd: cwd.trim(),
-        provider,
+        provider: (status?.id ?? instanceId) as ProviderId,
+        instanceId,
         model: model || undefined,
         title: title.trim() || undefined,
         permissionMode,
@@ -124,7 +141,13 @@ export function NewSessionDialog({
             ×
           </button>
         </header>
-        <div className="modal-body">
+        <form
+          className="modal-body"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void submit()
+          }}
+        >
           <p className="modal-lead">
             Project folder + agent + model. YOLO by default for daily coding.
           </p>
@@ -136,6 +159,7 @@ export function NewSessionDialog({
               <input
                 className="text-input"
                 value={cwd}
+                autoFocus
                 placeholder="/Users/…/your-repo"
                 onChange={(e) => setCwd(e.target.value)}
               />
@@ -161,15 +185,24 @@ export function NewSessionDialog({
               <span>Agent</span>
               <select
                 className="text-input"
-                value={provider}
-                onChange={(e) => setProvider(e.target.value as ProviderId)}
+                value={instanceId}
+                onChange={(e) => setInstanceId(e.target.value)}
               >
-                {providers.map((p) => (
-                  <option key={p.id} value={p.id} disabled={!p.available}>
-                    {p.label}
-                    {!p.available ? " (install)" : ""}
-                  </option>
-                ))}
+                {agents.length === 0
+                  ? providers
+                      .filter((p) => enabledProviderIds.includes(p.id))
+                      .map((p) => (
+                        <option key={p.id} value={p.id} disabled={!p.available}>
+                          {p.label}
+                          {!p.available ? " (install)" : ""}
+                        </option>
+                      ))
+                  : agents.map((s) => (
+                      <option key={s.instanceId} value={s.instanceId}>
+                        {s.label}
+                        {!s.installed ? " (install)" : ""}
+                      </option>
+                    ))}
               </select>
               {status ? (
                 <span className="field-hint">
@@ -201,7 +234,7 @@ export function NewSessionDialog({
             </label>
 
             <label className="form-field">
-              <span>Permissions</span>
+              <span>Permissions (all sessions)</span>
               <select
                 className="text-input"
                 value={permissionMode}
@@ -217,6 +250,13 @@ export function NewSessionDialog({
                   ),
                 )}
               </select>
+              {/* One mode for the whole app — say so, because picking it here
+                  also retunes the sessions already running. */}
+              <span className="field-hint">
+                {permissionMode === "default"
+                  ? "Ask: the Hub cannot answer tool prompts yet — turns stall until you Stop them. Applies to every session."
+                  : "Hub-wide setting: this retunes running sessions too."}
+              </span>
             </label>
           </div>
 
@@ -224,16 +264,11 @@ export function NewSessionDialog({
             <button type="button" className="tb-btn" onClick={onClose}>
               Cancel
             </button>
-            <button
-              type="button"
-              className="tb-btn primary"
-              disabled={busy}
-              onClick={() => void submit()}
-            >
+            <button type="submit" className="tb-btn primary" disabled={busy}>
               {busy ? "Creating…" : "Create session"}
             </button>
           </div>
-        </div>
+        </form>
       </div>
     </div>
   )
