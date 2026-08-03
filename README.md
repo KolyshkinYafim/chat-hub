@@ -23,6 +23,22 @@ pnpm dev
 
 Requirements: Node ≥ 20, pnpm, macOS (primary).
 
+## Install (daily driver)
+
+Builds the app, puts it in `/Applications`, and starts it at login — no terminal needed afterwards:
+
+```bash
+pnpm install:mac              # add --no-login to skip launch-at-login
+pnpm status:mac               # does /Applications match this working tree?
+pnpm uninstall:mac            # remove app + LaunchAgent (data is kept)
+```
+
+Every build stamps its identity — version, commit (`-dirty` when the tree has uncommitted
+changes) and UTC timestamp — into `Contents/Info.plist` (`AgentDesktopBuildCommit`,
+`AgentDesktopBuildDate`) and into `out/build-info.json` inside the app bundle, which is what
+`pnpm status:mac` compares against. Session Monitor can then focus a real installed app instead
+of asking you to run `pnpm dev`.
+
 ## What works (MVP)
 
 - Electron main + React T3-class workbench UI
@@ -104,3 +120,9 @@ See [docs/usability-checklist.md](./docs/usability-checklist.md).
 | `pnpm dev` | Electron + Vite HMR |
 | `pnpm build` | Production build to `out/` |
 | `pnpm typecheck` | `tsc` for main/preload + renderer |
+| `pnpm test` | Vitest unit suite (`tests/`) |
+| `pnpm pack:mac` | Build `release/mac-*/Chat Hub.app` with build identity |
+| `pnpm dist:mac` | Same, as a `.dmg` |
+| `pnpm install:mac` | Build + install to `/Applications` + launch at login |
+| `pnpm status:mac` | Compare the installed app with this working tree |
+| `pnpm uninstall:mac` | Remove the app and its LaunchAgent |
