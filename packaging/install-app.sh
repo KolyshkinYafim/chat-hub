@@ -41,14 +41,26 @@ if [[ "${LOGIN}" == "1" ]]; then
   cp "${PLIST_SRC}" "${PLIST_DST}"
   launchctl bootout "gui/$(id -u)/com.agentdesktop.ChatHub" 2>/dev/null || true
   launchctl unload "${PLIST_DST}" 2>/dev/null || true
+  STARTED_BY_AGENT=0
   if ! launchctl bootstrap "gui/$(id -u)" "${PLIST_DST}" 2>/dev/null; then
-    launchctl load "${PLIST_DST}" 2>/dev/null || true
+    if launchctl load "${PLIST_DST}" 2>/dev/null; then
+      STARTED_BY_AGENT=1
+    fi
+  else
+    STARTED_BY_AGENT=1
   fi
 else
   echo "Skipping launch at login (--no-login)."
+  STARTED_BY_AGENT=0
 fi
 
-open "${DEST}"
+# A LaunchAgent with RunAtLoad has already started the app above. Calling
+# `open` as well races Electron's single-instance handshake and can leave two
+# independent hubs (and two PTY/socket owners) alive. Only launch directly
+# when login start was deliberately skipped or launchctl itself failed.
+if [[ "${STARTED_BY_AGENT}" != "1" ]]; then
+  open "${DEST}"
+fi
 echo "Installed and started."
 "${ROOT}/packaging/app-status.sh" || true
 echo "  Undo: ${ROOT}/packaging/uninstall-app.sh"
