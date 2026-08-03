@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react"
 import type {
   ChatMessage,
   GitCheckoutInfo,
@@ -24,7 +31,16 @@ import { projectFromCwd } from "@shared/project"
 import { loadArchived, pruneArchived, saveArchived } from "./lib/archive"
 import { Sidebar } from "./components/Sidebar"
 import { ChatView } from "./components/ChatView"
-import { SourceControl } from "./components/SourceControl"
+import { SurfaceDock } from "./components/surfaces/SurfaceDock"
+import type { SurfaceKind } from "./lib/surface-bridge"
+import {
+  loadDockOpen,
+  loadDockWidth,
+  loadSurfaceBySession,
+  saveDockOpen,
+  saveDockWidth,
+  saveSurfaceBySession,
+} from "./lib/surface-store"
 import { SettingsModal } from "./components/SettingsModal"
 import {
   NewSessionDialog,
@@ -70,7 +86,11 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [sending, setSending] = useState(false)
   const [git, setGit] = useState<GitCheckoutInfo | null>(null)
-  const [scmOpen, setScmOpen] = useState(false)
+  const [dockOpen, setDockOpen] = useState(loadDockOpen)
+  const [dockWidth, setDockWidth] = useState(loadDockWidth)
+  const [surfaceBySession, setSurfaceBySession] = useState<
+    Record<string, SurfaceKind>
+  >(loadSurfaceBySession)
   const [gitRefresh, setGitRefresh] = useState(0)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [onboardDismissed, setOnboardDismissed] = useState(
@@ -379,6 +399,56 @@ export default function App() {
 
   const refreshGit = useCallback(() => setGitRefresh((n) => n + 1), [])
 
+  const activeSurface = activeId ? (surfaceBySession[activeId] ?? null) : null
+
+  useEffect(() => {
+    if (sessions.length === 0) return
+    setSurfaceBySession((curr) => {
+      const live = new Set(sessions.map((s) => s.id))
+      const next = Object.fromEntries(
+        Object.entries(curr).filter(([id]) => live.has(id)),
+      )
+      if (Object.keys(next).length === Object.keys(curr).length) return curr
+      saveSurfaceBySession(next)
+      return next
+    })
+  }, [sessions])
+
+  const setDock = useCallback((open: boolean) => {
+    setDockOpen(open)
+    saveDockOpen(open)
+  }, [])
+
+  const chooseSurface = useCallback(
+    (kind: SurfaceKind | null) => {
+      if (!activeId) return
+      setSurfaceBySession((curr) => {
+        const next = { ...curr }
+        if (kind === null) delete next[activeId]
+        else next[activeId] = kind
+        saveSurfaceBySession(next)
+        return next
+      })
+    },
+    [activeId],
+  )
+
+  const openSurface = useCallback(
+    (kind: SurfaceKind) => {
+      chooseSurface(kind)
+      setDock(true)
+    },
+    [chooseSurface, setDock],
+  )
+
+  const toggleDiffSurface = useCallback(() => {
+    if (dockOpen && activeSurface === "diff") {
+      setDock(false)
+      return
+    }
+    openSurface("diff")
+  }, [dockOpen, activeSurface, openSurface, setDock])
+
   async function resolvePermission(requestId: string, allow: boolean) {
     // Optimistic: main echoes permission.resolved, but the island may have
     // answered first — in which case the card is already gone either way.
@@ -636,7 +706,12 @@ export default function App() {
       }
       if (meta && e.key.toLowerCase() === "g") {
         e.preventDefault()
-        if (activeSession) setScmOpen((o) => !o)
+        if (activeSession) toggleDiffSurface()
+        return
+      }
+      if (meta && e.key.toLowerCase() === "b") {
+        e.preventDefault()
+        if (activeSession) setDock(!dockOpen)
         return
       }
       // Overlays own their own Escape; only a bare Escape stops the agent.
@@ -649,7 +724,14 @@ export default function App() {
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [anyOverlayOpen, activeSession?.id, activeSession?.status])
+  }, [
+    anyOverlayOpen,
+    activeSession?.id,
+    activeSession?.status,
+    dockOpen,
+    setDock,
+    toggleDiffSurface,
+  ])
 
   async function openFolder() {
     if (!activeSession) return
@@ -714,8 +796,15 @@ export default function App() {
   const showOnboard =
     !onboardDismissed && (noneInstalled || needsAuth) && !settingsOpen
 
+  const showDock = dockOpen && activeSession !== null
+
   return (
-    <div className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""}`}>
+    <div
+      className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""} ${
+        showDock ? "dock-is-open" : ""
+      }`}
+      style={{ "--dock-w": `${dockWidth}px` } as CSSProperties}
+    >
       <Sidebar
         sessions={sessions}
         messagesBySession={messagesBySession}
@@ -791,16 +880,23 @@ export default function App() {
           onCreate={() => openNewSession()}
           onOpenFolder={() => void openFolder()}
           onOpenEditor={() => void openEditor()}
-          onCommit={() => setScmOpen(true)}
+          onCommit={() => openSurface("diff")}
           onRename={() => void renameSession()}
+          dockOpen={showDock}
+          onToggleDock={() => setDock(!dockOpen)}
         />
       </div>
-      {scmOpen && activeSession ? (
-        <SourceControl
-          cwd={activeSession.cwd}
-          refreshKey={gitRefresh}
-          onClose={() => setScmOpen(false)}
-          onChanged={refreshGit}
+      {showDock && activeSession ? (
+        <SurfaceDock
+          session={activeSession}
+          kind={activeSurface}
+          width={dockWidth}
+          gitRefreshKey={gitRefresh}
+          onGitChanged={refreshGit}
+          onSelectKind={chooseSurface}
+          onWidthChange={setDockWidth}
+          onWidthCommit={saveDockWidth}
+          onClose={() => setDock(false)}
         />
       ) : null}
       {settingsOpen ? (

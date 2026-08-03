@@ -41,6 +41,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { openLoginTerminal } from "./terminal-launch"
 import { HOME_ENV } from "./instances"
 import type { ProviderInstance } from "@shared/settings-types"
+import {
+  hardenWebviewHost,
+  registerSurfaceIpc,
+  TerminalSessions,
+} from "./surfaces"
 
 const REAL_PROVIDER_IDS: ProviderId[] = [
   "claude",
@@ -92,6 +97,17 @@ let commandBridge: MonitorCommandBridge | null = null
 let permissions: PermissionBroker | null = null
 
 const PROVIDER_IDS = new Set(PROVIDERS.map((p) => p.id))
+
+function sendToRenderer(channel: string, payload: unknown): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, payload)
+  }
+}
+
+const terminals = new TerminalSessions({
+  data: (chunk) => sendToRenderer(IpcChannels.termData, chunk),
+  exit: (event) => sendToRenderer(IpcChannels.termExit, event),
+})
 
 function isSafeExternalUrl(url: string): boolean {
   try {
@@ -167,11 +183,16 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webviewTag: true,
     },
   })
 
   mainWindow.on("closed", () => {
     mainWindow = null
+  })
+
+  hardenWebviewHost(mainWindow.webContents, (url) => {
+    void shell.openExternal(url)
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -898,6 +919,7 @@ app.whenReady().then(async () => {
   })
 
   registerIpc(manager, bridge, settings, projects, userData)
+  registerSurfaceIpc(terminals)
   createWindow()
 
   commandBridge = new MonitorCommandBridge(manager, (sessionId) => {
@@ -928,6 +950,7 @@ let quitting = false
 
 app.on("before-quit", (e) => {
   commandBridge?.stop()
+  terminals.killAll()
   // Dropping the socket makes every waiting hook fail open rather than sit on a
   // decision that can no longer arrive.
   void permissions?.stop()

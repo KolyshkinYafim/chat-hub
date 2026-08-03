@@ -2,10 +2,13 @@ import { useState } from "react"
 import type { GitCheckoutInfo, SessionMeta } from "@shared/types"
 import { StatusDot } from "./StatusDot"
 import { shortCwd, statusLabel } from "../lib/format"
+import { PanelIcon } from "./surfaces/SurfaceIcon"
 
 type Props = {
   session: SessionMeta
   git: GitCheckoutInfo | null
+  dockOpen: boolean
+  onToggleDock: () => void
   onOpenFolder: () => void
   onOpenEditor: () => void
   onCommit: () => void
@@ -15,6 +18,8 @@ type Props = {
 export function TopBar({
   session,
   git,
+  dockOpen,
+  onToggleDock,
   onOpenFolder,
   onOpenEditor,
   onCommit,
@@ -134,6 +139,15 @@ export function TopBar({
           onClick={onRename}
         >
           ✎
+        </button>
+        <button
+          type="button"
+          className={`tb-icon panel-toggle ${dockOpen ? "is-on" : ""}`}
+          title="Right panel — browser, terminal, files, diff (⌘B)"
+          aria-pressed={dockOpen}
+          onClick={onToggleDock}
+        >
+          <PanelIcon open={dockOpen} />
         </button>
       </div>
     </header>
