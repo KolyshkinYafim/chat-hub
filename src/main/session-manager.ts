@@ -26,6 +26,7 @@ import { realpathSync, statSync } from "node:fs"
 import type { PermissionMode } from "@shared/permission"
 import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
 import type { SettingsStore } from "./settings"
+import { HookRunner } from "./hooks"
 
 const MAX_MESSAGES_PER_SESSION = 200
 
@@ -59,6 +60,7 @@ export class SessionManager {
   private watchdogTimer: ReturnType<typeof setInterval> | null = null
   private usage = new Map<string, SessionUsage>()
   private permissions: PermissionBroker | null = null
+  private readonly hooks: HookRunner
 
   constructor(
     private readonly bus: EventBus,
@@ -67,7 +69,15 @@ export class SessionManager {
     private readonly notifications: NotificationService,
     private readonly settings: SettingsStore,
     private readonly watchdog: WatchdogConfig = WATCHDOG,
-  ) {}
+  ) {
+    // Prompt hooks re-enter sendMessage so they share the normal queue (never
+    // touch SessionMeta). Fire-and-forget from the runner; turn_done hooks that
+    // enqueue must not re-fire themselves in a tight loop — sendMessage only
+    // dispatches when no turn is live, so a turn_done prompt waits for idle.
+    this.hooks = new HookRunner(this.bus, (sessionId, text) => {
+      void this.sendMessage(sessionId, text)
+    })
+  }
 
   /**
    * The broker is built after the manager (it needs a session lookup that only
@@ -269,6 +279,10 @@ export class SessionManager {
   }
 
   private async restoreAdapter(session: SessionMeta): Promise<void> {
+    // Hooks for turn_done on later turns; do not fire session_start on restart.
+    void this.hooks
+      .loadForSession(session.id, session.cwd)
+      .catch((err) => console.error("[hooks] load on restore failed", err))
     try {
       const adapter = getAdapter(session.provider)
       const resolved = this.settings.resolveInstance(
@@ -425,6 +439,14 @@ export class SessionManager {
       messages: [],
     })
     this.scheduleSave()
+
+    // session_start hooks: load project `.chathub/hooks` then fire (non-blocking
+    // so createSession stays snappy even if a shell hook is slow).
+    void this.hooks
+      .loadForSession(id, session.cwd)
+      .then(() => this.hooks.run(id, "session_start"))
+      .catch((err) => console.error("[hooks] session_start failed", err))
+
     return session
   }
 
@@ -728,6 +750,7 @@ export class SessionManager {
     this.turns.delete(sessionId)
     this.queued.delete(sessionId)
     this.usage.delete(sessionId)
+    this.hooks.clearSession(sessionId)
     // The CLI is dead, so nothing is left to answer its permission any more.
     this.permissions?.cancelForSession(sessionId)
     if (this.activeSessionId === sessionId) {
@@ -761,6 +784,7 @@ export class SessionManager {
     this.turns.clear()
     this.queued.clear()
     this.usage.clear()
+    for (const id of ids) this.hooks.clearSession(id)
     this.activeSessionId = null
     this.bus.emit({ type: "sessions.replaced", sessions: [] })
     this.bus.emit({ type: "session.active", sessionId: null })
@@ -832,6 +856,10 @@ export class SessionManager {
         }
         this.bus.emit({ type: "chat.done", sessionId, messageId })
         this.scheduleSave()
+        // turn_done after the stream has actually finished; never blocks the turn.
+        void this.hooks
+          .run(sessionId, "turn_done")
+          .catch((err) => console.error("[hooks] turn_done failed", err))
       },
       onUsage: (sessionId, turn, messageId) => {
         this.recordUsage(sessionId, turn, messageId)
