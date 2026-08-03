@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { buildCodexArgs } from "../src/main/adapters/args"
-import { currentCodexModel, renderCodexItem } from "../src/main/adapters/codex"
+import { currentCodexModel, renderCodexItem, selectCompatibleEffort } from "../src/main/adapters/codex"
 import { readUsage } from "../src/main/adapters/usage"
 import { safeJson } from "../src/main/adapters/stream-parse"
 
@@ -25,6 +25,12 @@ describe("buildCodexArgs", () => {
     expect(currentCodexModel("gpt-5-codex")).toBeNull()
     expect(currentCodexModel("o4-mini")).toBeNull()
     expect(currentCodexModel("gpt-5.6-sol")).toBe("gpt-5.6-sol")
+  })
+
+  it("falls back when a model does not support the selected reasoning effort", () => {
+    const luna = new Set(["low", "medium", "high", "xhigh", "max"])
+    expect(selectCompatibleEffort("ultra", luna, "medium")).toBe("medium")
+    expect(selectCompatibleEffort("xhigh", luna, "medium")).toBe("xhigh")
   })
 
   it("asks for JSONL and tolerates a non-repo folder", () => {

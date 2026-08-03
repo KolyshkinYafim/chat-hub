@@ -11,6 +11,9 @@ export type AuthState =
 export type ModelInfo = {
   id: string
   label: string
+  /** Live provider capabilities; absent for CLIs that do not publish them. */
+  reasoningEfforts?: EffortLevel[]
+  defaultReasoningEffort?: EffortLevel
 }
 
 export type ProviderConfig = {

@@ -485,6 +485,25 @@ export function ChatView({
     }
   }
 
+  const effortCapabilities = useMemo(() => {
+    const selectedModel = models.find((model) => model.id === session?.model) ?? models[0]
+    const supports = session?.provider === "claude" || session?.provider === "codex"
+    const available: Effort[] = session?.provider === "codex"
+      ? selectedModel?.reasoningEfforts ?? ["low", "medium", "high", "xhigh", "max", "ultra"]
+      : ["low", "medium", "high", "max"]
+    return { selectedModel, supports, available }
+  }, [models, session?.model, session?.provider])
+
+  useEffect(() => {
+    if (!session || !effortCapabilities.supports || effortCapabilities.available.includes(effort)) return
+    const providerDefault = effortCapabilities.selectedModel?.defaultReasoningEffort
+    onEffortChange(
+      providerDefault && effortCapabilities.available.includes(providerDefault)
+        ? providerDefault
+        : effortCapabilities.available[0] ?? "medium",
+    )
+  }, [effort, effortCapabilities, onEffortChange, session])
+
   if (!session) {
     return (
       <main className="main">
@@ -537,8 +556,8 @@ export function ChatView({
     models.find((m) => m.id === session.model)?.label ??
     session.model ??
     "CLI default"
-  // Effort is a Claude Code flag; no other adapter passes it on.
-  const supportsEffort = session.provider === "claude" || session.provider === "codex"
+  const supportsEffort = effortCapabilities.supports
+  const availableEfforts = effortCapabilities.available
   const running = session.status === "running"
   const usageLabel = usage ? formatSessionUsage(usage) : null
 
@@ -842,12 +861,11 @@ export function ChatView({
                   onChange={(e) => onEffortChange(e.target.value as Effort)}
                   aria-label="Effort"
                 >
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  {session.provider === "codex" ? <option value="xhigh">Extra high</option> : null}
-                  <option value="max">Max</option>
-                  {session.provider === "codex" ? <option value="ultra">Ultra</option> : null}
+                  {availableEfforts.map((level) => (
+                    <option key={level} value={level}>
+                      {{ low: "Light", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max", ultra: "Ultra" }[level]}
+                    </option>
+                  ))}
                 </select>
               </label>
             </div>

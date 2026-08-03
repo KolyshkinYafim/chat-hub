@@ -16,6 +16,7 @@ import type { ThreadResumeResponse } from "../codex-protocol/generated/v2/Thread
 import type { ThreadStartResponse } from "../codex-protocol/generated/v2/ThreadStartResponse"
 import type { TurnStartResponse } from "../codex-protocol/generated/v2/TurnStartResponse"
 import type { UserInput } from "../codex-protocol/generated/v2/UserInput"
+import type { ModelListResponse } from "../codex-protocol/generated/v2/ModelListResponse"
 import type { AgentInputQuestion, AgentTurnItem, TurnItemStatus, TurnUsage } from "@shared/types"
 import type { PermissionMode } from "@shared/permission"
 import type {
@@ -23,6 +24,7 @@ import type {
   AdapterSendOpts,
   AdapterStartOpts,
   AgentAdapter,
+  EffortLevel,
 } from "./types"
 
 /**
@@ -136,6 +138,7 @@ export class CodexAdapter implements AgentAdapter {
       itemText: new Map(),
     }
     state.active = active
+    const selectedModel = currentCodexModel(opts?.model)
     try {
       const response = await client.request<TurnStartResponse>("turn/start", {
         threadId: state.threadId,
@@ -143,8 +146,8 @@ export class CodexAdapter implements AgentAdapter {
         cwd: state.cwd,
         approvalPolicy: approvalPolicy(permissionMode),
         sandboxPolicy: sandboxPolicy(permissionMode, state.cwd),
-        model: currentCodexModel(opts?.model),
-        effort: opts?.effort ?? null,
+        model: selectedModel,
+        effort: compatibleEffort(state, selectedModel, opts?.effort),
         summary: "concise",
       })
       active.turnId = response.turn.id
@@ -191,6 +194,27 @@ export class CodexAdapter implements AgentAdapter {
     state.client = client
     state.connectedBinary = binary
     state.threadLoaded = false
+    try {
+      const catalog = await client.request<ModelListResponse>("model/list", {
+        limit: 100,
+        includeHidden: false,
+      })
+      state.modelEfforts = new Map(
+        catalog.data.map((model) => [
+          model.id,
+          new Set(model.supportedReasoningEfforts.map((option) => option.reasoningEffort)),
+        ]),
+      )
+      state.modelDefaults = new Map(
+        catalog.data.map((model) => [model.id, model.defaultReasoningEffort]),
+      )
+      state.defaultModelId = catalog.data.find((model) => model.isDefault)?.id
+    } catch (error) {
+      console.warn("[codex] model capability discovery failed", error)
+      state.modelEfforts = undefined
+      state.modelDefaults = undefined
+      state.defaultModelId = undefined
+    }
     client.onNotification((notification) => this.handleNotification(state, notification))
     client.onServerRequest((request) => void this.handleServerRequest(state, request))
     client.onClose((error) => {
@@ -527,6 +551,9 @@ type CodexSessionState = {
   permissionMode: PermissionMode
   callbacks: AdapterCallbacks
   active?: ActiveTurn
+  modelEfforts?: Map<string, Set<string>>
+  modelDefaults?: Map<string, string>
+  defaultModelId?: string
 }
 
 function buildUserInput(message: string, attachments: string[] | undefined): UserInput[] {
@@ -570,6 +597,27 @@ function approvalPolicy(mode: PermissionMode): "never" | "on-request" {
 export function currentCodexModel(model: string | undefined): string | null {
   const selected = model?.trim()
   return selected && !RETIRED_CODEX_MODELS.has(selected) ? selected : null
+}
+
+function compatibleEffort(
+  state: CodexSessionState,
+  model: string | null,
+  effort: EffortLevel | undefined,
+): string | null {
+  if (!effort) return null
+  const modelId = model ?? state.defaultModelId
+  if (!modelId) return effort
+  const supported = state.modelEfforts?.get(modelId)
+  return selectCompatibleEffort(effort, supported, state.modelDefaults?.get(modelId))
+}
+
+export function selectCompatibleEffort(
+  requested: string,
+  supported: Set<string> | undefined,
+  providerDefault: string | undefined,
+): string | null {
+  if (!supported || supported.has(requested)) return requested
+  return providerDefault ?? null
 }
 
 function sandboxMode(mode: PermissionMode): "danger-full-access" | "workspace-write" | "read-only" {
