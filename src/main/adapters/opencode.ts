@@ -1,17 +1,20 @@
-import { findBinary } from "./binary"
+import { findBinary, isExecutable } from "./binary"
+import { buildOpenCodeArgs } from "./args"
 import { runProcess, type RunningProcess } from "./process-runner"
 import {
   beginAssistant,
   extractTextFromContent,
   finishTurn,
+  newSnapshot,
   pushDelta,
   safeJson,
+  snapshotDelta,
+  toolUseBlock,
   type StreamTurn,
 } from "./stream-parse"
-import {
-  DEFAULT_PERMISSION_MODE,
-  opencodeAutoApprove,
-} from "@shared/permission"
+import { readUsage } from "./usage"
+import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
+import type { TurnUsage } from "@shared/types"
 import type {
   AdapterCallbacks,
   AdapterSendOpts,
@@ -27,7 +30,14 @@ export class OpenCodeAdapter implements AgentAdapter {
   private binary: string | null
   private sessions = new Map<
     string,
-    { cwd: string; opencodeSession?: string; proc?: RunningProcess }
+    {
+      cwd: string
+      opencodeSession?: string
+      binaryPath?: string
+      proc?: RunningProcess
+      /** Set by abort() so the dying turn hands the session to the next send. */
+      aborting?: boolean
+    }
   >()
 
   constructor() {
@@ -43,8 +53,17 @@ export class OpenCodeAdapter implements AgentAdapter {
   }
 
   async start(opts: AdapterStartOpts, cb: AdapterCallbacks): Promise<void> {
-    if (!this.binary) throw new Error("OpenCode CLI not found (opencode)")
-    this.sessions.set(opts.sessionId, { cwd: opts.cwd })
+    const bin = opts.binaryPath || this.binary
+    if (!bin) throw new Error("OpenCode CLI not found (opencode)")
+    // A bad Settings override must fail here, not as a silent ENOENT per turn.
+    if (opts.binaryPath && !isExecutable(opts.binaryPath)) {
+      throw new Error(`OpenCode binary is not executable: ${opts.binaryPath}`)
+    }
+    this.sessions.set(opts.sessionId, {
+      cwd: opts.cwd,
+      binaryPath: opts.binaryPath,
+      opencodeSession: opts.resumeId,
+    })
     cb.onSessionEvent({
       type: "session.status",
       id: opts.sessionId,
@@ -58,12 +77,23 @@ export class OpenCodeAdapter implements AgentAdapter {
     cb: AdapterCallbacks,
     opts?: AdapterSendOpts,
   ): Promise<void> {
-    const bin = this.binary
-    if (!bin) throw new Error("OpenCode CLI not found")
     const state = this.sessions.get(sessionId)
     if (!state) throw new Error("Session not started")
+    const bin = opts?.binaryPath || state.binaryPath || this.binary
+    if (!bin) throw new Error("OpenCode CLI not found")
+    if (opts?.binaryPath) state.binaryPath = opts.binaryPath
 
-    state.proc?.abort()
+    // One turn at a time — refuse rather than kill the in-flight turn. After an
+    // explicit Stop the dying process hands the session over instead.
+    if (state.proc) {
+      if (!state.aborting) {
+        throw new Error(
+          "This session is already running a turn — stop it or wait for it to finish.",
+        )
+      }
+      state.proc = undefined
+      state.aborting = false
+    }
 
     const mode =
       opts?.permissionMode ??
@@ -74,23 +104,16 @@ export class OpenCodeAdapter implements AgentAdapter {
         | undefined) ??
       DEFAULT_PERMISSION_MODE
 
-    const args = ["run", message, "--format", "json", "--dir", state.cwd]
-    if (opts?.model) {
-      args.push("--model", opts.model)
-    }
-    if (opts?.attachments?.length) {
-      for (const f of opts.attachments) {
-        args.push("--file", f)
-      }
-    }
-    if (state.opencodeSession) {
-      args.push("--session", state.opencodeSession)
-    }
-    // Default YOLO: --auto. Opt out via permission mode "default".
-    if (
-      opencodeAutoApprove(mode) ||
-      process.env.CHAT_HUB_OPENCODE_AUTO === "1"
-    ) {
+    const args = buildOpenCodeArgs({
+      message,
+      cwd: state.cwd,
+      permissionMode: mode,
+      model: opts?.model,
+      attachments: opts?.attachments,
+      resumeId: state.opencodeSession,
+    })
+    // Escape hatch that predates the permission chip: force auto-approve.
+    if (process.env.CHAT_HUB_OPENCODE_AUTO === "1" && !args.includes("--auto")) {
       args.push("--auto")
     }
 
@@ -102,12 +125,15 @@ export class OpenCodeAdapter implements AgentAdapter {
 
     let turn: StreamTurn | null = null
     let sawText = false
+    let usage: TurnUsage | null = null
+    const snap = newSnapshot()
     const stderr: string[] = []
 
     const proc = runProcess({
       command: bin,
       args,
       cwd: state.cwd,
+      env: opts?.env,
       onStdoutLine: (line) => {
         const ev = safeJson(line)
         if (!ev) {
@@ -124,16 +150,34 @@ export class OpenCodeAdapter implements AgentAdapter {
           (typeof ev.sessionId === "string" && ev.sessionId) ||
           (typeof ev.session_id === "string" && ev.session_id) ||
           undefined
-        if (sid) state.opencodeSession = sid
+        if (sid && sid !== state.opencodeSession) {
+          state.opencodeSession = sid
+          cb.onAgentSession?.(sessionId, sid)
+        }
+
+        // `message.updated` carries the assistant message's own totals; the
+        // last one of a turn is the whole turn.
+        usage = readUsage(ev) ?? usage
 
         const type = String(ev.type ?? ev.event ?? "")
 
+        // `opencode run --format json` prints flat events ({type, part, …});
+        // the server bus wraps the same part under `properties`.
+        const part = asRecord(ev.part) ?? asRecord(asRecord(ev.properties)?.part)
+
+        // Tool-ness lives in the part, not in the event name.
+        if (part?.type === "tool" || type.includes("tool")) {
+          const name = String(part?.tool ?? ev.tool ?? ev.name ?? "tool")
+          const toolState = asRecord(part?.state)
+          if (!turn) turn = beginAssistant(sessionId, cb)
+          pushDelta(turn, sessionId, toolUseBlock(name, toolState?.input), cb)
+          sawText = true
+          return
+        }
+
         // OpenCode emits various event shapes — be liberal
         const text =
-          (typeof ev.part === "object" &&
-            ev.part &&
-            typeof (ev.part as { text?: string }).text === "string" &&
-            (ev.part as { text: string }).text) ||
+          (typeof part?.text === "string" && part.text) ||
           (typeof ev.text === "string" && ev.text) ||
           (typeof ev.message === "object" &&
             extractTextFromContent(
@@ -152,25 +196,11 @@ export class OpenCodeAdapter implements AgentAdapter {
             !type)
         ) {
           if (!turn) turn = beginAssistant(sessionId, cb)
-          // Avoid replaying entire buffer: only append growth
-          if (text.startsWith(turn.text)) {
-            const extra = text.slice(turn.text.length)
-            if (extra) pushDelta(turn, sessionId, extra, cb)
-          } else if (!turn.text.includes(text)) {
-            pushDelta(turn, sessionId, text, cb)
-          }
-          sawText = true
-        }
-
-        if (type.includes("tool") || type === "tool.execute") {
-          const name = String(
-            (ev.tool as string) ||
-              (ev.name as string) ||
-              (ev.part as { tool?: string } | undefined)?.tool ||
-              "tool",
-          )
-          if (!turn) turn = beginAssistant(sessionId, cb)
-          pushDelta(turn, sessionId, `\n\n🔧 **${name}**\n`, cb)
+          // Each text part is its own dedupe unit: diffing against the whole
+          // bubble drops a part whose text repeats one already in it.
+          const partId = typeof part?.id === "string" ? part.id : undefined
+          const extra = snapshotDelta(snap, partId, text)
+          if (extra) pushDelta(turn, sessionId, extra, cb)
           sawText = true
         }
       },
@@ -178,8 +208,19 @@ export class OpenCodeAdapter implements AgentAdapter {
         stderr.push(line)
         if (stderr.length > 40) stderr.shift()
       },
+      onSpawnError: (err) => {
+        // ENOENT/EACCES never reaches stderr — without this the turn dies silent.
+        stderr.push(err.message)
+      },
       onExit: (code) => {
+        const messageId = turn?.messageId
         finishTurn(turn, sessionId, cb)
+        if (usage) cb.onUsage?.(sessionId, usage, messageId)
+        // A newer turn may already own this session (Stop then immediate
+        // resend): a dead process must not overwrite the live turn's status.
+        if (state.proc !== proc) return
+        state.proc = undefined
+        state.aborting = false
         if (code === 0) {
           cb.onSessionEvent({
             type: "session.status",
@@ -203,7 +244,7 @@ export class OpenCodeAdapter implements AgentAdapter {
             pushDelta(
               t,
               sessionId,
-              `OpenCode exited with code ${code}.\n\n\`\`\`\n${stderr.slice(-8).join("\n")}\n\`\`\`\n\nTip: set CHAT_HUB_OPENCODE_AUTO=1 to auto-approve tools.`,
+              `OpenCode exited with code ${code}.\n\n\`\`\`\n${stderr.slice(-8).join("\n") || "(no stderr output)"}\n\`\`\`\n\nTip: set CHAT_HUB_OPENCODE_AUTO=1 to auto-approve tools.`,
               cb,
             )
             finishTurn(t, sessionId, cb)
@@ -219,7 +260,6 @@ export class OpenCodeAdapter implements AgentAdapter {
             reason: "error",
           })
         }
-        if (state.proc === proc) state.proc = undefined
       },
     })
 
@@ -228,11 +268,18 @@ export class OpenCodeAdapter implements AgentAdapter {
   }
 
   async abort(sessionId: string): Promise<void> {
-    this.sessions.get(sessionId)?.proc?.abort()
+    const state = this.sessions.get(sessionId)
+    if (!state?.proc) return
+    state.aborting = true
+    state.proc.abort()
   }
 
   async dispose(sessionId: string): Promise<void> {
     await this.abort(sessionId)
     this.sessions.delete(sessionId)
   }
+}
+
+function asRecord(v: unknown): Record<string, unknown> | undefined {
+  return v && typeof v === "object" ? (v as Record<string, unknown>) : undefined
 }

@@ -8,6 +8,8 @@ export type RunSpec = {
   env?: NodeJS.ProcessEnv
   onStdoutLine?: (line: string) => void
   onStderrLine?: (line: string) => void
+  /** ENOENT/EACCES etc. — never reaches stderr, so callers must be told. */
+  onSpawnError?: (err: Error) => void
   onExit?: (code: number | null, signal: NodeJS.Signals | null) => void
 }
 
@@ -88,6 +90,11 @@ export function runProcess(spec: RunSpec): RunningProcess {
 
   child.on("error", (err) => {
     console.error("[process-runner] spawn error", err)
+    try {
+      spec.onSpawnError?.(err)
+    } catch (e) {
+      console.error("[process-runner] onSpawnError handler", e)
+    }
     finish(1, null)
   })
 
