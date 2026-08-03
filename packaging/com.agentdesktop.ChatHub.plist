@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.agentdesktop.ChatHub</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Applications/Chat Hub.app/Contents/MacOS/Chat Hub</string>
+    </array>
+    <!-- Open the cockpit at login. No KeepAlive: quitting it keeps it quit,
+         and a relaunch loop would respawn the agent CLIs it supervises. -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>
