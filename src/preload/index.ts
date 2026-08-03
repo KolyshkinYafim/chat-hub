@@ -17,6 +17,13 @@ import type {
 } from "@shared/types"
 import type { PermissionMode } from "@shared/permission"
 import type {
+  DirListing,
+  FileContents,
+  TerminalChunk,
+  TerminalExit,
+  TerminalHandle,
+} from "@shared/surfaces"
+import type {
   DataPaths,
   GeneralConfig,
   ProviderConfig,
@@ -191,6 +198,39 @@ const api = {
     ipcRenderer.on(IpcChannels.hubEvent, handler)
     return () => {
       ipcRenderer.removeListener(IpcChannels.hubEvent, handler)
+    }
+  },
+  listDir: (cwd: string, relPath: string): Promise<DirListing> =>
+    ipcRenderer.invoke(IpcChannels.listDir, cwd, relPath),
+  readFileText: (cwd: string, relPath: string): Promise<FileContents> =>
+    ipcRenderer.invoke(IpcChannels.readFile, cwd, relPath),
+  termStart: (
+    cwd: string,
+    cols: number,
+    rows: number,
+  ): Promise<TerminalHandle> =>
+    ipcRenderer.invoke(IpcChannels.termStart, cwd, cols, rows),
+  termWrite: (ptyId: string, data: string): void => {
+    ipcRenderer.send(IpcChannels.termWrite, ptyId, data)
+  },
+  termResize: (ptyId: string, cols: number, rows: number): void => {
+    ipcRenderer.send(IpcChannels.termResize, ptyId, cols, rows)
+  },
+  termKill: (ptyId: string): void => {
+    ipcRenderer.send(IpcChannels.termKill, ptyId)
+  },
+  onTerminalData: (cb: (chunk: TerminalChunk) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, chunk: TerminalChunk) => cb(chunk)
+    ipcRenderer.on(IpcChannels.termData, handler)
+    return () => {
+      ipcRenderer.removeListener(IpcChannels.termData, handler)
+    }
+  },
+  onTerminalExit: (cb: (event: TerminalExit) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, event: TerminalExit) => cb(event)
+    ipcRenderer.on(IpcChannels.termExit, handler)
+    return () => {
+      ipcRenderer.removeListener(IpcChannels.termExit, handler)
     }
   },
 }

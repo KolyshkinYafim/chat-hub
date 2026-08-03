@@ -23,6 +23,7 @@
   --composer-bg: #14151a;
   --radius: 12px;
   --sidebar-w: 268px;
+  --dock-w: 460px;
   --font: "SF Pro Text", "Inter", system-ui, -apple-system, sans-serif;
   --mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
   --topbar-h: 56px;
@@ -77,6 +78,16 @@ button {
 .app.sidebar-is-collapsed {
   /* Wider than the macOS traffic lights (~70px) so they sit inside the rail. */
   grid-template-columns: 84px 1fr;
+}
+
+.app.dock-is-open {
+  grid-template-columns:
+    var(--sidebar-w) minmax(380px, 1fr)
+    minmax(0, var(--dock-w));
+}
+
+.app.sidebar-is-collapsed.dock-is-open {
+  grid-template-columns: 84px minmax(380px, 1fr) minmax(0, var(--dock-w));
 }
 
 .main-column {
@@ -2822,6 +2833,13 @@ button {
   color: #f0c14b;
 }
 
+.permission-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .permission-tag {
   font-size: 9.5px;
   font-weight: 650;
@@ -3105,8 +3123,527 @@ button {
   font-size: 11px;
 }
 
+/* Per-file status badge (M/A/D/R/C/U/?) next to the path. */
+.scm-code {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+}
+
+.scm-code.code-M {
+  color: #f0c14b;
+  background: rgba(240, 180, 41, 0.14);
+}
+
+.scm-code.code-A {
+  color: var(--ok);
+  background: rgba(61, 214, 140, 0.14);
+}
+
+.scm-code.code-D {
+  color: var(--danger);
+  background: rgba(240, 113, 120, 0.14);
+}
+
+.scm-code.code-R,
+.scm-code.code-C {
+  color: var(--accent);
+  background: rgba(124, 140, 255, 0.14);
+}
+
+.scm-code.code-U {
+  color: var(--danger);
+  background: rgba(240, 113, 120, 0.22);
+}
+
+.scm-code.code-q {
+  color: var(--text-faint);
+}
+
 @media (max-width: 900px) {
   .scm {
     width: 100vw;
   }
+}
+
+/* ——— Surfaces: the right-hand dock ——— */
+
+.surface-dock {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-sidebar);
+  border-left: 1px solid var(--border);
+}
+
+.surface-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 9px;
+  z-index: 6;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.surface-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+}
+
+.surface-resizer:hover::after,
+.surface-resizer:active::after {
+  background: var(--accent-2);
+}
+
+.surface-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--topbar-h);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  -webkit-app-region: drag;
+}
+
+.surface-head > * {
+  -webkit-app-region: no-drag;
+}
+
+.surface-tabs {
+  display: inline-flex;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.surface-tab {
+  width: 30px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  background: var(--bg-elevated);
+  color: var(--text-faint);
+}
+
+.surface-tab + .surface-tab {
+  border-left: 1px solid var(--border);
+}
+
+.surface-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.surface-tab.active {
+  background: var(--bg-active);
+  color: var(--text);
+}
+
+.surface-icon {
+  display: block;
+}
+
+.surface-head-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.surface-close {
+  flex: none;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.surface-close:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.surface-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tb-icon.panel-toggle {
+  display: grid;
+  place-items: center;
+}
+
+.tb-icon.panel-toggle.is-on {
+  background: var(--bg-active);
+  border-color: #3d4150;
+  color: var(--text);
+}
+
+/* ——— Surfaces: the chooser ——— */
+
+.surface-chooser {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.surface-chooser-head h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.surface-chooser-head p {
+  margin: 0 0 16px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.surface-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.surface-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-height: 118px;
+  padding: 13px 13px 15px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  text-align: left;
+}
+
+.surface-tile:hover {
+  background: var(--bg-hover);
+  border-color: #3d4150;
+}
+
+.surface-tile-glyph {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  margin-bottom: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-secondary);
+}
+
+.surface-tile-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.surface-tile-hint {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* ——— Surfaces: shared notes ——— */
+
+.surface-note {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.surface-note.error {
+  color: #ffb4b8;
+}
+
+.surface-note.truncated {
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--waiting);
+}
+
+/* ——— Surfaces: files ——— */
+
+.surface-files {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.surface-tree {
+  flex: 1 1 40%;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 0 8px;
+}
+
+.tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: left;
+}
+
+.tree-row:hover {
+  background: var(--bg-hover);
+}
+
+.tree-row.active {
+  background: var(--bg-row-active);
+  color: var(--text);
+}
+
+.tree-twisty {
+  flex: none;
+  width: 9px;
+  font-size: 9px;
+  color: var(--text-faint);
+}
+
+.tree-name {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-name.is-dir {
+  color: var(--text);
+}
+
+.tree-size {
+  flex: none;
+  margin-left: auto;
+  padding-left: 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.tree-pending {
+  padding: 3px 12px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.surface-viewer {
+  flex: 1 1 60%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  background: var(--code-bg);
+}
+
+.surface-viewer-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.surface-viewer-head .mono-soft {
+  flex: 1;
+  direction: rtl;
+  text-align: left;
+}
+
+.surface-readonly {
+  flex: none;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+
+.surface-file-body {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 10px 12px 16px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre;
+  color: var(--text-secondary);
+}
+
+/* ——— Surfaces: terminal ——— */
+
+.surface-terminal {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--code-bg);
+}
+
+.surface-terminal-host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 8px 6px 8px 10px;
+}
+
+.surface-terminal-host .xterm .xterm-viewport {
+  background: transparent;
+}
+
+.surface-terminal-status {
+  padding: 6px 12px;
+  border-top: 1px solid var(--border-soft);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ——— Surfaces: browser ——— */
+
+.surface-browser {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.surface-browser-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.surface-nav {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.surface-nav:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.surface-nav:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.surface-url-form {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.surface-url {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--composer-bg);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.surface-url:focus {
+  outline: none;
+  border-color: var(--accent-2);
+  color: var(--text);
+}
+
+.surface-browser-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  background: var(--bg);
+}
+
+.surface-web {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* ——— Surfaces: diff reuses the source-control panel ——— */
+
+.surface-diff {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.surface-diff .scm {
+  position: static;
+  width: 100%;
+  min-width: 0;
+  z-index: auto;
+  background: transparent;
+  border-left: none;
+  box-shadow: none;
+}
+
+.surface-diff .scm-head {
+  display: none;
 }

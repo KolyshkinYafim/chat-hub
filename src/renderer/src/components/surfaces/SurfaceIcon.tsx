@@ -4,7 +4,7 @@ const PATHS: Record<SurfaceKind, string> = {
   browser: "M2.5 5.5h11M4.5 3.6v.01M6.4 3.6v.01M2.5 3.5h11a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1Z",
   terminal: "M1.5 3.5h13a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1ZM4 6.5 6 8l-2 1.5M8 9.5h4",
   files: "M1.5 4.2a1 1 0 0 1 1-1h3.1l1.4 1.6h6.5a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4.2Z",
-  diff: "M4 2.5v11M12 2.5v11M2 5.5h4M2 8h4M9.5 7.5h5M12 5v5",
+  diff: "M4.3 1.8h4.5l3.4 3.4v9h-7.9zM8.8 1.8v3.4h3.4M8 7.1v3.1M6.5 8.7h3M6.5 11.9h3",
 }
 
 export function SurfaceIcon({ kind }: { kind: SurfaceKind }) {

@@ -17,6 +17,11 @@ import type {
   ProviderStatus,
   SettingsSnapshot,
 } from "@shared/settings-types"
+import type {
+  SurfaceBridge,
+  TerminalChunk,
+  TerminalExit,
+} from "./lib/surface-bridge"
 
 type ChatHubApi = Window["chatHub"]
 
@@ -121,6 +126,129 @@ const snapshot: SessionSnapshot = wantWizard
     }
   : { sessions, messages, queued, usage, permissions, activeSessionId: "s1" }
 
+const mockDirs: Record<string, string[]> = {
+  "": ["assets", "notes", "src", "tests", "README.md", "huge.log", "package.json"],
+  assets: ["logo.png"],
+  notes: ["scratch.md"],
+  src: ["middleware", "routes", "index.ts"],
+  "src/middleware": ["auth.ts"],
+  "src/routes": ["session.ts"],
+  tests: ["auth.test.ts"],
+}
+
+type MockFile = { text: string; truncated?: boolean; binary?: boolean }
+
+const mockFiles: Record<string, MockFile> = {
+  "README.md": {
+    text: "# proxy-flash-admin\n\nAdmin console for the ProxyFlash fleet.\n\n## Running\n\n    pnpm install\n    pnpm dev\n",
+  },
+  "package.json": {
+    text: '{\n  "name": "proxy-flash-admin",\n  "private": true,\n  "scripts": {\n    "dev": "vite",\n    "test": "vitest run"\n  }\n}\n',
+  },
+  "huge.log": {
+    text: Array.from(
+      { length: 400 },
+      (_, i) => `[2026-07-22T15:${String(i % 60).padStart(2, "0")}:12Z] worker=${i % 4} retry scheduled in ${2 ** (i % 6)}s`,
+    ).join("\n"),
+    truncated: true,
+  },
+  "assets/logo.png": { text: "", binary: true },
+  "notes/scratch.md": {
+    text: "- expiry check reads the wrong claim\n- webhook retries: cap at 5\n- ask about the reward curve past level 30\n",
+  },
+  "src/index.ts": {
+    text: 'import { createServer } from "./server"\n\ncreateServer().listen(3000)\n',
+  },
+  "src/middleware/auth.ts": {
+    text: 'import { verifyJwt } from "../lib/jwt"\n\nexport function requireAuth(req, res, next) {\n  const token = req.headers.authorization?.slice(7)\n  if (!token) return res.status(401).end()\n  const decoded = verifyJwt(token)\n  if (!decoded) return res.status(401).end()\n  req.user = decoded\n  next()\n}\n',
+  },
+  "src/routes/session.ts": {
+    text: 'import { Router } from "express"\nimport { requireAuth } from "../middleware/auth"\n\nexport const sessions = Router()\n\nsessions.get("/", requireAuth, (req, res) => {\n  res.json({ user: req.user })\n})\n',
+  },
+  "tests/auth.test.ts": {
+    text: 'import { describe, expect, it } from "vitest"\nimport { verifyJwt } from "../src/lib/jwt"\n\ndescribe("verifyJwt", () => {\n  it("rejects an expired token", () => {\n    expect(verifyJwt(expired)).toBeNull()\n  })\n})\n',
+  },
+}
+
+const terminalDataListeners = new Set<(chunk: TerminalChunk) => void>()
+const terminalExitListeners = new Set<(exit: TerminalExit) => void>()
+const livePtys = new Map<string, (data: string) => void>()
+let ptySeq = 0
+
+function makeSurfaceBridge(): SurfaceBridge {
+  return {
+    listDir: async (_cwd, relPath) => {
+      const names = mockDirs[relPath]
+      if (!names) throw new Error(`Not a directory: ${relPath || "."}`)
+      return {
+        path: relPath,
+        entries: names.map((name) => {
+          const path = relPath === "" ? name : `${relPath}/${name}`
+          if (path in mockDirs) return { name, path, kind: "dir" as const }
+          return {
+            name,
+            path,
+            kind: "file" as const,
+            size: mockFiles[path]?.text.length ?? 0,
+          }
+        }),
+      }
+    },
+    readFileText: async (_cwd, relPath) => {
+      const file = mockFiles[relPath]
+      if (!file) throw new Error(`Cannot read ${relPath}`)
+      return {
+        path: relPath,
+        text: file.binary ? "" : file.text,
+        truncated: file.truncated ?? false,
+        binary: file.binary ?? false,
+      }
+    },
+    termStart: async (cwd, cols, rows) => {
+      const ptyId = `mock-pty-${++ptySeq}`
+      const emit = (data: string) => {
+        for (const cb of terminalDataListeners) cb({ ptyId, data })
+      }
+      livePtys.set(ptyId, emit)
+      window.setTimeout(() => {
+        if (!livePtys.has(ptyId)) return
+        emit(`mock pty ${cols}×${rows}\r\n${cwd}\r\n$ `)
+      }, 40)
+      return { ptyId }
+    },
+    termWrite: (ptyId, data) => {
+      const emit = livePtys.get(ptyId)
+      if (!emit) return
+      if (data === "\r") {
+        emit("\r\n$ ")
+        return
+      }
+      if (data === "\u007f") {
+        emit("\b \b")
+        return
+      }
+      emit(data)
+    },
+    termResize: () => {},
+    termKill: (ptyId) => {
+      if (!livePtys.delete(ptyId)) return
+      for (const cb of terminalExitListeners) cb({ ptyId, exitCode: 0 })
+    },
+    onTerminalData: (cb) => {
+      terminalDataListeners.add(cb)
+      return () => {
+        terminalDataListeners.delete(cb)
+      }
+    },
+    onTerminalExit: (cb) => {
+      terminalExitListeners.add(cb)
+      return () => {
+        terminalExitListeners.delete(cb)
+      }
+    },
+  }
+}
+
 export function installDevMock(): void {
   const api: Partial<ChatHubApi> = {
     getSnapshot: async () => snapshot,
@@ -206,5 +334,8 @@ export function installDevMock(): void {
     gitCommitStaged: async () => ({ ok: true, output: "[main abc1234] 1 file changed" }),
     onHubEvent: () => () => {},
   }
-  ;(window as unknown as { chatHub: ChatHubApi }).chatHub = api as ChatHubApi
+  ;(window as unknown as { chatHub: ChatHubApi }).chatHub = {
+    ...api,
+    ...makeSurfaceBridge(),
+  } as ChatHubApi
 }

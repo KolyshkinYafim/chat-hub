@@ -73,6 +73,8 @@ type Props = {
   onOpenEditor: () => void
   onCommit: () => void
   onRename: () => void
+  dockOpen: boolean
+  onToggleDock: () => void
 }
 
 /** Per-turn cost, folded into the agent turn's meta row. */
@@ -159,6 +161,8 @@ export function ChatView({
   onOpenEditor,
   onCommit,
   onRename,
+  dockOpen,
+  onToggleDock,
 }: Props) {
   const [draft, setDraft] = useState("")
   const [attachments, setAttachments] = useState<string[]>([])
@@ -410,6 +414,8 @@ export function ChatView({
       <TopBar
         session={session}
         git={git}
+        dockOpen={dockOpen}
+        onToggleDock={onToggleDock}
         onOpenFolder={onOpenFolder}
         onOpenEditor={onOpenEditor}
         onCommit={onCommit}
@@ -420,7 +426,7 @@ export function ChatView({
         <span className="mono-soft">
           {session.provider}
           {` · ${modelLabel}`}
-          {` · ${permissionMode}`}
+          {` · ${PERMISSION_LABELS[permissionMode]}`}
           {supportsEffort ? ` · ${effort}` : ""}
         </span>
         <span className="mono-soft dim">{session.cwd}</span>
@@ -661,7 +667,7 @@ export function ChatView({
               ) : null}
               <label
                 className={`chip select-chip perm-chip perm-${permissionMode}`}
-                title={`${PERMISSION_HINTS[permissionMode]} · applies to every session`}
+                title={`${PERMISSION_HINTS[permissionMode]} · applies to this session`}
               >
                 <select
                   value={permissionMode}
