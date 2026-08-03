@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Terminal } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import "@xterm/xterm/css/xterm.css"
+import type { HookRun } from "@shared/hooks"
+import { groupHookBanners } from "../../lib/hook-banners"
 import {
   errorText,
   surfaceBridge,
@@ -18,11 +20,14 @@ function cssVar(name: string, fallback: string): string {
 
 type Props = {
   cwd: string
+  /** Hook runs for the active session (oldest first). */
+  hookRuns?: HookRun[]
 }
 
-export function TerminalSurface({ cwd }: Props) {
+export function TerminalSurface({ cwd, hookRuns = [] }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const [status, setStatus] = useState<string | null>(null)
+  const banners = useMemo(() => groupHookBanners(hookRuns), [hookRuns])
 
   useEffect(() => {
     const host = hostRef.current
@@ -113,6 +118,25 @@ export function TerminalSurface({ cwd }: Props) {
 
   return (
     <div className="surface-terminal">
+      {banners.length > 0 ? (
+        <div className="surface-terminal-hooks" aria-label="Hook events">
+          {banners.map((b) => (
+            <div
+              key={b.key}
+              className="surface-terminal-hook"
+              title={b.detail}
+            >
+              <span className="surface-terminal-hook-mark" aria-hidden>
+                ◆
+              </span>
+              <span className="surface-terminal-hook-trigger">{b.trigger}</span>
+              <span className="surface-terminal-hook-count">
+                [hooks: {b.count}]
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <div className="surface-terminal-host" ref={hostRef} />
       {status ? <div className="surface-terminal-status">{status}</div> : null}
     </div>
