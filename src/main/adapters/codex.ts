@@ -16,7 +16,7 @@ import type { ThreadResumeResponse } from "../codex-protocol/generated/v2/Thread
 import type { ThreadStartResponse } from "../codex-protocol/generated/v2/ThreadStartResponse"
 import type { TurnStartResponse } from "../codex-protocol/generated/v2/TurnStartResponse"
 import type { UserInput } from "../codex-protocol/generated/v2/UserInput"
-import type { AgentTurnItem, TurnItemStatus, TurnUsage } from "@shared/types"
+import type { AgentInputQuestion, AgentTurnItem, TurnItemStatus, TurnUsage } from "@shared/types"
 import type { PermissionMode } from "@shared/permission"
 import type {
   AdapterCallbacks,
@@ -313,6 +313,13 @@ export class CodexAdapter implements AgentAdapter {
         })
         break
       }
+      case "serverRequest/resolved":
+        cb.onServerRequestResolved?.([
+          `codex-${String(event.params.requestId)}`,
+          `codex-input-${String(event.params.requestId)}`,
+          `codex-mcp-${String(event.params.requestId)}`,
+        ])
+        break
       case "turn/completed":
         this.completeTurn(state, event.params.turn.status, event.params.turn.error?.message)
         break
@@ -427,6 +434,58 @@ export class CodexAdapter implements AgentAdapter {
         })
         return
       }
+      if (request.method === "item/permissions/requestApproval") {
+        const decision = state.permissionMode === "yolo"
+          ? "allow"
+          : await state.callbacks.onPermissionRequest?.({
+              requestId: `codex-${String(request.id)}`,
+              sessionId: state.sessionId,
+              agentSessionId: state.threadId ?? state.sessionId,
+              source: "codex",
+              summary: request.params.reason ?? "Grant additional network or filesystem access",
+              toolName: "Permissions",
+              cwd: request.params.cwd,
+            }) ?? "deny"
+        await client.respond(request.id, {
+          permissions: decision === "allow"
+            ? {
+                ...(request.params.permissions.network ? { network: request.params.permissions.network } : {}),
+                ...(request.params.permissions.fileSystem ? { fileSystem: request.params.permissions.fileSystem } : {}),
+              }
+            : {},
+          scope: "turn",
+        })
+        return
+      }
+      if (request.method === "mcpServer/elicitation/request") {
+        const params = request.params
+        if (params.mode === "url") {
+          const answers = await state.callbacks.onUserInputRequest?.({
+            requestId: `codex-mcp-${String(request.id)}`,
+            sessionId: state.sessionId,
+            source: `mcp:${params.serverName}`,
+            questions: [{
+              id: "action",
+              header: params.serverName,
+              prompt: `${params.message}\n${params.url}`,
+              options: [{ label: "Accept" }, { label: "Decline" }],
+            }],
+          }) ?? {}
+          const accept = answers.action?.[0] === "Accept"
+          await client.respond(request.id, { action: accept ? "accept" : "decline", content: null, _meta: null })
+          return
+        }
+        const questions = schemaQuestions(params.requestedSchema)
+        const answers = await state.callbacks.onUserInputRequest?.({
+          requestId: `codex-mcp-${String(request.id)}`,
+          sessionId: state.sessionId,
+          source: `mcp:${params.serverName}`,
+          questions: questions.length ? questions : [{ id: "value", header: params.serverName, prompt: params.message }],
+        }) ?? {}
+        const content = Object.fromEntries(Object.entries(answers).map(([id, values]) => [id, values[0] ?? ""]))
+        await client.respond(request.id, { action: Object.keys(answers).length ? "accept" : "decline", content, _meta: null })
+        return
+      }
       await client.respondError(request.id, {
         code: -32601,
         message: `Chat Hub cannot handle ${request.method} yet`,
@@ -472,6 +531,27 @@ function buildUserInput(message: string, attachments: string[] | undefined): Use
         : { type: "mention", name: basename(path), path }
     }),
   ]
+}
+
+function schemaQuestions(schema: unknown): AgentInputQuestion[] {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return []
+  const properties = (schema as { properties?: unknown }).properties
+  if (!properties || typeof properties !== "object" || Array.isArray(properties)) return []
+  return Object.entries(properties).map(([id, raw]) => {
+    const field = raw && typeof raw === "object" && !Array.isArray(raw)
+      ? raw as Record<string, unknown>
+      : {}
+    const labels = Array.isArray(field.enum)
+      ? field.enum.filter((value): value is string => typeof value === "string")
+      : field.type === "boolean" ? ["true", "false"] : []
+    return {
+      id,
+      header: typeof field.title === "string" ? field.title : id,
+      prompt: typeof field.description === "string" ? field.description : `Enter ${id}`,
+      options: labels.length ? labels.map((label) => ({ label })) : undefined,
+      secret: field.format === "password",
+    }
+  })
 }
 
 function approvalPolicy(mode: PermissionMode): "never" | "on-request" {

@@ -164,6 +164,23 @@ export class PermissionBroker {
     return true
   }
 
+  resolveExternally(requestIds: string[]): void {
+    for (const requestId of requestIds) {
+      const permission = this.pending.get(requestId)
+      if (permission) {
+        this.pending.delete(requestId)
+        permission.dismiss()
+        this.emitResolved(permission.info, "cancelled", "gone")
+      }
+      const input = this.pendingInputs.get(requestId)
+      if (input) {
+        this.pendingInputs.delete(requestId)
+        input.answer({})
+        this.bus.emit({ type: "input.resolved", requestId, sessionId: input.info.sessionId })
+      }
+    }
+  }
+
   /** Withdraw every request of a session that is being killed. */
   cancelForSession(sessionId: string): void {
     for (const [requestId, item] of this.pending) {
