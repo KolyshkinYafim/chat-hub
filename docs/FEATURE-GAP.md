@@ -162,6 +162,21 @@ Kiro — это IDE (форк Code OSS) + CLI + web + iOS от AWS. Другая
 
 ---
 
+## 3c. Panes (panesade.com, github.com/wygoralves/panes) — прямой аналог по позиционированию
+
+Ближайший конкурент из всех трёх: тоже нативный mac-кокпит для агентных CLI, а не веб-чат. Free, open source.
+
+- Мульти-CLI хаб: Codex, Claude, OpenCode, Antigravity CLI, Factory Droid и другие в нативных чат/терминал-панах внутри одного воркспейса.
+- Единый воркбенч: чат + терминалы + git + поиск + worktrees вместе, репозиторий — центр экрана, а не сайдбар.
+- Полный аудит-трейл действий агента: прочитанные файлы, выполненные команды, вывод терминала — всё ревьюится как дифф перед коммитом.
+- Гейт на аппрув чувствительных команд; stage/commit не выходя из тред-вью.
+- Несколько агентов работают одновременно в разных git worktree параллельно.
+- Идея, которой у нас нет: сессии агентов как первоклассные, ревьюабельные «треды» привязанные к конкретному worktree — контрольная вышка для жонглирования несколькими агентами, а не единое окно чата.
+
+**Для нас:** ближе всего к нашей связке Hub+остров, но без части, которую мы уже сделали (menubar, watchdog, sealed keys). Их сильная сторона — worktree-per-thread с ревью-трейлом, это то же самое, что просится в P1 (ветка на сессию → worktree) и P1 дифф-гейт до пуша. Стоит взять паттерн «один тред = один worktree, весь аудит-трейл виден как дифф» как референс при реализации.
+
+---
+
 ## 4. Матрица
 
 | Возможность | Chat Hub | T3 Code | Kiro |
@@ -263,4 +278,6 @@ Kiro — это IDE (форк Code OSS) + CLI + web + iOS от AWS. Другая
 3. MCP-менеджер — самая заметная дыра относительно обоих конкурентов.
 4. Spec-режим поверх Board + волны задач на worktrees. Здесь ты обгоняешь T3 Code, а не догоняешь.
 
-**Источники:** [kiro.dev](https://kiro.dev/), [Kiro docs](https://kiro.dev/docs/), [t3.codes](https://t3.codes/), [pingdotgg/t3code](https://github.com/pingdotgg/t3code), [Better Stack: T3 Code](https://betterstack.com/community/guides/ai/t3-code/).
+**Не проверено:** пост на Reddit (r/brdev, «open-source альтернатива Codex app») — reddit.com заблокирован политикой сети для всех доступных инструментов (fetch, browser, curl, reader-прокси). Если важно — пришли текст поста или скриншот, разберу отдельно.
+
+**Источники:** [kiro.dev](https://kiro.dev/), [Kiro docs](https://kiro.dev/docs/), [t3.codes](https://t3.codes/), [pingdotgg/t3code](https://github.com/pingdotgg/t3code), [Better Stack: T3 Code](https://betterstack.com/community/guides/ai/t3-code/), [panesade.com](https://panesade.com/), [github.com/wygoralves/panes](https://github.com/wygoralves/panes).
