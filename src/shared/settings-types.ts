@@ -11,6 +11,9 @@ export type AuthState =
 export type ModelInfo = {
   id: string
   label: string
+  /** Live provider capabilities; absent for CLIs that do not publish them. */
+  reasoningEfforts?: EffortLevel[]
+  defaultReasoningEffort?: EffortLevel
 }
 
 export type ProviderConfig = {
@@ -35,7 +38,7 @@ export type RedactedProviderConfig = {
   enabled?: boolean
 }
 
-export type EffortLevel = "low" | "medium" | "high" | "max"
+export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
 export type EditorPref = "auto" | "cursor" | "code" | "finder"
 
 /**

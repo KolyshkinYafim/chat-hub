@@ -126,7 +126,7 @@ function isRendererNavigationAllowed(url: string): boolean {
   return url.startsWith("file://")
 }
 
-const EFFORTS = ["low", "medium", "high", "max"] as const
+const EFFORTS = ["low", "medium", "high", "xhigh", "max", "ultra"] as const
 
 /**
  * sendMessage opts come from the renderer and end up in CLI argv verbatim, so a
@@ -476,7 +476,7 @@ function registerIpc(
       clean.defaultProvider = p.defaultProvider
     }
     if (p.defaultEffort !== undefined) {
-      if (!["low", "medium", "high", "max"].includes(p.defaultEffort)) {
+      if (!["low", "medium", "high", "xhigh", "max", "ultra"].includes(p.defaultEffort)) {
         throw new Error("Invalid effort")
       }
       clean.defaultEffort = p.defaultEffort
@@ -542,6 +542,25 @@ function registerIpc(
       }
       if (typeof allow !== "boolean") throw new Error("Invalid decision")
       return permissions?.resolve(requestId, allow ? "allow" : "deny") ?? false
+    },
+  )
+
+  ipcMain.handle(
+    IpcChannels.resolveInput,
+    (_e, requestId: unknown, answers: unknown) => {
+      if (typeof requestId !== "string" || !requestId) {
+        throw new Error("Invalid input requestId")
+      }
+      if (!answers || typeof answers !== "object" || Array.isArray(answers)) {
+        throw new Error("Invalid input answers")
+      }
+      const clean: Record<string, string[]> = {}
+      for (const [id, value] of Object.entries(answers)) {
+        if (Array.isArray(value) && value.every((part) => typeof part === "string")) {
+          clean[id] = value
+        }
+      }
+      return permissions?.resolveInput(requestId, clean) ?? false
     },
   )
 
@@ -1028,4 +1047,3 @@ startSingleInstance({
   },
   boot,
 })
-

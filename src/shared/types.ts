@@ -77,6 +77,102 @@ export type TurnUsage = {
 /** Running total over every turn of a session that reported usage. */
 export type SessionUsage = TurnUsage & { turns: number }
 
+export type TurnItemStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "declined"
+  | "interrupted"
+
+export type TurnPlanStep = {
+  text: string
+  status: "pending" | "running" | "completed"
+}
+
+export type TurnFileChange = {
+  path: string
+  kind?: string
+  diff?: string
+}
+
+/**
+ * Provider-neutral, persisted agent activity. Final prose remains `content`;
+ * everything with a lifecycle is an item so the renderer never has to recover
+ * tool state from synthetic Markdown fences.
+ */
+export type AgentTurnItem =
+  | {
+      id: string
+      kind: "reasoning"
+      status: TurnItemStatus
+      summary: string
+    }
+  | {
+      id: string
+      kind: "plan"
+      status: TurnItemStatus
+      text: string
+      steps?: TurnPlanStep[]
+    }
+  | {
+      id: string
+      kind: "command"
+      status: TurnItemStatus
+      command: string
+      cwd?: string
+      output?: string
+      exitCode?: number
+      durationMs?: number
+    }
+  | {
+      id: string
+      kind: "file_change"
+      status: TurnItemStatus
+      changes: TurnFileChange[]
+      aggregateDiff?: string
+    }
+  | {
+      id: string
+      kind: "tool"
+      status: TurnItemStatus
+      name: string
+      server?: string
+      arguments?: unknown
+      result?: unknown
+      error?: string
+      durationMs?: number
+    }
+  | {
+      id: string
+      kind: "web_search"
+      status: TurnItemStatus
+      query: string
+    }
+  | {
+      id: string
+      kind: "image"
+      status: TurnItemStatus
+      path: string
+    }
+  | {
+      id: string
+      kind: "review"
+      status: TurnItemStatus
+      text: string
+    }
+  | {
+      id: string
+      kind: "compaction"
+      status: TurnItemStatus
+    }
+  | {
+      id: string
+      kind: "error"
+      status: "failed"
+      message: string
+    }
+
 export type ChatMessage = {
   id: string
   sessionId: string
@@ -92,6 +188,8 @@ export type ChatMessage = {
    * that never edited a file (including every user/system message).
    */
   touchedFiles?: string[]
+  /** Structured agent activity for this assistant turn. */
+  items?: AgentTurnItem[]
 }
 
 /**
@@ -125,6 +223,22 @@ export type PermissionRequestInfo = {
   summary: string
   toolName?: string
   cwd?: string
+  createdAt: number
+}
+
+export type AgentInputQuestion = {
+  id: string
+  header: string
+  prompt: string
+  options?: { label: string; description?: string }[]
+  secret?: boolean
+}
+
+export type AgentInputRequestInfo = {
+  requestId: string
+  sessionId: string
+  source: string
+  questions: AgentInputQuestion[]
   createdAt: number
 }
 
@@ -165,6 +279,12 @@ export type HubEvent =
       messageId: string
       delta: string
     }
+  | {
+      type: "chat.item"
+      sessionId: string
+      messageId: string
+      item: AgentTurnItem
+    }
   | { type: "chat.done"; sessionId: string; messageId: string }
   | {
       type: "chat.touchedFiles"
@@ -202,6 +322,8 @@ export type HubEvent =
       outcome: PermissionDecision | "cancelled"
       decidedBy: PermissionDecider
     }
+  | { type: "input.request"; request: AgentInputRequestInfo }
+  | { type: "input.resolved"; requestId: string; sessionId: string }
 
 export type CreateSessionInput = {
   provider: ProviderId
@@ -221,6 +343,8 @@ export type SessionSnapshot = {
   usage: Record<string, SessionUsage>
   /** Tool permissions still blocking a CLI, for a renderer that just reloaded. */
   permissions: PermissionRequestInfo[]
+  /** Native agent questions still awaiting an answer. */
+  inputRequests: AgentInputRequestInfo[]
   activeSessionId: string | null
 }
 

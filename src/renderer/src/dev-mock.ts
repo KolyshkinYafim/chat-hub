@@ -219,7 +219,7 @@ const projects: Project[] = [
 
 const sessions: SessionMeta[] = [
   { id: "s1", title: "Refactor auth middleware", project: "proxy-flash-admin", provider: "claude", model: "opus", cwd: projects[0].cwd, status: "running", createdAt: now - 3e5, updatedAt: now - 2e4 },
-  { id: "s2", title: "Fix webhook retries", project: "proxy-flash-admin", provider: "codex", model: "gpt-5-codex", cwd: projects[0].cwd, status: "waiting_input", createdAt: now - 6e5, updatedAt: now - 9e4 },
+  { id: "s2", title: "Fix webhook retries", project: "proxy-flash-admin", provider: "codex", model: "gpt-5.6-sol", cwd: projects[0].cwd, status: "waiting_input", createdAt: now - 6e5, updatedAt: now - 9e4 },
   { id: "s3", title: "Tune reward curve", project: "GiftArena", provider: "grok", model: "grok-4", cwd: projects[1].cwd, status: "idle", createdAt: now - 8e5, updatedAt: now - 3e5 },
 ]
 
@@ -264,7 +264,7 @@ const base = { instanceId: "", homeDir: null as string | null, isExtra: false }
 const statuses: ProviderStatus[] = [
   { ...base, id: "claude", instanceId: "claude", label: "Claude Code", installed: true, binaryPath: "/opt/homebrew/bin/claude", version: "1.0.44", auth: "connected", authDetail: "ANTHROPIC_API_KEY set", models: [{ id: "opus", label: "Opus (latest)" }, { id: "sonnet", label: "Sonnet (latest)" }, { id: "haiku", label: "Haiku (latest)" }], defaultModel: "opus", loginCommand: "claude auth login", docsUrl: "https://docs.anthropic.com/en/docs/claude-code", enabled: true, envKeys: ["ANTHROPIC_API_KEY"], envHints: [{ key: "ANTHROPIC_API_KEY", label: "Anthropic API key" }] },
   { ...base, id: "claude", instanceId: "inst-work", isExtra: true, homeDir: "/Users/lic/.claude-work", label: "Claude (work)", installed: true, binaryPath: "/opt/homebrew/bin/claude", version: "1.0.44", auth: "connected", authDetail: "Signed in (/Users/lic/.claude-work)", models: [{ id: "opus", label: "Opus (latest)" }, { id: "sonnet", label: "Sonnet (latest)" }], defaultModel: "sonnet", loginCommand: "claude auth login", docsUrl: null, enabled: true, envKeys: [], envHints: [{ key: "ANTHROPIC_API_KEY", label: "Anthropic API key" }] },
-  { ...base, id: "codex", instanceId: "codex", label: "Codex CLI", installed: true, binaryPath: "/Applications/ChatGPT.app/Contents/Resources/codex", version: "codex 0.4.0", auth: "connected", authDetail: "Signed in (~/.codex)", models: [{ id: "gpt-5-codex", label: "GPT-5 Codex" }, { id: "gpt-5", label: "GPT-5" }, { id: "o4-mini", label: "o4-mini" }], defaultModel: "gpt-5-codex", loginCommand: "codex login", docsUrl: "https://github.com/openai/codex", enabled: true, envKeys: [], envHints: [{ key: "OPENAI_API_KEY", label: "OpenAI API key" }] },
+  { ...base, id: "codex", instanceId: "codex", label: "Codex CLI", installed: true, binaryPath: "/Applications/ChatGPT.app/Contents/Resources/codex", version: "codex 0.146.0", auth: "connected", authDetail: "Signed in (~/.codex)", models: [{ id: "gpt-5.6-sol", label: "GPT-5.6 Sol" }, { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" }, { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" }], defaultModel: "gpt-5.6-sol", loginCommand: "codex login", docsUrl: "https://learn.chatgpt.com/docs/codex", enabled: true, envKeys: [], envHints: [{ key: "OPENAI_API_KEY", label: "OpenAI API key" }] },
   { ...base, id: "grok", instanceId: "grok", label: "Grok Build", installed: true, binaryPath: "/Users/lic/.grok/bin/grok", version: "grok 0.9.1", auth: "connected", authDetail: "Signed in (~/.grok)", models: [{ id: "grok-4", label: "Grok 4" }, { id: "grok-3", label: "Grok 3" }], defaultModel: "grok-4", loginCommand: "grok login", docsUrl: null, enabled: false, envKeys: [], envHints: [{ key: "XAI_API_KEY", label: "xAI API key" }, { key: "GROK_API_KEY", label: "Grok API key (alt)" }] },
   { ...base, id: "opencode", instanceId: "opencode", label: "OpenCode", installed: true, binaryPath: "/opt/homebrew/bin/opencode", version: "opencode 0.3.2", auth: "needs_login", authDetail: "0 credentials — run opencode auth login (or use free models)", models: [{ id: "anthropic/claude-sonnet", label: "anthropic/claude-sonnet" }], defaultModel: "anthropic/claude-sonnet", loginCommand: "opencode auth login", docsUrl: "https://opencode.ai", enabled: true, envKeys: [], envHints: [{ key: "OPENAI_API_KEY", label: "OpenAI API key" }, { key: "ANTHROPIC_API_KEY", label: "Anthropic API key" }] },
 ]
@@ -308,9 +308,10 @@ const snapshot: SessionSnapshot = wantWizard
       queued: {},
       usage: {},
       permissions: [],
+      inputRequests: [],
       activeSessionId: null,
     }
-  : { sessions, messages, queued, usage, permissions, activeSessionId: "s1" }
+  : { sessions, messages, queued, usage, permissions, inputRequests: [], activeSessionId: "s1" }
 
 const mockDirs: Record<string, string[]> = {
   "": ["assets", "notes", "src", "tests", "README.md", "huge.log", "package.json"],
@@ -477,7 +478,8 @@ export function installDevMock(): void {
     removeInstance: async () => ({ instances: mockInstances, statuses }),
     setGeneralConfig: async (patch) => ({ general: { ...settings.general, ...patch } }),
     revealPath: async () => true,
-    wipeSessions: async () => ({ sessions: [], messages: {}, queued: {}, usage: {}, permissions: [], activeSessionId: null }),
+    wipeSessions: async () => ({ sessions: [], messages: {}, queued: {}, usage: {}, permissions: [], inputRequests: [], activeSessionId: null }),
+    resolveInput: async () => true,
     providerLogin: async () => ({ ok: true, command: "…" }),
     testProvider: async (id) => ({
       ok: id !== "opencode",

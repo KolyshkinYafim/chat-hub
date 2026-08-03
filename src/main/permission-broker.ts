@@ -1,4 +1,5 @@
 import type {
+  AgentInputRequestInfo,
   PermissionDecider,
   PermissionDecision,
   PermissionRequestInfo,
@@ -37,6 +38,11 @@ type Pending = {
   cancelMirror: () => void
 }
 
+type PendingInput = {
+  info: AgentInputRequestInfo
+  answer: (answers: Record<string, string[]>) => void
+}
+
 export type SessionLookup = (
   agentSessionId: string,
   cwd: string | undefined,
@@ -45,6 +51,7 @@ export type SessionLookup = (
 export class PermissionBroker {
   private readonly server: HubPermissionServer
   private pending = new Map<string, Pending>()
+  private pendingInputs = new Map<string, PendingInput>()
   private reaper: ReturnType<typeof setInterval> | null = null
 
   constructor(
@@ -84,11 +91,17 @@ export class PermissionBroker {
     for (const requestId of [...this.pending.keys()]) {
       this.forget(requestId, "gone")
     }
+    for (const item of this.pendingInputs.values()) item.answer({})
+    this.pendingInputs.clear()
     await this.server.stop()
   }
 
   list(): PermissionRequestInfo[] {
     return [...this.pending.values()].map((p) => p.info)
+  }
+
+  listInputs(): AgentInputRequestInfo[] {
+    return [...this.pendingInputs.values()].map((item) => item.info)
   }
 
   /** Answer from the Hub transcript. False when the request is already gone. */
@@ -104,10 +117,80 @@ export class PermissionBroker {
     return true
   }
 
+  /** Register a native app-server approval (no hook socket is involved). */
+  requestFromAdapter(
+    request: Omit<PermissionRequestInfo, "createdAt">,
+  ): Promise<PermissionDecision> {
+    const previous = this.pending.get(request.requestId)
+    if (previous) previous.dismiss()
+    const info: PermissionRequestInfo = { ...request, createdAt: Date.now() }
+    return new Promise((resolve) => {
+      let settled = false
+      const settle = (decision: PermissionDecision): void => {
+        if (settled) return
+        settled = true
+        resolve(decision)
+      }
+      this.pending.set(info.requestId, {
+        info,
+        answer: settle,
+        dismiss: () => settle("deny"),
+        cancelMirror: () => undefined,
+      })
+      this.bus.emit({ type: "permission.request", request: info })
+    })
+  }
+
+  requestInputFromAdapter(
+    request: Omit<AgentInputRequestInfo, "createdAt">,
+  ): Promise<Record<string, string[]>> {
+    const info: AgentInputRequestInfo = { ...request, createdAt: Date.now() }
+    return new Promise((resolve) => {
+      this.pendingInputs.set(info.requestId, { info, answer: resolve })
+      this.bus.emit({ type: "input.request", request: info })
+    })
+  }
+
+  resolveInput(requestId: string, answers: Record<string, string[]>): boolean {
+    const pending = this.pendingInputs.get(requestId)
+    if (!pending) return false
+    this.pendingInputs.delete(requestId)
+    pending.answer(answers)
+    this.bus.emit({
+      type: "input.resolved",
+      requestId,
+      sessionId: pending.info.sessionId,
+    })
+    return true
+  }
+
+  resolveExternally(requestIds: string[]): void {
+    for (const requestId of requestIds) {
+      const permission = this.pending.get(requestId)
+      if (permission) {
+        this.pending.delete(requestId)
+        permission.dismiss()
+        this.emitResolved(permission.info, "cancelled", "gone")
+      }
+      const input = this.pendingInputs.get(requestId)
+      if (input) {
+        this.pendingInputs.delete(requestId)
+        input.answer({})
+        this.bus.emit({ type: "input.resolved", requestId, sessionId: input.info.sessionId })
+      }
+    }
+  }
+
   /** Withdraw every request of a session that is being killed. */
   cancelForSession(sessionId: string): void {
     for (const [requestId, item] of this.pending) {
       if (item.info.sessionId === sessionId) this.forget(requestId, "gone")
+    }
+    for (const [requestId, item] of this.pendingInputs) {
+      if (item.info.sessionId !== sessionId) continue
+      this.pendingInputs.delete(requestId)
+      item.answer({})
+      this.bus.emit({ type: "input.resolved", requestId, sessionId })
     }
   }
 

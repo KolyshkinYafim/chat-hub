@@ -313,6 +313,7 @@ export class SessionManager {
       queued,
       usage,
       permissions: this.permissions?.list() ?? [],
+      inputRequests: this.permissions?.listInputs() ?? [],
       activeSessionId: this.activeSessionId,
     }
   }
@@ -832,6 +833,38 @@ export class SessionManager {
         }
         this.bus.emit({ type: "chat.done", sessionId, messageId })
         this.scheduleSave()
+      },
+      onTurnItem: (sessionId, messageId, item) => {
+        this.markActivity(sessionId)
+        const list = this.messages.get(sessionId)
+        if (!list) return
+        const idx = list.findIndex((m) => m.id === messageId)
+        if (idx === -1) return
+        const message = list[idx]
+        const items = [...(message.items ?? [])]
+        const itemIdx = items.findIndex((candidate) => candidate.id === item.id)
+        if (itemIdx === -1) items.push(item)
+        else items[itemIdx] = item
+        list[idx] = { ...message, items }
+        this.bus.emit({
+          type: "chat.item",
+          sessionId,
+          messageId,
+          item,
+        })
+        this.touch(sessionId)
+        this.scheduleSave()
+      },
+      onPermissionRequest: async (request) => {
+        if (!this.permissions) return "deny"
+        return this.permissions.requestFromAdapter(request)
+      },
+      onUserInputRequest: async (request) => {
+        if (!this.permissions) return {}
+        return this.permissions.requestInputFromAdapter(request)
+      },
+      onServerRequestResolved: (requestIds) => {
+        this.permissions?.resolveExternally(requestIds)
       },
       onUsage: (sessionId, turn, messageId) => {
         this.recordUsage(sessionId, turn, messageId)

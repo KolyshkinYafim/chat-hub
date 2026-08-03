@@ -45,7 +45,7 @@ const api = {
   sendMessage: (
     sessionId: string,
     text: string,
-    opts?: { effort?: "low" | "medium" | "high" | "max"; attachments?: string[] },
+    opts?: { effort?: "low" | "medium" | "high" | "xhigh" | "max" | "ultra"; attachments?: string[] },
   ): Promise<void> =>
     ipcRenderer.invoke(IpcChannels.sendMessage, sessionId, text, opts),
   cancelQueued: (
@@ -201,6 +201,11 @@ const api = {
   /** False when the island (or the CLI dying) already settled the request. */
   resolvePermission: (requestId: string, allow: boolean): Promise<boolean> =>
     ipcRenderer.invoke(IpcChannels.resolvePermission, requestId, allow),
+  resolveInput: (
+    requestId: string,
+    answers: Record<string, string[]>,
+  ): Promise<boolean> =>
+    ipcRenderer.invoke(IpcChannels.resolveInput, requestId, answers),
   onHubEvent: (cb: (event: HubEvent) => void): (() => void) => {
     const handler = (_e: IpcRendererEvent, event: HubEvent) => cb(event)
     ipcRenderer.on(IpcChannels.hubEvent, handler)
