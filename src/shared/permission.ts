@@ -31,7 +31,9 @@ export function claudePermissionArgs(mode: PermissionMode): string[] {
     case "acceptEdits":
       return ["--permission-mode", "acceptEdits"]
     default:
-      return ["--permission-mode", "default"]
+      // "default" is not one of Claude 2.x's --permission-mode choices and
+      // commander hard-fails on it — omitting the flag IS ask-on-tools.
+      return []
   }
 }
 
