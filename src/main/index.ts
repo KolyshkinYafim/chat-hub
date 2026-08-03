@@ -834,6 +834,15 @@ function registerIpc(
 }
 
 /**
+ * A dev run is a different app: its own userData, so it neither shares the
+ * installed app's sessions and sealed keys nor trips the lock below — which
+ * otherwise makes `pnpm dev` quit on sight whenever Chat Hub is installed.
+ */
+if (process.env.ELECTRON_RENDERER_URL) {
+  app.setPath("userData", `${app.getPath("userData")}-dev`)
+}
+
+/**
  * One instance only. Two copies would fight over the same state.json, the same
  * bridge and — worst — the same permission socket: the second one unlinks the
  * first's `hub.sock` on boot, and every agent still blocked on an approval then

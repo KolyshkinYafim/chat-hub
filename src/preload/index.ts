@@ -17,6 +17,7 @@ import type {
 } from "@shared/types"
 import type { PermissionMode } from "@shared/permission"
 import type {
+  Board,
   DirListing,
   FileContents,
   TerminalChunk,
@@ -168,6 +169,11 @@ const api = {
   /** Read a local image as a data: URL for inline preview. null if unreadable. */
   readImageDataUrl: (path: string): Promise<string | null> =>
     ipcRenderer.invoke(IpcChannels.readImageDataUrl, path),
+  /** Project board (.chathub/board.json) — todos + agent notes. */
+  boardRead: (cwd: string): Promise<Board> =>
+    ipcRenderer.invoke(IpcChannels.boardRead, cwd),
+  boardWrite: (cwd: string, board: Board): Promise<Board> =>
+    ipcRenderer.invoke(IpcChannels.boardWrite, cwd, board),
   listProjects: (): Promise<Project[]> =>
     ipcRenderer.invoke(IpcChannels.listProjects),
   addProject: (

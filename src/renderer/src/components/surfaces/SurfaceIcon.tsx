@@ -1,6 +1,7 @@
 import type { SurfaceKind } from "../../lib/surface-bridge"
 
 const PATHS: Record<SurfaceKind, string> = {
+  board: "M5.5 2.5h5a1 1 0 0 1 1 1v.5h1a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1h1v-.5a1 1 0 0 1 1-1ZM5.5 8l1.2 1.2L9 6.9M5.5 11.6h4",
   browser: "M2.5 5.5h11M4.5 3.6v.01M6.4 3.6v.01M2.5 3.5h11a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1Z",
   terminal: "M1.5 3.5h13a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1ZM4 6.5 6 8l-2 1.5M8 9.5h4",
   files: "M1.5 4.2a1 1 0 0 1 1-1h3.1l1.4 1.6h6.5a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4.2Z",

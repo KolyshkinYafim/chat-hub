@@ -1,14 +1,22 @@
 import { ipcMain } from "electron"
 import { IpcChannels } from "@shared/ipc"
 import { listDir, readFileText } from "./files"
+import { readBoard, writeBoard } from "./board"
 import { TerminalSessions } from "./terminal"
 
 export { listDir, readFileText } from "./files"
+export { readBoard, writeBoard } from "./board"
 export { TerminalSessions, type TerminalSink } from "./terminal"
 export { hardenWebviewHost, isAllowedGuestUrl } from "./browser"
 export { resolveContainedPath, resolveWorkspaceRoot } from "./paths"
 
 export function registerSurfaceIpc(terminals: TerminalSessions): void {
+  ipcMain.handle(IpcChannels.boardRead, (_e, cwd: unknown) => readBoard(cwd))
+
+  ipcMain.handle(IpcChannels.boardWrite, (_e, cwd: unknown, board: unknown) =>
+    writeBoard(cwd, board),
+  )
+
   ipcMain.handle(IpcChannels.listDir, (_e, cwd: unknown, relPath: unknown) =>
     listDir(cwd, relPath),
   )

@@ -5,6 +5,7 @@ const OPEN_KEY = "chat-hub.surfaceDock.open"
 const BY_SESSION_KEY = "chat-hub.surfaceDock.bySession"
 
 export const SURFACE_KINDS: readonly SurfaceKind[] = [
+  "board",
   "browser",
   "terminal",
   "files",
