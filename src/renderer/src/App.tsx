@@ -34,12 +34,15 @@ import { ChatView } from "./components/ChatView"
 import { SurfaceDock } from "./components/surfaces/SurfaceDock"
 import type { SurfaceKind } from "./lib/surface-bridge"
 import {
+  loadAutoOpenDock,
   loadDockOpen,
   loadDockWidth,
   loadSurfaceBySession,
+  saveAutoOpenDock,
   saveDockOpen,
   saveDockWidth,
   saveSurfaceBySession,
+  shouldAutoOpenDock,
 } from "./lib/surface-store"
 import { SettingsModal } from "./components/SettingsModal"
 import {
@@ -91,7 +94,13 @@ export default function App() {
   const [surfaceBySession, setSurfaceBySession] = useState<
     Record<string, SurfaceKind>
   >(loadSurfaceBySession)
+  const [autoOpenDock, setAutoOpenDock] = useState(loadAutoOpenDock)
   const [gitRefresh, setGitRefresh] = useState(0)
+  // `at` re-fires the focus even when the same path is clicked twice.
+  const [diffFocus, setDiffFocus] = useState<{
+    path: string
+    at: number
+  } | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [onboardDismissed, setOnboardDismissed] = useState(
     () => localStorage.getItem(AUTH_NAG_KEY) === "1",
@@ -111,6 +120,13 @@ export default function App() {
 
   const activeIdRef = useRef<string | null>(null)
   const selectSessionRef = useRef<(id: string) => void>(() => {})
+  // applyEvent below is a stable (empty-deps) callback bridging main-process
+  // events into state; it needs the latest dock/surface/pref values without
+  // taking them as deps (which would re-subscribe the IPC listener on every
+  // toggle), so they ride in refs kept fresh by the effects further down.
+  const dockOpenRef = useRef(dockOpen)
+  const surfaceBySessionRef = useRef(surfaceBySession)
+  const autoOpenDockRef = useRef(autoOpenDock)
 
   const applyEvent = useCallback((event: HubEvent) => {
     switch (event.type) {
@@ -191,6 +207,45 @@ export default function App() {
           }
         })
         break
+      case "chat.touchedFiles": {
+        const { sessionId, messageId, files } = event
+        setMessagesBySession((curr) => {
+          const list = curr[sessionId] ?? []
+          return {
+            ...curr,
+            [sessionId]: list.map((m) =>
+              m.id === messageId ? { ...m, touchedFiles: files } : m,
+            ),
+          }
+        })
+        // Only the session the user is looking at may steal the dock — a
+        // background session touching files must not yank the panel over.
+        if (sessionId === activeIdRef.current) {
+          const decision = shouldAutoOpenDock(
+            {
+              showDock: dockOpenRef.current,
+              activeSurface: surfaceBySessionRef.current[sessionId] ?? null,
+            },
+            files,
+            autoOpenDockRef.current,
+          )
+          if (decision) {
+            setSurfaceBySession((curr) => {
+              const next = { ...curr, [sessionId]: decision }
+              saveSurfaceBySession(next)
+              return next
+            })
+            setDockOpen(true)
+            saveDockOpen(true)
+            // The diff surface only refetches when its refreshKey bumps — if it
+            // was already open and showing "diff"/"files", switching kind to the
+            // same "diff" value doesn't remount SourceControl, so without this
+            // the panel would keep showing a stale diff from before the edit.
+            setGitRefresh((n) => n + 1)
+          }
+        }
+        break
+      }
       case "chat.done":
         setMessagesBySession((curr) => {
           const list = curr[event.sessionId] ?? []
@@ -322,6 +377,18 @@ export default function App() {
     activeIdRef.current = activeId
   }, [activeId])
 
+  useEffect(() => {
+    dockOpenRef.current = dockOpen
+  }, [dockOpen])
+
+  useEffect(() => {
+    surfaceBySessionRef.current = surfaceBySession
+  }, [surfaceBySession])
+
+  useEffect(() => {
+    autoOpenDockRef.current = autoOpenDock
+  }, [autoOpenDock])
+
   const messages = activeId ? (messagesBySession[activeId] ?? []) : []
 
   useEffect(() => {
@@ -448,6 +515,16 @@ export default function App() {
     }
     openSurface("diff")
   }, [dockOpen, activeSurface, openSurface, setDock])
+
+  // A path clicked in a turn's changed-files row: open the Diff panel already
+  // showing that file, rather than the working copy the reader has to hunt in.
+  const openDiffForPath = useCallback(
+    (path: string) => {
+      setDiffFocus({ path, at: Date.now() })
+      openSurface("diff")
+    },
+    [openSurface],
+  )
 
   async function resolvePermission(requestId: string, allow: boolean) {
     // Optimistic: main echoes permission.resolved, but the island may have
@@ -882,6 +959,7 @@ export default function App() {
           onOpenEditor={() => void openEditor()}
           onCommit={() => openSurface("diff")}
           onRename={() => void renameSession()}
+          onOpenDiff={openDiffForPath}
           dockOpen={showDock}
           onToggleDock={() => setDock(!dockOpen)}
         />
@@ -892,6 +970,7 @@ export default function App() {
           kind={activeSurface}
           width={dockWidth}
           gitRefreshKey={gitRefresh}
+          diffFocus={diffFocus}
           onGitChanged={refreshGit}
           onSelectKind={chooseSurface}
           onWidthChange={setDockWidth}
@@ -920,6 +999,11 @@ export default function App() {
           }}
           permissionMode={permissionMode}
           onPermissionChange={(m) => void changeGlobalPermission(m)}
+          autoOpenDock={autoOpenDock}
+          onAutoOpenDockChange={(enabled) => {
+            setAutoOpenDock(enabled)
+            saveAutoOpenDock(enabled)
+          }}
         />
       ) : null}
       {wizardOpen ? (

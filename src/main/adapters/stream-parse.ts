@@ -1,4 +1,9 @@
 import { randomUUID } from "node:crypto"
+import {
+  encodeToolCardMeta,
+  fenceFor,
+  type ToolCardMeta,
+} from "@shared/tool-card"
 import type { AdapterCallbacks } from "./types"
 
 /** Shared helpers for NDJSON CLI streams → transcript callbacks. */
@@ -98,6 +103,40 @@ export function snapshotDelta(
   return extra
 }
 
+/** The file a tool_use actually wrote/edited, or undefined for reads/searches/etc. */
+export function touchedFileFromTool(name: string, input: unknown): string | undefined {
+  const lower = name.toLowerCase()
+  const touches =
+    lower === "write" || lower === "edit" || lower === "multiedit" ||
+    lower.includes("str_replace")
+  if (!touches) return undefined
+  const o = (input && typeof input === "object" ? input : {}) as Record<
+    string,
+    unknown
+  >
+  const str = (v: unknown) => (typeof v === "string" ? v : "")
+  const file = str(o.file_path) || str(o.path) || str(o.notebook_path)
+  return file || undefined
+}
+
+/**
+ * Files a "write"/"edit"/"multiedit" tool_use block in this content array
+ * actually touched — "read"/"bash"/"grep"/"glob" never contribute, so a turn
+ * that only inspects the repo never trips an auto-open of the diff panel.
+ */
+export function extractTouchedFiles(content: unknown): string[] {
+  if (!Array.isArray(content)) return []
+  const files: string[] = []
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue
+    const b = block as Record<string, unknown>
+    if (b.type !== "tool_use" || typeof b.name !== "string") continue
+    const file = touchedFileFromTool(b.name, b.input)
+    if (file && !files.includes(file)) files.push(file)
+  }
+  return files
+}
+
 export function extractTextFromContent(content: unknown): string {
   if (typeof content === "string") return content
   if (!Array.isArray(content)) return ""
@@ -107,44 +146,138 @@ export function extractTextFromContent(content: unknown): string {
     const b = block as Record<string, unknown>
     if (b.type === "text" && typeof b.text === "string") parts.push(b.text)
     if (b.type === "tool_use" && typeof b.name === "string") {
-      parts.push(toolUseBlock(b.name, b.input))
+      parts.push(toolUseBlock(b.name, b.input, blockCallId(b)))
     }
     if (b.type === "tool_result") {
-      const content =
-        typeof b.content === "string"
-          ? b.content.slice(0, 500)
-          : JSON.stringify(b.content ?? "").slice(0, 500)
       const name = typeof b.name === "string" ? b.name : "result"
-      parts.push(`\n\n\`\`\`tool-result:${name}\n${content}\n\`\`\`\n\n`)
+      parts.push(
+        toolResultBlock(name, toolResultText(b.content), {
+          id: blockCallId(b),
+          error: b.is_error === true ? true : undefined,
+        }),
+      )
     }
   }
   return parts.join("")
 }
 
+/**
+ * Tool results ride in their own `user` envelope, whose content array also
+ * carries the human's next prompt — echoing that would duplicate a bubble the
+ * transcript already shows, so only the results are rendered here.
+ */
+export function extractToolResults(content: unknown): string {
+  if (!Array.isArray(content)) return ""
+  const parts: string[] = []
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue
+    const b = block as Record<string, unknown>
+    if (b.type !== "tool_result") continue
+    const name = typeof b.name === "string" ? b.name : "result"
+    parts.push(
+      toolResultBlock(name, toolResultText(b.content), {
+        id: blockCallId(b),
+        error: b.is_error === true ? true : undefined,
+      }),
+    )
+  }
+  return parts.join("")
+}
+
+const RESULT_LIMIT = 8000
+
+export function toolResultText(content: unknown): string {
+  if (typeof content === "string") return content
+  if (!Array.isArray(content)) {
+    return content === undefined || content === null
+      ? ""
+      : JSON.stringify(content)
+  }
+  const parts: string[] = []
+  for (const block of content) {
+    if (typeof block === "string") {
+      parts.push(block)
+      continue
+    }
+    if (!block || typeof block !== "object") continue
+    const b = block as Record<string, unknown>
+    if (b.type === "text" && typeof b.text === "string") parts.push(b.text)
+    else if (b.type === "image") parts.push("[image]")
+    else parts.push(JSON.stringify(b))
+  }
+  return parts.join("\n")
+}
+
+export function toolResultBlock(
+  name: string,
+  content: string,
+  meta: ToolCardMeta = {},
+): string {
+  const trimmed =
+    content.length > RESULT_LIMIT
+      ? `${content.slice(0, RESULT_LIMIT)}\n… (${content.length - RESULT_LIMIT} more characters)`
+      : content
+  const body = `${encodeToolCardMeta(meta)}${trimmed}`
+  const fence = fenceFor(body)
+  return `\n\n${fence}tool-result:${name}\n${body}\n${fence}\n\n`
+}
+
+function blockCallId(b: Record<string, unknown>): string | undefined {
+  if (typeof b.tool_use_id === "string") return b.tool_use_id
+  if (typeof b.id === "string") return b.id
+  return undefined
+}
+
+// The metadata rides as a \x1f-marked first line so the renderer can title the
+// card with the CLI's own sentence and pair a result to the call that made it;
+// a CLI that sends none of it just falls back to the command/args as before.
+export function toolCallBlock(
+  name: string,
+  head: string,
+  meta: ToolCardMeta = {},
+): string {
+  const body = `${encodeToolCardMeta(meta)}${head || "(no args)"}`
+  const fence = fenceFor(body)
+  return `\n\n${fence}tool:${name}\n${body}\n${fence}\n\n`
+}
+
 /** Render a tool_use as a readable tool card (+ diff block for file edits). */
-export function toolUseBlock(name: string, input: unknown): string {
-  const { head, diff } = summarizeToolInput(name, input)
-  const desc = descriptionOf(input)
-  // The description rides as a \x1f-marked first line so the renderer can title
-  // the card with it (matching how Claude labels each Bash call); a CLI that
-  // sends no description just falls back to the command/args as before.
-  const body = desc ? `\x1f${desc}\n${head || "(no args)"}` : head || "(no args)"
-  let out = `\n\n\`\`\`tool:${name}\n${body}\n\`\`\`\n`
-  if (diff && diff.trim()) out += `\n\`\`\`diff\n${diff}\n\`\`\`\n`
-  return out + "\n"
+export function toolUseBlock(
+  name: string,
+  input: unknown,
+  id?: string,
+): string {
+  const { head, diff, paths, added, removed } = summarizeToolInput(name, input)
+  const card = toolCallBlock(name, head, {
+    id,
+    desc: descriptionOf(input),
+    paths,
+    added,
+    removed,
+  })
+  if (!diff || !diff.trim()) return card
+  return `${card}\`\`\`diff\n${diff}\n\`\`\`\n\n`
 }
 
 /** A CLI-supplied natural-language label for the call, when present. */
 function descriptionOf(input: unknown): string | undefined {
   if (!input || typeof input !== "object") return undefined
   const d = (input as Record<string, unknown>).description
-  return typeof d === "string" && d.trim() ? d.trim() : undefined
+  if (typeof d !== "string" || !d.trim()) return undefined
+  // The description rides as ONE \x1f-marked line; collapse any internal newlines
+  // so a multi-line description can't be truncated by splitToolDesc.
+  return d.trim().replace(/\s*\n\s*/g, " ")
 }
 
-function summarizeToolInput(
-  name: string,
-  input: unknown,
-): { head: string; diff?: string } {
+type ToolSummary = {
+  head: string
+  diff?: string
+  paths?: string[]
+  added?: number
+  removed?: number
+}
+
+function summarizeToolInput(name: string, input: unknown): ToolSummary {
   const o = (input && typeof input === "object" ? input : {}) as Record<
     string,
     unknown
@@ -158,18 +291,23 @@ function summarizeToolInput(
     return { head: `$ ${cmd}`.slice(0, 200) }
   }
   if (lower === "write") {
-    return { head: file, diff: makeDiff("", str(o.content)) }
+    return { head: file, ...editSummary(file, [["", str(o.content)]]) }
   }
   if (lower === "edit" || lower.includes("str_replace")) {
-    return { head: file, diff: makeDiff(str(o.old_string), str(o.new_string)) }
+    return {
+      head: file,
+      ...editSummary(file, [[str(o.old_string), str(o.new_string)]]),
+    }
   }
   if (lower === "multiedit" && Array.isArray(o.edits)) {
     const edits = o.edits as Record<string, unknown>[]
-    const chunks = edits
-      .slice(0, 6)
-      .map((e) => makeDiff(str(e.old_string), str(e.new_string)))
-      .filter(Boolean)
-    return { head: `${file} · ${edits.length} edits`, diff: chunks.join("\n") }
+    return {
+      head: `${file} · ${edits.length} edits`,
+      ...editSummary(
+        file,
+        edits.map((e) => [str(e.old_string), str(e.new_string)]),
+      ),
+    }
   }
   if (lower === "read") return { head: file }
   if (lower === "grep") {
@@ -184,15 +322,39 @@ function summarizeToolInput(
   return { head: json.length > 2 ? json.slice(0, 200) : "(no args)" }
 }
 
-function makeDiff(oldS: string, newS: string, maxLines = 40): string {
-  const out: string[] = []
-  if (oldS) for (const l of oldS.split("\n")) out.push(`- ${l}`)
-  if (newS) for (const l of newS.split("\n")) out.push(`+ ${l}`)
-  if (out.length > maxLines) {
-    const extra = out.length - maxLines
-    return `${out.slice(0, maxLines).join("\n")}\n… (${extra} more lines)`
+const DIFF_MAX_LINES = 40
+
+function editSummary(
+  file: string,
+  pairs: [string, string][],
+): Pick<ToolSummary, "diff" | "paths" | "added" | "removed"> {
+  const lines: string[] = []
+  let added = 0
+  let removed = 0
+  for (const [oldS, newS] of pairs) {
+    if (oldS) {
+      for (const l of oldS.split("\n")) {
+        lines.push(`- ${l}`)
+        removed += 1
+      }
+    }
+    if (newS) {
+      for (const l of newS.split("\n")) {
+        lines.push(`+ ${l}`)
+        added += 1
+      }
+    }
   }
-  return out.join("\n")
+  const diff =
+    lines.length > DIFF_MAX_LINES
+      ? `${lines.slice(0, DIFF_MAX_LINES).join("\n")}\n… (${lines.length - DIFF_MAX_LINES} more lines)`
+      : lines.join("\n")
+  return {
+    diff,
+    paths: file ? [file] : undefined,
+    added,
+    removed,
+  }
 }
 
 export function safeJson(line: string): Record<string, unknown> | null {

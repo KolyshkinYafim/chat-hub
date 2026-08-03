@@ -73,6 +73,8 @@ type Props = {
   onOpenEditor: () => void
   onCommit: () => void
   onRename: () => void
+  /** A path from a turn's changed-files row — opens it in the Diff surface. */
+  onOpenDiff: (path: string) => void
   dockOpen: boolean
   onToggleDock: () => void
 }
@@ -161,6 +163,7 @@ export function ChatView({
   onOpenEditor,
   onCommit,
   onRename,
+  onOpenDiff,
   dockOpen,
   onToggleDock,
 }: Props) {
@@ -543,7 +546,11 @@ export function ChatView({
                     )}
                     {m.usage ? <TurnCost usage={m.usage} /> : null}
                   </div>
-                  <MarkdownBody text={m.content} streaming={m.streaming} />
+                  <MarkdownBody
+                    text={m.content}
+                    streaming={m.streaming}
+                    onOpenDiff={onOpenDiff}
+                  />
                 </>
               )}
             </article>

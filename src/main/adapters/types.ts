@@ -41,6 +41,16 @@ export type AdapterCallbacks = {
   /** The CLI reported its own session id — persist it for cross-restart resume. */
   onAgentSession?: (sessionId: string, agentSessionId: string) => void
   /**
+   * A write/edit/multiedit tool_use landed for this turn's message. Called as
+   * files are discovered (possibly more than once per turn); the session
+   * manager accumulates them onto the message so the dock can auto-open.
+   */
+  onTouchedFiles?: (
+    sessionId: string,
+    messageId: string,
+    files: string[],
+  ) => void
+  /**
    * Cost/tokens for the turn that just ended. Called at most once per turn, and
    * only when the CLI actually printed numbers.
    */

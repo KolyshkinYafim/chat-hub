@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { GitFileChange, GitWorkingCopy } from "@shared/types"
+import { matchPath } from "../lib/path-match"
 
 type Props = {
   cwd: string
   /** Bumped by the caller when a turn ends, so the list follows the agent. */
   refreshKey: number
+  /** File the transcript asked for; `at` re-selects it on a repeated click. */
+  focus?: { path: string; at: number } | null
   onClose: () => void
   /** Lets the rest of the app re-read the branch/dirty chip after a write. */
   onChanged: () => void
@@ -81,7 +84,13 @@ function DiffPane({ text }: { text: string }) {
   )
 }
 
-export function SourceControl({ cwd, refreshKey, onClose, onChanged }: Props) {
+export function SourceControl({
+  cwd,
+  refreshKey,
+  focus,
+  onClose,
+  onChanged,
+}: Props) {
   const [copy, setCopy] = useState<GitWorkingCopy>(EMPTY)
   const [branches, setBranches] = useState<string[]>([])
   const [selected, setSelected] = useState<Row | null>(null)
@@ -117,6 +126,16 @@ export function SourceControl({ cwd, refreshKey, onClose, onChanged }: Props) {
 
   const staged = useMemo(() => stagedRows(copy.files), [copy.files])
   const unstaged = useMemo(() => unstagedRows(copy.files), [copy.files])
+
+  // A path clicked in the transcript picks its row here; unstaged first, since
+  // that is where an edit the agent just made shows up.
+  useEffect(() => {
+    if (!focus) return
+    const row =
+      matchPath(unstaged, (r) => r.file.path, focus.path) ??
+      matchPath(staged, (r) => r.file.path, focus.path)
+    if (row) setSelected(row)
+  }, [focus, staged, unstaged])
 
   useEffect(() => {
     // The selected row survives a reload only if that exact path is still in
@@ -166,6 +185,20 @@ export function SourceControl({ cwd, refreshKey, onClose, onChanged }: Props) {
         if (!res.ok) setNotice(res.output)
         await reload()
       }
+      onChanged()
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err))
+    } finally {
+      if (liveRef.current) setBusy(false)
+    }
+  }
+
+  async function initRepo() {
+    setBusy(true)
+    setNotice(null)
+    try {
+      await window.chatHub.gitInit(cwd)
+      await reload()
       onChanged()
     } catch (err) {
       setNotice(err instanceof Error ? err.message : String(err))
@@ -266,6 +299,15 @@ export function SourceControl({ cwd, refreshKey, onClose, onChanged }: Props) {
         <div className="scm-empty">
           <p>Not a git repository</p>
           <span className="mono-soft dim">{cwd}</span>
+          <button
+            type="button"
+            className="tb-btn primary scm-init"
+            disabled={busy}
+            onClick={() => void initRepo()}
+          >
+            {busy ? "Initializing…" : "Initialize repository"}
+          </button>
+          {notice ? <span className="scm-notice">{notice}</span> : null}
         </div>
       ) : (
         <>

@@ -19,6 +19,8 @@ type Props = {
   kind: SurfaceKind | null
   width: number
   gitRefreshKey: number
+  /** File the transcript asked the Diff panel to show; `at` re-fires a repeat. */
+  diffFocus: { path: string; at: number } | null
   onGitChanged: () => void
   onSelectKind: (kind: SurfaceKind | null) => void
   onWidthChange: (width: number) => void
@@ -31,6 +33,7 @@ export function SurfaceDock({
   kind,
   width,
   gitRefreshKey,
+  diffFocus,
   onGitChanged,
   onSelectKind,
   onWidthChange,
@@ -128,6 +131,7 @@ export function SurfaceDock({
             key={session.id}
             cwd={session.cwd}
             refreshKey={gitRefreshKey}
+            focus={diffFocus}
             onClose={onClose}
             onChanged={onGitChanged}
           />

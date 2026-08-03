@@ -843,6 +843,25 @@ export class SessionManager {
         this.sessions.set(sessionId, { ...s, agentSessionId })
         this.scheduleSave()
       },
+      onTouchedFiles: (sessionId, messageId, files) => {
+        if (files.length === 0) return
+        const list = this.messages.get(sessionId)
+        const idx = list?.findIndex((m) => m.id === messageId) ?? -1
+        if (!list || idx === -1) return
+        const prev = list[idx]
+        const merged = prev.touchedFiles ? prev.touchedFiles.slice() : []
+        for (const f of files) if (!merged.includes(f)) merged.push(f)
+        if (merged.length === (prev.touchedFiles?.length ?? 0)) return
+        list[idx] = { ...prev, touchedFiles: merged }
+        this.bus.emit({
+          type: "chat.touchedFiles",
+          sessionId,
+          messageId,
+          files: merged,
+        })
+        this.touch(sessionId)
+        this.scheduleSave()
+      },
     }
   }
 

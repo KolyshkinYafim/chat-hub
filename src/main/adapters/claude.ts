@@ -5,12 +5,15 @@ import {
   beginAssistant,
   beginSnapshotMessage,
   extractTextFromContent,
+  extractToolResults,
+  extractTouchedFiles,
   finishTurn,
   newSnapshot,
   noteSnapshotDelta,
   pushDelta,
   safeJson,
   snapshotDelta,
+  touchedFileFromTool,
   type StreamTurn,
 } from "./stream-parse"
 import { readUsage } from "./usage"
@@ -216,7 +219,8 @@ export class ClaudeAdapter implements AgentAdapter {
 
         if (type === "assistant") {
           const msg = ev.message as Record<string, unknown> | undefined
-          const text = extractTextFromContent(msg?.content ?? ev.content)
+          const rawContent = msg?.content ?? ev.content
+          const text = extractTextFromContent(rawContent)
           if (text) {
             // Full snapshot of ONE assistant message: append whatever its own
             // deltas could not carry (tool cards, and the text if partials are off).
@@ -226,6 +230,25 @@ export class ClaudeAdapter implements AgentAdapter {
               closeThinking()
               pushDelta(turn, sessionId, extra, cb)
             }
+            sawText = true
+          }
+          const touched = extractTouchedFiles(rawContent)
+          if (touched.length && turn) {
+            cb.onTouchedFiles?.(sessionId, turn.messageId, touched)
+          }
+          return
+        }
+
+        // What a tool actually returned arrives in a `user` envelope carrying
+        // tool_result blocks — without this the transcript shows every call and
+        // not one of their outputs.
+        if (type === "user") {
+          const msg = ev.message as Record<string, unknown> | undefined
+          const results = extractToolResults(msg?.content ?? ev.content)
+          if (results) {
+            if (!turn) turn = beginAssistant(sessionId, cb)
+            closeThinking()
+            pushDelta(turn, sessionId, results, cb)
             sawText = true
           }
           return
@@ -251,6 +274,8 @@ export class ClaudeAdapter implements AgentAdapter {
           closeThinking()
           pushDelta(turn, sessionId, `\n\n🔧 **${name}**\n`, cb)
           sawText = true
+          const file = touchedFileFromTool(name, ev.input)
+          if (file) cb.onTouchedFiles?.(sessionId, turn.messageId, [file])
         }
       },
       onStderrLine: (line) => {

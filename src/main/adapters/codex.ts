@@ -8,6 +8,8 @@ import {
   finishTurn,
   pushDelta,
   safeJson,
+  toolCallBlock,
+  toolResultBlock,
   toolUseBlock,
   type StreamTurn,
 } from "./stream-parse"
@@ -166,6 +168,8 @@ export class CodexAdapter implements AgentAdapter {
         if (!rendered) return
         turn ??= beginAssistant(sessionId, cb)
         pushDelta(turn, sessionId, rendered, cb)
+        const touched = touchedFilesFromItem(item)
+        if (touched.length) cb.onTouchedFiles?.(sessionId, turn.messageId, touched)
       },
       onStderrLine: (line) => {
         stderr.push(line)
@@ -262,20 +266,52 @@ export function renderCodexItem(item: Record<string, unknown>): string {
     // what stops the transcript reading like a stream of consciousness.
     case "reasoning":
       return ""
-    case "command_execution":
-      return toolUseBlock("Bash", { command: str(item.command) || str(item.cmd) })
+    case "command_execution": {
+      const id = str(item.id) || undefined
+      const call = toolUseBlock(
+        "Bash",
+        { command: str(item.command) || str(item.cmd) },
+        id,
+      )
+      // codex reports the command and everything it printed on one item, so the
+      // output is paired at the source rather than guessed at in the renderer.
+      const status = str(item.status)
+      if (status !== "completed" && status !== "failed") return call
+      const exitCode =
+        typeof item.exit_code === "number" ? item.exit_code : undefined
+      const failed = status === "failed" || (exitCode !== undefined && exitCode !== 0)
+      return (
+        call +
+        toolResultBlock("Bash", str(item.aggregated_output), {
+          id,
+          exitCode,
+          error: failed ? true : undefined,
+        })
+      )
+    }
     case "file_change": {
       const changes = Array.isArray(item.changes)
         ? (item.changes as Record<string, unknown>[])
         : []
+      const id = str(item.id) || undefined
+      const paths = changes.map((c) => str(c.path)).filter(Boolean)
+      // codex names the file it patched but never says by how many lines, so no
+      // ± count is attached — an invented one would be worse than none.
       if (changes.length === 1) {
-        return toolUseBlock("Edit", { file_path: str(changes[0]?.path) })
+        return toolCallBlock("Edit", paths[0] ?? "(no changes)", { id, paths })
       }
       const head = changes.map((c) => `${str(c.kind) || "edit"} ${str(c.path)}`)
-      return `\n\n\`\`\`tool:Edit\n${head.join("\n") || "(no changes)"}\n\`\`\`\n\n`
+      return toolCallBlock("Edit", head.join("\n") || "(no changes)", {
+        id,
+        paths,
+      })
     }
     case "mcp_tool_call":
-      return toolUseBlock(str(item.tool) || str(item.name) || "MCP", item.arguments ?? item.input)
+      return toolUseBlock(
+        str(item.tool) || str(item.name) || "MCP",
+        item.arguments ?? item.input,
+        str(item.id) || undefined,
+      )
     case "todo_list": {
       const items = Array.isArray(item.items) ? (item.items as Record<string, unknown>[]) : []
       if (!items.length) return ""
@@ -286,10 +322,32 @@ export function renderCodexItem(item: Record<string, unknown>): string {
       return `\n\n${lines.join("\n")}\n\n`
     }
     case "web_search":
-      return toolUseBlock("WebSearch", { pattern: str(item.query) })
+      return toolUseBlock(
+        "WebSearch",
+        { pattern: str(item.query) },
+        str(item.id) || undefined,
+      )
     case "error":
       return `\n\n\`\`\`\n${str(item.message) || str(item.text) || "Codex reported an error."}\n\`\`\`\n\n`
     default:
       return toolUseBlock(type || "item", item)
   }
+}
+
+/**
+ * The files a `file_change` item actually patched — codex's only item type
+ * that mutates the working copy, so every other item type contributes none.
+ */
+export function touchedFilesFromItem(item: Record<string, unknown>): string[] {
+  const str = (v: unknown) => (typeof v === "string" ? v : "")
+  if (str(item.type) !== "file_change") return []
+  const changes = Array.isArray(item.changes)
+    ? (item.changes as Record<string, unknown>[])
+    : []
+  const files: string[] = []
+  for (const c of changes) {
+    const path = str(c.path)
+    if (path && !files.includes(path)) files.push(path)
+  }
+  return files
 }

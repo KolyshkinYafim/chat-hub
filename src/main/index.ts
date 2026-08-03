@@ -20,6 +20,7 @@ import {
   getWorkingCopy,
   gitCommitAll,
   gitCommitStaged,
+  gitInit,
   listBranches,
   stagePaths,
   unstagePaths,
@@ -348,6 +349,11 @@ function registerIpc(
     }
     await shell.openPath(path)
     return "finder"
+  })
+
+  ipcMain.handle(IpcChannels.gitInit, async (_e, cwd: unknown) => {
+    if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
+    return gitInit(assertExistingDir(cwd))
   })
 
   ipcMain.handle(IpcChannels.getGitInfo, async (_e, cwd: unknown) => {

@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import type { Board, BoardNote, BoardTodo } from "@shared/surfaces"
 import { resolveWorkspaceRoot } from "./paths"
@@ -58,7 +58,18 @@ function coerce(raw: unknown): Board {
 export async function readBoard(cwd: unknown): Promise<Board> {
   const file = boardFile(cwd)
   try {
-    return coerce(JSON.parse(await readFile(file, "utf8")))
+    const board = coerce(JSON.parse(await readFile(file, "utf8")))
+    if (board.updatedAt === undefined) {
+      // The agent edits board.json by hand and rarely stamps `updatedAt`; without
+      // it the renderer's change-poll compares 0 !== 0 and never adopts the edit.
+      // Fall back to the file's mtime so out-of-band writes still surface live.
+      try {
+        board.updatedAt = (await stat(file)).mtimeMs
+      } catch {
+        /* stat can't fail right after a successful read, but stay defensive */
+      }
+    }
+    return board
   } catch {
     // Missing file / bad JSON: an empty board is the honest "nothing yet" state.
     return { todos: [], notes: [] }

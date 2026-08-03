@@ -1,3 +1,5 @@
+import { decodeToolCardMeta, type ToolCardMeta } from "@shared/tool-card"
+
 /** Block model for the agent-transcript renderer (see MarkdownBody). */
 export type Block =
   | { kind: "h"; level: 2 | 3; text: string }
@@ -9,25 +11,13 @@ export type Block =
       kind: "tool"
       name: string
       body: string
-      /** CLI-supplied one-line description (Claude's Bash tool sends one). */
-      desc?: string
+      /** Call id, CLI description, touched paths, exit code — see ToolCardMeta. */
+      meta: ToolCardMeta
       result?: boolean
-      /** Diff / result blocks that belong to this call, drawn inside its card. */
-      attached?: Block[]
     }
   | { kind: "p"; text: string }
 
-/**
- * A tool card's body may lead with a `\x1f`-marked description line (see
- * toolUseBlock). Peel it off so the card can title itself with the CLI's own
- * one-liner and keep the command/args as the body.
- */
-function splitToolDesc(raw: string): { desc?: string; body: string } {
-  if (!raw.startsWith("\x1f")) return { body: raw }
-  const nl = raw.indexOf("\n")
-  if (nl === -1) return { desc: raw.slice(1) || undefined, body: "" }
-  return { desc: raw.slice(1, nl) || undefined, body: raw.slice(nl + 1) }
-}
+const FENCE = /^(`{3,})(.*)$/
 
 export function splitBlocks(src: string): Block[] {
   const lines = src.replace(/\r\n/g, "\n").split("\n")
@@ -36,12 +26,21 @@ export function splitBlocks(src: string): Block[] {
 
   while (i < lines.length) {
     const line = lines[i]!
+    const opening = FENCE.exec(line)
 
-    if (line.startsWith("```")) {
-      const lang = line.slice(3).trim()
+    if (opening) {
+      // A tool result routinely contains a ``` line of its own; closing on the
+      // first one would spill the rest of the output into the transcript as
+      // prose. Only a fence at least as long as the opener ends the block.
+      const fence = opening[1]!
+      const lang = opening[2]!.trim()
+      const closes = (candidate: string) => {
+        const m = FENCE.exec(candidate)
+        return m !== null && m[1]!.length >= fence.length && m[2]!.trim() === ""
+      }
       const buf: string[] = []
       i += 1
-      while (i < lines.length && !lines[i]!.startsWith("```")) {
+      while (i < lines.length && !closes(lines[i]!)) {
         buf.push(lines[i]!)
         i += 1
       }
@@ -51,21 +50,21 @@ export function splitBlocks(src: string): Block[] {
       } else if (lang === "thinking" || lang === "reasoning") {
         out.push({ kind: "reasoning", text: buf.join("\n") })
       } else if (lang.startsWith("tool-result:")) {
-        const { desc, body } = splitToolDesc(buf.join("\n"))
+        const { meta, body } = decodeToolCardMeta(buf.join("\n"))
         out.push({
           kind: "tool",
           name: lang.slice("tool-result:".length) || "result",
           body,
-          desc,
+          meta,
           result: true,
         })
       } else if (lang.startsWith("tool:")) {
-        const { desc, body } = splitToolDesc(buf.join("\n"))
+        const { meta, body } = decodeToolCardMeta(buf.join("\n"))
         out.push({
           kind: "tool",
           name: lang.slice(5) || "tool",
           body,
-          desc,
+          meta,
         })
       } else {
         out.push({ kind: "code", lang, code: buf.join("\n") })
@@ -119,30 +118,7 @@ export function splitBlocks(src: string): Block[] {
 }
 
 /**
- * A tool call and the diff or result it produced are one event, so they become
- * one card with internal dividers — as two sibling boxes they read as two
- * things happening, which is the wrong story about the transcript.
+ * A tool call, the diff it produced and the output it came back with are one
+ * event — see `lib/tool-runs`, which pairs them into a single card and groups
+ * consecutive calls into one "Ran N commands" block.
  */
-export function foldToolFollowUps(blocks: Block[]): Block[] {
-  const out: Block[] = []
-  for (const block of blocks) {
-    const prev = out[out.length - 1]
-    const followsCall =
-      prev?.kind === "tool" &&
-      !prev.result &&
-      (block.kind === "diff" || (block.kind === "tool" && block.result === true))
-    if (followsCall && prev?.kind === "tool") {
-      out[out.length - 1] = {
-        ...prev,
-        attached: [...(prev.attached ?? []), block],
-      }
-      continue
-    }
-    out.push(block)
-  }
-  return out
-}
-
-export function parseTranscript(src: string): Block[] {
-  return foldToolFollowUps(splitBlocks(src))
-}

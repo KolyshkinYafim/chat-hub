@@ -55,6 +55,12 @@ export async function getGitCheckout(cwd: string): Promise<GitCheckoutInfo> {
   }
 }
 
+/** Initialise a repo in a folder that has none, then report its fresh state. */
+export async function gitInit(cwd: string): Promise<GitCheckoutInfo> {
+  await execFileAsync("git", ["init"], { cwd, timeout: 5000 })
+  return getGitCheckout(cwd)
+}
+
 /** Big repos blow past execFile's 1 MB default on both status and diff. */
 const BUFFER = 8 * 1024 * 1024
 

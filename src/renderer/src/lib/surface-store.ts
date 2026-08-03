@@ -3,6 +3,7 @@ import type { SurfaceKind } from "./surface-bridge"
 const WIDTH_KEY = "chat-hub.surfaceDock.width"
 const OPEN_KEY = "chat-hub.surfaceDock.open"
 const BY_SESSION_KEY = "chat-hub.surfaceDock.bySession"
+const AUTO_OPEN_KEY = "chat-hub.surfaceDock.autoOpen"
 
 export const SURFACE_KINDS: readonly SurfaceKind[] = [
   "board",
@@ -71,4 +72,36 @@ export function loadSurfaceBySession(): Record<string, SurfaceKind> {
 
 export function saveSurfaceBySession(map: Record<string, SurfaceKind>): void {
   localStorage.setItem(BY_SESSION_KEY, JSON.stringify(map))
+}
+
+/** Escape hatch for the auto-open-diff-on-edit behavior; defaults to on. */
+export function loadAutoOpenDock(): boolean {
+  return localStorage.getItem(AUTO_OPEN_KEY) !== "0"
+}
+
+export function saveAutoOpenDock(enabled: boolean): void {
+  localStorage.setItem(AUTO_OPEN_KEY, enabled ? "1" : "0")
+}
+
+/**
+ * Whether a message that just touched files should pull the dock open to the
+ * diff surface, and whether the panel is currently in a state where that's
+ * appropriate to do without yanking the user off something unrelated.
+ *
+ * - Dock closed → open it to "diff".
+ * - Dock open on "files" or "diff" → switch/refresh to "diff" (a no-op re-set
+ *   when it's already "diff", but still lets the caller bump a refresh key).
+ * - Dock open on "terminal"/"browser"/"board" → leave it alone (null).
+ */
+export function shouldAutoOpenDock(
+  current: { showDock: boolean; activeSurface: SurfaceKind | null },
+  touchedFiles: string[],
+  autoOpenEnabled = true,
+): SurfaceKind | null {
+  if (!autoOpenEnabled || touchedFiles.length === 0) return null
+  if (!current.showDock) return "diff"
+  if (current.activeSurface === "files" || current.activeSurface === "diff") {
+    return "diff"
+  }
+  return null
 }
