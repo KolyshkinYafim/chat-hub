@@ -23,6 +23,29 @@ export function agentDesktopEventsPath(): string {
   return join(agentDesktopDir(), "events.jsonl")
 }
 
+/**
+ * Session Monitor's blocking permission socket. The Hub connects to it as a
+ * client to mirror a request onto the island (session-monitor/docs/bridge.md).
+ */
+export function agentDesktopSocketPath(): string {
+  if (process.env.AGENT_DESKTOP_SOCKET) {
+    return process.env.AGENT_DESKTOP_SOCKET
+  }
+  return join(agentDesktopDir(), "monitor.sock")
+}
+
+/**
+ * The Hub's own permission socket, same protocol. Hub-spawned CLIs get this
+ * path as their AGENT_DESKTOP_SOCKET so their hook asks the Hub first — the Hub
+ * then forwards to the island, so one tool call still reaches both windows.
+ */
+export function chatHubSocketPath(): string {
+  if (process.env.CHAT_HUB_SOCKET) {
+    return process.env.CHAT_HUB_SOCKET
+  }
+  return join(agentDesktopDir(), "hub.sock")
+}
+
 /** Session Monitor → Chat Hub reverse channel. */
 export function agentDesktopCommandsPath(): string {
   if (process.env.AGENT_DESKTOP_COMMANDS) {
