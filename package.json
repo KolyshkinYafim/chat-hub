@@ -15,6 +15,7 @@
     "install:mac": "./packaging/install-app.sh",
     "uninstall:mac": "./packaging/uninstall-app.sh",
     "status:mac": "./packaging/app-status.sh",
+    "generate:codex-protocol": "codex app-server generate-ts --out src/main/codex-protocol/generated",
     "test": "vitest run",
     "test:watch": "vitest"
   },

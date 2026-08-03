@@ -39,7 +39,11 @@ export function FirstRunWizard({ onFinish }: Props) {
         installed.find((s) => s.auth === "connected") ?? installed[0]
       if (preferred) {
         setProvider((p) => (p ? p : preferred.id))
-        setModel((m) => m || preferred.defaultModel || "")
+        setModel((current) =>
+          current && preferred.models.some((candidate) => candidate.id === current)
+            ? current
+            : preferred.defaultModel ?? preferred.models[0]?.id ?? "",
+        )
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -60,6 +64,15 @@ export function FirstRunWizard({ onFinish }: Props) {
     () => statuses.find((s) => s.id === provider),
     [statuses, provider],
   )
+
+  useEffect(() => {
+    if (!chosen) return
+    setModel((current) =>
+      current && chosen.models.some((candidate) => candidate.id === current)
+        ? current
+        : chosen.defaultModel ?? chosen.models[0]?.id ?? "",
+    )
+  }, [chosen])
 
   async function finish(openedSession: boolean) {
     setBusy(true)
