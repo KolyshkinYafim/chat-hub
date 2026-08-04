@@ -113,7 +113,14 @@ function itemLabel(item: AgentTurnItem): string {
     case "reasoning": return "Reasoning"
     case "plan": return "Plan"
     case "command": return item.command.split("\n")[0] || "Command"
-    case "file_change": return item.changes.length === 1 ? item.changes[0]!.path : `${item.changes.length} file changes`
+    case "file_change": {
+      if (item.changes.length === 0) {
+        return item.status === "running"
+          ? item.aggregateDiff ? "Preparing diff" : "Preparing file changes"
+          : "No file changes"
+      }
+      return item.changes.length === 1 ? item.changes[0]!.path : `${item.changes.length} file changes`
+    }
     case "tool": return item.server ? `${item.server} · ${item.name}` : item.name
     case "web_search": return `Search · ${item.query}`
     case "image": return `Viewed · ${item.path}`
@@ -121,6 +128,35 @@ function itemLabel(item: AgentTurnItem): string {
     case "compaction": return "Context compacted"
     case "error": return "Error"
   }
+}
+
+function liveActionLabel(item: AgentTurnItem): string {
+  switch (item.kind) {
+    case "plan": {
+      const step = item.steps?.find((candidate) => candidate.status === "running")
+        ?? item.steps?.find((candidate) => candidate.status === "pending")
+      return step?.text || item.text || "Updating plan"
+    }
+    case "command": return `Running ${item.command.split("\n")[0] || "command"}`
+    case "file_change": return item.changes.length
+      ? `Changing ${item.changes.length === 1 ? item.changes[0]!.path : `${item.changes.length} files`}`
+      : item.aggregateDiff ? "Preparing the code diff" : "Preparing file changes"
+    case "tool": return `Using ${item.server ? `${item.server} · ` : ""}${item.name}`
+    case "web_search": return `Searching for ${item.query}`
+    case "image": return `Inspecting ${item.path}`
+    case "review": return item.text || "Reviewing changes"
+    case "compaction": return "Compacting context"
+    case "reasoning": return "Preparing the next step"
+    case "error": return item.message
+  }
+}
+
+function itemHasDetail(item: AgentTurnItem): boolean {
+  if (item.kind === "command") return Boolean(item.command || item.output)
+  if (item.kind === "file_change") return item.changes.length > 0 || Boolean(item.aggregateDiff)
+  if (item.kind === "tool") return Boolean(item.result ?? item.arguments ?? item.error)
+  if (item.kind === "plan") return Boolean(item.text || item.steps?.length)
+  return item.kind === "review" || item.kind === "error" || item.kind === "reasoning"
 }
 
 function ItemBody({ item }: { item: AgentTurnItem }) {
@@ -160,19 +196,25 @@ function ItemBody({ item }: { item: AgentTurnItem }) {
   }
 }
 
-function TurnItems({ items }: { items: AgentTurnItem[] | undefined }) {
-  if (!items?.length) return null
+function TurnItems({
+  items,
+  streaming = false,
+}: {
+  items: AgentTurnItem[] | undefined
+  streaming?: boolean
+}) {
+  if (!items?.length) return streaming ? <LiveActivityPlaceholder /> : null
   const reasoning = items.filter((item) => item.kind === "reasoning")
   const activity = items.filter((item) => item.kind !== "reasoning")
   return (
     <div className="turn-activity">
       {reasoning.length ? <ReasoningGroup items={reasoning} /> : null}
-      {activity.length ? <ActivityOverview items={activity} /> : null}
+      {activity.length ? <ActivityOverview items={activity} /> : streaming ? <LiveActivityPlaceholder /> : null}
       {activity.map((item) => (
         <details
           key={item.id}
           className={`activity-item activity-${item.kind}`}
-          open={item.kind === "error" || item.status === "running"}
+          open={item.kind === "error" || (item.status === "running" && itemHasDetail(item))}
         >
           <summary>
             <span className={`activity-status status-${item.status}`} aria-label={item.status} />
@@ -182,6 +224,17 @@ function TurnItems({ items }: { items: AgentTurnItem[] | undefined }) {
           <ItemBody item={item} />
         </details>
       ))}
+    </div>
+  )
+}
+
+function LiveActivityPlaceholder() {
+  return (
+    <div className="activity-live" aria-live="polite">
+      <span className="activity-status status-running" aria-label="running" />
+      <span className="activity-live-kicker">Working now</span>
+      <strong className="activity-live-label">Preparing the next step</strong>
+      <span className="activity-state">live</span>
     </div>
   )
 }
@@ -203,13 +256,24 @@ function ActivityOverview({ items }: { items: Exclude<AgentTurnItem, { kind: "re
     plans ? `${plans} ${plans === 1 ? "plan update" : "plan updates"}` : "",
   ].filter(Boolean)
   const status = failed ? "failed" : running ? "running" : "completed"
+  const live = [...items].reverse().find((item) => item.status === "running" || item.status === "pending")
   return (
-    <div className="activity-overview">
-      <span className={`activity-status status-${status}`} aria-label={status} />
-      <span className="activity-label">Technical activity</span>
-      <span className="activity-overview-summary">{parts.join(" · ") || `${items.length} updates`}</span>
-      <span className="activity-state">{failed ? `${failed} failed` : status}</span>
-    </div>
+    <>
+      {live ? (
+        <div className="activity-live" aria-live="polite">
+          <span className="activity-status status-running" aria-label="running" />
+          <span className="activity-live-kicker">Working now</span>
+          <strong className="activity-live-label">{liveActionLabel(live)}</strong>
+          <span className="activity-state">live</span>
+        </div>
+      ) : null}
+      <div className="activity-overview">
+        <span className={`activity-status status-${status}`} aria-label={status} />
+        <span className="activity-label">Technical activity</span>
+        <span className="activity-overview-summary">{parts.join(" · ") || `${items.length} updates`}</span>
+        <span className="activity-state">{failed ? `${failed} failed` : status}</span>
+      </div>
+    </>
   )
 }
 
@@ -851,7 +915,7 @@ export function ChatView({
                     )}
                     {m.usage ? <TurnCost usage={m.usage} /> : null}
                   </div>
-                  <TurnItems items={m.items} />
+                  <TurnItems items={m.items} streaming={m.streaming === true} />
                   {m.content.trim() ? (
                     <section className="turn-result">
                       <div className="turn-result-label">
