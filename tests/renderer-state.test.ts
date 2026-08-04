@@ -10,6 +10,7 @@ import {
 } from "@renderer/lib/archive"
 import {
   buildTranscript,
+  planProgress,
   type ToolCall,
   type TranscriptBlock,
 } from "@renderer/lib/tool-runs"
@@ -20,9 +21,11 @@ import {
   formatUsd,
 } from "@renderer/lib/usage"
 import type { ChatMessage } from "@shared/types"
-import { encodeToolCardMeta } from "@shared/tool-card"
+import { encodeToolCardMeta, type PlanStep } from "@shared/tool-card"
 import { groupHookBanners } from "@renderer/lib/hook-banners"
 import type { HookRun } from "@shared/hooks"
+import { toolUseBlock } from "../src/main/adapters/stream-parse"
+import { toPlanSteps } from "@renderer/components/PlanSteps"
 
 function onlyCall(block: TranscriptBlock | undefined): ToolCall {
   if (!block || block.kind !== "tools" || block.calls.length !== 1) {
@@ -48,6 +51,61 @@ describe("archive set", () => {
     expect(pruneArchived(new Set(["a", "b"]), ["b", "c"])).toEqual(
       new Set(["b"]),
     )
+  })
+})
+
+describe("plan checklist blocks", () => {
+  it("surfaces TodoWrite as a plan block, not a tool run", () => {
+    const md = toolUseBlock("TodoWrite", {
+      todos: [
+        { content: "One", status: "completed" },
+        { content: "Two", status: "in_progress" },
+      ],
+    })
+    const { blocks } = buildTranscript(md)
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]).toMatchObject({
+      kind: "plan",
+      name: "TodoWrite",
+    })
+    const plan = (blocks[0] as { meta: { plan?: PlanStep[] } }).meta.plan
+    expect(plan).toHaveLength(2)
+    expect(plan?.[1]?.status).toBe("in_progress")
+  })
+
+  it("does not crash on an empty plan list", () => {
+    const meta = encodeToolCardMeta({ plan: [] })
+    // No plan steps → falls back to a plain tool block (or empty plan card path).
+    const { blocks } = buildTranscript(`\`\`\`tool:TodoWrite\n${meta}\n\`\`\``)
+    // Empty plan array is omitted from encode → generic tool card is fine.
+    expect(blocks.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it("maps progress labels for Step N/M", () => {
+    const steps: PlanStep[] = [
+      { text: "a", status: "completed" },
+      { text: "b", status: "in_progress" },
+      { text: "c", status: "pending" },
+    ]
+    expect(planProgress(steps)).toEqual({ current: 2, total: 3 })
+    expect(planProgress([])).toEqual({ current: 0, total: 0 })
+    expect(planProgress([{ text: "x", status: "completed" }])).toEqual({
+      current: 1,
+      total: 1,
+    })
+  })
+
+  it("maps turn-item running status onto in_progress", () => {
+    expect(
+      toPlanSteps([
+        { text: "a", status: "running" },
+        { text: "b", status: "completed" },
+      ]),
+    ).toEqual([
+      { text: "a", status: "in_progress" },
+      { text: "b", status: "completed" },
+    ])
+    expect(toPlanSteps(undefined)).toEqual([])
   })
 })
 
