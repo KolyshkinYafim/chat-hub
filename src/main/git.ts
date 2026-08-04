@@ -389,9 +389,10 @@ export async function gitCreatePr(
   draft: boolean,
 ): Promise<{ ok: boolean; output: string }> {
   if (!title.trim()) throw new Error("PR title required")
-  const args = ["pr", "create", "--title", title.trim(), "--body", body.trim()]
-  if (draft) args.push("--draft")
   try {
+    const prBody = body.trim() || (await buildPrBody(cwd))
+    const args = ["pr", "create", "--title", title.trim(), "--body", prBody]
+    if (draft) args.push("--draft")
     const { stdout, stderr } = await execFileAsync("gh", args, {
       cwd,
       timeout: 120_000,
@@ -405,4 +406,49 @@ export async function gitCreatePr(
       output: (e.stderr || e.stdout || e.message || "PR creation failed").trim(),
     }
   }
+}
+
+/** Build a useful PR body when the user leaves the optional body empty. */
+export async function buildPrBody(cwd: string): Promise<string> {
+  const [log, stat, status] = await Promise.all([
+    execFileAsync("git", ["log", "-8", "--pretty=format:- %s"], {
+      cwd,
+      timeout: 8000,
+      maxBuffer: BUFFER,
+    }),
+    execFileAsync("git", ["diff", "--stat", "HEAD~1..HEAD"], {
+      cwd,
+      timeout: 8000,
+      maxBuffer: BUFFER,
+    }).catch(() =>
+      execFileAsync("git", ["show", "--stat", "--oneline", "--format=", "HEAD"], {
+        cwd,
+        timeout: 8000,
+        maxBuffer: BUFFER,
+      }).catch(() => ({ stdout: "", stderr: "" })),
+    ),
+    execFileAsync("git", ["status", "--short"], {
+      cwd,
+      timeout: 8000,
+      maxBuffer: BUFFER,
+    }),
+  ])
+  const commits = log.stdout.trim() || "- No local commits found"
+  const files = stat.stdout.trim() || "No commit diff available"
+  const workingTree = status.stdout.trim() || "Clean"
+  return [
+    "## Summary",
+    "",
+    commits,
+    "",
+    "## Diff",
+    "",
+    "```text",
+    files,
+    "```",
+    "",
+    "## Working tree",
+    "",
+    `\`${workingTree}\``,
+  ].join("\n")
 }
