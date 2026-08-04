@@ -4,7 +4,11 @@ import { promisify } from "node:util"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { createSessionWorktree, removeSessionWorktree } from "../src/main/git"
+import {
+  buildPrBody,
+  createSessionWorktree,
+  removeSessionWorktree,
+} from "../src/main/git"
 
 const exec = promisify(execFile)
 
@@ -17,6 +21,11 @@ describe("session worktrees", () => {
     await writeFile(join(repo, "README.md"), "base\n")
     await exec("git", ["add", "README.md"], { cwd: repo })
     await exec("git", ["commit", "-qm", "initial"], { cwd: repo })
+
+    const body = await buildPrBody(repo)
+    expect(body).toContain("- initial")
+    expect(body).toContain("README.md")
+    expect(body).toContain("## Working tree")
 
     const result = await createSessionWorktree(repo, "12345678-session", "Fix API retries")
     expect(result.branch).toMatch(/^chathub\/fix-api-retries-/)
