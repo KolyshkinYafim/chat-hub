@@ -5,6 +5,7 @@ import type {
   GitBranchList,
   GitCheckoutInfo,
   GitWorkingCopy,
+  GitWorktreeInfo,
   HubEvent,
   MessageAttachment,
   PermissionRequestInfo,
@@ -139,6 +140,15 @@ const api = {
     draft: boolean,
   ): Promise<{ ok: boolean; output: string }> =>
     ipcRenderer.invoke(IpcChannels.gitCreatePr, cwd, title, body, draft),
+  gitWorktrees: (cwd: string): Promise<GitWorktreeInfo[]> =>
+    ipcRenderer.invoke(IpcChannels.gitWorktrees, cwd),
+  gitRemoveWorktree: (
+    repoCwd: string,
+    worktreePath: string,
+  ): Promise<{ ok: boolean; output: string }> =>
+    ipcRenderer.invoke(IpcChannels.gitRemoveWorktree, repoCwd, worktreePath),
+  gitPruneWorktrees: (repoCwd: string): Promise<{ ok: boolean; output: string }> =>
+    ipcRenderer.invoke(IpcChannels.gitPruneWorktrees, repoCwd),
   getSettings: (): Promise<SettingsSnapshot> =>
     ipcRenderer.invoke(IpcChannels.getSettings),
   setPermissionMode: (

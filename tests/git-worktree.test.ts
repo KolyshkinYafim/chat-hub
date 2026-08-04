@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdtemp, readFile, realpath, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, realpath, unlink, writeFile } from "node:fs/promises"
 import { promisify } from "node:util"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest"
 import {
   buildPrBody,
   createSessionWorktree,
+  listSessionWorktrees,
   removeSessionWorktree,
 } from "../src/main/git"
 
@@ -31,6 +32,20 @@ describe("session worktrees", () => {
     expect(result.branch).toMatch(/^chathub\/fix-api-retries-/)
     expect(result.root).toBe(await realpath(repo))
     expect(await readFile(join(result.cwd, "README.md"), "utf8")).toBe("base\n")
+
+    await writeFile(join(result.cwd, "scratch.txt"), "uncommitted\n")
+    const worktrees = await listSessionWorktrees(repo)
+    const listed = worktrees.find((worktree) => worktree.path === result.path)
+    expect(worktrees).toHaveLength(2)
+    expect(listed).toMatchObject({
+      branch: result.branch,
+      dirty: true,
+      prunable: false,
+      bare: false,
+    })
+    await unlink(join(result.cwd, "scratch.txt"))
+
+    await expect(removeSessionWorktree(repo, repo)).rejects.toThrow(/outside/i)
 
     await removeSessionWorktree(repo, result.path)
     await expect(readFile(result.path)).rejects.toMatchObject({ code: "ENOENT" })

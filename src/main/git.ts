@@ -1,12 +1,13 @@
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import { mkdir } from "node:fs/promises"
-import { basename, dirname, join } from "node:path"
+import { basename, dirname, join, sep } from "node:path"
 import { homedir } from "node:os"
 import type {
   GitBranchList,
   GitFileChange,
   GitWorkingCopy,
+  GitWorktreeInfo,
 } from "@shared/types"
 
 const execFileAsync = promisify(execFile)
@@ -55,11 +56,65 @@ export async function removeSessionWorktree(
   repoCwd: string,
   worktreePath: string,
 ): Promise<void> {
+  const managedRoot = `${join(homedir(), ".chathub", "worktrees")}${sep}`
+  if (!worktreePath.startsWith(managedRoot)) {
+    throw new Error("Refusing to remove a worktree outside ~/.chathub/worktrees")
+  }
   await execFileAsync(
     "git",
     ["worktree", "remove", worktreePath],
     { cwd: repoCwd, timeout: 30_000 },
   )
+}
+
+/** List every checkout registered with the repository, including stale entries. */
+export async function listSessionWorktrees(cwd: string): Promise<GitWorktreeInfo[]> {
+  const { stdout } = await execFileAsync(
+    "git",
+    ["worktree", "list", "--porcelain"],
+    { cwd, timeout: 8000, maxBuffer: BUFFER },
+  )
+  const blocks = stdout.split(/\n(?=worktree )/).filter(Boolean)
+  return Promise.all(
+    blocks.map(async (block) => {
+      const lines = block.split("\n")
+      const path = lines.find((line) => line.startsWith("worktree "))?.slice(9) ?? ""
+      const head = lines.find((line) => line.startsWith("HEAD "))?.slice(5) ?? ""
+      const branchRef = lines.find((line) => line.startsWith("branch "))?.slice(7)
+      const prunable = lines.some((line) => line.startsWith("prunable"))
+      const bare = lines.includes("bare")
+      let dirty = false
+      if (path && !prunable && !bare) {
+        try {
+          const status = await execFileAsync(
+            "git",
+            ["status", "--porcelain"],
+            { cwd: path, timeout: 8000, maxBuffer: BUFFER },
+          )
+          dirty = status.stdout.trim().length > 0
+        } catch {
+          dirty = true
+        }
+      }
+      return {
+        path,
+        head: head.slice(0, 12),
+        branch: branchRef?.replace(/^refs\/heads\//, "") ?? "(detached)",
+        dirty,
+        prunable,
+        bare,
+      }
+    }),
+  )
+}
+
+/** Remove stale administrative entries after a checkout directory is gone. */
+export async function pruneSessionWorktrees(cwd: string): Promise<void> {
+  await execFileAsync("git", ["worktree", "prune"], {
+    cwd,
+    timeout: 15_000,
+    maxBuffer: BUFFER,
+  })
 }
 
 function slugify(value: string): string {
