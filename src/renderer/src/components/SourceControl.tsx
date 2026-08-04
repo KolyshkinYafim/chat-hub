@@ -105,6 +105,7 @@ export function SourceControl({
   const [message, setMessage] = useState("")
   const [prTitle, setPrTitle] = useState("")
   const [prDraft, setPrDraft] = useState(true)
+  const [reviewConfirmed, setReviewConfirmed] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const liveRef = useRef(true)
@@ -124,6 +125,9 @@ export function SourceControl({
     if (!liveRef.current) return
     setCopy(next)
     setBranches(branchList.branches)
+    // A refresh may reveal a different diff or branch; publishing requires an
+    // explicit review of the current snapshot.
+    setReviewConfirmed(false)
   }, [cwd])
 
   useEffect(() => {
@@ -261,10 +265,12 @@ export function SourceControl({
   }
 
   function push() {
+    if (!reviewConfirmed) return
     void run(() => window.chatHub.gitPush(cwd))
   }
 
   function createPr() {
+    if (!reviewConfirmed) return
     const title = prTitle.trim() || copy.branch
     void run(() => window.chatHub.gitCreatePr(cwd, title, message.trim(), prDraft))
   }
@@ -377,8 +383,13 @@ export function SourceControl({
             <button
               type="button"
               className="scm-act"
-              disabled={busy || copy.branch === "HEAD" || copy.branch === "no-git"}
-              title="Push current branch to origin"
+              disabled={
+                busy ||
+                !reviewConfirmed ||
+                copy.branch === "HEAD" ||
+                copy.branch === "no-git"
+              }
+              title={reviewConfirmed ? "Push current branch to origin" : "Review the current diff first"}
               onClick={push}
             >
               Push
@@ -386,6 +397,21 @@ export function SourceControl({
           </div>
 
           {notice ? <div className="scm-notice">{notice}</div> : null}
+
+          <div className="scm-review-gate">
+            <label>
+              <input
+                type="checkbox"
+                checked={reviewConfirmed}
+                onChange={(event) => setReviewConfirmed(event.currentTarget.checked)}
+                disabled={busy}
+              />
+              <span>
+                <strong>Review before publish</strong>
+                <small>Inspect the changed files and diff below before Push or Create PR.</small>
+              </span>
+            </label>
+          </div>
 
           <div className="scm-lists">
             <div className="scm-section">
@@ -490,7 +516,13 @@ export function SourceControl({
               <button
                 type="button"
                 className="tb-btn"
-                disabled={busy || copy.branch === "HEAD" || copy.branch === "no-git"}
+                disabled={
+                  busy ||
+                  !reviewConfirmed ||
+                  copy.branch === "HEAD" ||
+                  copy.branch === "no-git"
+                }
+                title={reviewConfirmed ? "Create a pull request" : "Review the current diff first"}
                 onClick={createPr}
               >
                 Create PR
