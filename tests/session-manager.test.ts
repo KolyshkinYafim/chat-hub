@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises"
+import { mkdtemp, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -237,6 +237,36 @@ describe("session cwd", () => {
     ).rejects.toThrow(/binary not found/)
     expect(sm.listSessions()).toEqual([])
     expect(sm.getSnapshot().activeSessionId).toBeNull()
+  })
+})
+
+describe("message attachments", () => {
+  it("persists main-derived references without embedding file bytes", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    const image = join(dir, "screen.png")
+    await writeFile(image, Buffer.alloc(2048, 7))
+
+    await sm.sendMessage(session.id, "Review this", { attachments: [image] })
+
+    const message = sm.getMessages(session.id).find((item) => item.role === "user")
+    expect(message).toMatchObject({
+      content: "Review this",
+      attachments: [{
+        path: image,
+        name: "screen.png",
+        sizeBytes: 2048,
+        kind: "image",
+        mime: "image/png",
+      }],
+    })
+
+    await sm.flush()
+    const saved = await persistence.load()
+    expect(saved.messages[session.id]?.[0]?.attachments).toEqual(message?.attachments)
+    const serialized = JSON.stringify(saved)
+    expect(serialized).not.toContain("data:image")
+    expect(serialized).not.toContain(Buffer.alloc(24, 7).toString("base64"))
   })
 })
 

@@ -34,6 +34,7 @@ export const IpcChannels = {
   setSessionPermission: "session:set-permission",
   setSessionTitle: "session:set-title",
   pickFiles: "dialog:pick-files",
+  inspectAttachments: "fs:inspect-attachments",
   savePastedImage: "clipboard:save-image",
   readImageDataUrl: "fs:read-image-data-url",
   listProjects: "projects:list-pinned",
@@ -61,6 +62,14 @@ export const IpcChannels = {
   termExit: "surface:term-exit",
   boardRead: "surface:board-read",
   boardWrite: "surface:board-write",
+  mcpList: "mcp:list",
+  mcpUpsert: "mcp:upsert",
+  mcpRemove: "mcp:remove",
+  mcpSetEnabled: "mcp:set-enabled",
+  mcpSetEnv: "mcp:set-env",
+  mcpMaterialize: "mcp:materialize",
+  mcpStatus: "mcp:status",
+  mcpAddGitignore: "mcp:add-gitignore",
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]
