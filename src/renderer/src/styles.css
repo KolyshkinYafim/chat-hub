@@ -641,6 +641,13 @@ button {
   margin: 0 auto;
 }
 
+.transcript-load-older {
+  display: flex;
+  justify-content: center;
+  padding: 10px 12px 4px;
+  font-size: 12px;
+}
+
 .transcript-empty {
   margin: 20vh auto 0;
   text-align: center;
