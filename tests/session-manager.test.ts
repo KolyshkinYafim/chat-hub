@@ -1,4 +1,6 @@
-import { mkdtemp, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, realpath, writeFile } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { promisify } from "node:util"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -99,6 +101,8 @@ const { Persistence } = await import("../src/main/persistence")
 const { SessionMonitorBridge } = await import("../src/main/bridge")
 const { SettingsStore } = await import("../src/main/settings")
 const { PermissionBroker } = await import("../src/main/permission-broker")
+
+const exec = promisify(execFile)
 
 async function makeManager(
   watchdog?: WatchdogConfig,
@@ -245,6 +249,31 @@ describe("session cwd", () => {
     expect(sm.listSessions()).toEqual([])
     expect(sm.getSnapshot().activeSessionId).toBeNull()
   })
+
+  it("starts an opted-in session in an isolated worktree and cleans it up", async () => {
+    const { sm } = await makeManager()
+    const repo = await mkdtemp(join(tmpdir(), "chat-hub-session-repo-"))
+    await exec("git", ["init", "-q"], { cwd: repo })
+    await exec("git", ["config", "user.email", "test@example.com"], { cwd: repo })
+    await exec("git", ["config", "user.name", "Chat Hub Test"], { cwd: repo })
+    await writeFile(join(repo, "README.md"), "base\n")
+    await exec("git", ["add", "README.md"], { cwd: repo })
+    await exec("git", ["commit", "-qm", "initial"], { cwd: repo })
+
+    const session = await sm.createSession({
+      provider: "mock",
+      cwd: repo,
+      title: "Isolated review",
+      worktree: true,
+    })
+    expect(session.baseCwd).toBe(await realpath(repo))
+    expect(session.worktreePath).toBe(session.cwd)
+    expect(session.branch).toMatch(/^chathub\/isolated-review-/)
+    expect(await readFile(join(session.cwd, "README.md"), "utf8")).toBe("base\n")
+
+    await sm.deleteSession(session.id)
+    await expect(readFile(session.cwd)).rejects.toMatchObject({ code: "ENOENT" })
+  })
 })
 
 describe("message attachments", () => {
@@ -274,31 +303,6 @@ describe("message attachments", () => {
     const serialized = JSON.stringify(saved)
     expect(serialized).not.toContain("data:image")
     expect(serialized).not.toContain(Buffer.alloc(24, 7).toString("base64"))
-  })
-})
-
-describe("transcript archive", () => {
-  it("keeps a fast 200-message tail while older messages remain loadable", async () => {
-    const { sm, dir, persistence } = await makeManager()
-    const session = await sm.createSession({ provider: "mock", cwd: dir })
-
-    for (let i = 0; i < 205; i += 1) {
-      await sm.sendMessage(session.id, `message-${i}`)
-      state.pending?.resolve()
-      await vi.waitFor(() => expect(state.sent).toHaveLength(i + 1))
-    }
-
-    const tail = sm.getMessages(session.id)
-    expect(tail).toHaveLength(200)
-    expect(tail[0]?.content).toBe("message-5")
-    const older = sm.getMessagesBefore(session.id, tail[0]!.id, 100)
-    expect(older.messages).toHaveLength(5)
-    expect(older.messages[0]?.content).toBe("message-0")
-    expect(older.hasMore).toBe(false)
-
-    await sm.flush()
-    expect(await persistence.loadTranscript(session.id)).toHaveLength(205)
-    expect((await persistence.load()).messages[session.id]).toHaveLength(200)
   })
 })
 

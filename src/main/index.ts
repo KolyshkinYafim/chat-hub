@@ -20,6 +20,8 @@ import {
   getWorkingCopy,
   gitCommitAll,
   gitCommitStaged,
+  gitPush,
+  gitCreatePr,
   gitInit,
   listBranches,
   stagePaths,
@@ -288,9 +290,10 @@ function registerIpc(
       cwd: typeof raw.cwd === "string" ? raw.cwd : undefined,
       project: typeof raw.project === "string" ? raw.project : undefined,
       model: typeof raw.model === "string" ? raw.model : undefined,
+      worktree: raw.worktree === true,
     })
     // Pin the folder as a first-class project so it survives with no sessions.
-    await projects.ensure(session.cwd, session.project)
+    await projects.ensure(session.baseCwd ?? session.cwd, session.project)
     // Keep CLI-native MCP files in sync for this project (non-blocking).
     void materializeMcpForProject(session.cwd, (serverId) =>
       settings.getMcpEnv(serverId),
@@ -496,6 +499,23 @@ function registerIpc(
         throw new Error("Commit message required")
       }
       return gitCommitStaged(gitCwd(cwd), message.trim())
+    },
+  )
+  ipcMain.handle(IpcChannels.gitPush, (_e, cwd: unknown) =>
+    gitPush(gitCwd(cwd)),
+  )
+  ipcMain.handle(
+    IpcChannels.gitCreatePr,
+    (_e, cwd: unknown, title: unknown, body: unknown, draft: unknown) => {
+      if (typeof title !== "string" || !title.trim()) {
+        throw new Error("PR title required")
+      }
+      return gitCreatePr(
+        gitCwd(cwd),
+        title,
+        typeof body === "string" ? body : "",
+        draft === true,
+      )
     },
   )
 
