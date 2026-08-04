@@ -1,7 +1,7 @@
 import {
   claudePermissionArgs,
   grokPermissionArgs,
-  opencodeAutoApprove,
+  opencodeSkipPermissions,
   type PermissionMode,
 } from "@shared/permission"
 import type { EffortLevel } from "./types"
@@ -71,6 +71,7 @@ export function buildGrokArgs(o: ArgvOpts): string[] {
     ...grokPermissionArgs(o.permissionMode),
   ]
   if (o.model) args.push("--model", o.model)
+  if (o.effort) args.push("--reasoning-effort", o.effort)
   if (o.resumeId) args.push("--resume", o.resumeId)
   return args
 }
@@ -81,7 +82,13 @@ export function buildOpenCodeArgs(o: ArgvOpts): string[] {
   if (o.model) args.push("--model", o.model)
   for (const f of o.attachments ?? []) args.push("--file", f)
   if (o.resumeId) args.push("--session", o.resumeId)
-  if (opencodeAutoApprove(o.permissionMode)) args.push("--auto")
+  // OpenCode 1.x renamed the old --auto surface.  Its replacement is a full
+  // bypass, so it maps only to YOLO; the Edits chip stays safe and lets the
+  // CLI ask rather than silently granting shell/network access.
+  if (opencodeSkipPermissions(o.permissionMode)) {
+    args.push("--dangerously-skip-permissions")
+  }
+  if (o.effort) args.push("--variant", o.effort)
   return args
 }
 
