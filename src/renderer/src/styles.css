@@ -686,6 +686,37 @@ button {
   font-size: 11px;
 }
 
+.activity-live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--working) 42%, var(--border));
+  border-left: 3px solid var(--working);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--working) 8%, var(--bg-elevated));
+  font-size: 11px;
+}
+
+.activity-live-kicker {
+  flex: 0 0 auto;
+  color: var(--working);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.activity-live-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .activity-overview-summary {
   min-width: 0;
   overflow: hidden;
