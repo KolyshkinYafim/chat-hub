@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto"
 import {
   encodeToolCardMeta,
   fenceFor,
+  isPlanToolName,
+  planStepsFromInput,
+  type PlanStep,
   type ToolCardMeta,
 } from "@shared/tool-card"
 import { buildEditDiff } from "./edit-diff"
@@ -248,10 +251,8 @@ export function toolUseBlock(
   input: unknown,
   id?: string,
 ): string {
-  const { head, diff, paths, added, removed, absLines } = summarizeToolInput(
-    name,
-    input,
-  )
+  const { head, diff, paths, added, removed, absLines, plan } =
+    summarizeToolInput(name, input)
   const card = toolCallBlock(name, head, {
     id,
     desc: descriptionOf(input),
@@ -259,6 +260,7 @@ export function toolUseBlock(
     added,
     removed,
     absLines,
+    plan,
   })
   if (!diff || !diff.trim()) return card
   return `${card}\`\`\`diff\n${diff}\n\`\`\`\n\n`
@@ -281,6 +283,7 @@ type ToolSummary = {
   added?: number
   removed?: number
   absLines?: true
+  plan?: PlanStep[]
 }
 
 function summarizeToolInput(name: string, input: unknown): ToolSummary {
@@ -291,6 +294,18 @@ function summarizeToolInput(name: string, input: unknown): ToolSummary {
   const str = (v: unknown) => (typeof v === "string" ? v : "")
   const file = str(o.file_path) || str(o.path) || str(o.notebook_path)
   const lower = name.toLowerCase()
+
+  // Claude TodoWrite / Codex update_plan — structured checklist, not raw JSON.
+  if (isPlanToolName(name)) {
+    const plan = planStepsFromInput(input)
+    const active =
+      plan.find((s) => s.status === "in_progress") ??
+      plan.find((s) => s.status === "pending")
+    const head =
+      active?.text ||
+      (plan.length > 0 ? `${plan.length} steps` : planHeadFallback(input))
+    return { head: head.slice(0, 200), plan: plan.length > 0 ? plan : undefined }
+  }
 
   if (lower === "bash") {
     const cmd = str(o.command).split("\n")[0] ?? ""
@@ -326,6 +341,15 @@ function summarizeToolInput(name: string, input: unknown): ToolSummary {
 
   const json = JSON.stringify(o)
   return { head: json.length > 2 ? json.slice(0, 200) : "(no args)" }
+}
+
+function planHeadFallback(input: unknown): string {
+  if (!input || typeof input !== "object") return "Plan"
+  const o = input as Record<string, unknown>
+  if (typeof o.explanation === "string" && o.explanation.trim()) {
+    return o.explanation.trim()
+  }
+  return "Plan"
 }
 
 function editSummary(

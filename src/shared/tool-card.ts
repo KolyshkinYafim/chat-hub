@@ -1,3 +1,11 @@
+/** One step of a Claude TodoWrite / Codex update_plan checklist. */
+export type PlanStepStatus = "pending" | "in_progress" | "completed"
+
+export type PlanStep = {
+  text: string
+  status: PlanStepStatus
+}
+
 export type ToolCardMeta = {
   id?: string
   desc?: string
@@ -7,6 +15,8 @@ export type ToolCardMeta = {
   exitCode?: number
   error?: boolean
   absLines?: true
+  /** Present on plan tools — drives the checklist card instead of JSON args. */
+  plan?: PlanStep[]
 }
 
 const MARK = "\u001f"
@@ -21,6 +31,7 @@ export function encodeToolCardMeta(meta: ToolCardMeta): string {
   if (typeof meta.exitCode === "number") kept.exitCode = meta.exitCode
   if (meta.error) kept.error = true
   if (meta.absLines) kept.absLines = true
+  if (meta.plan && meta.plan.length > 0) kept.plan = meta.plan
   if (Object.keys(kept).length === 0) return ""
   return `${MARK}${JSON.stringify(kept)}\n`
 }
@@ -65,7 +76,87 @@ function readMeta(raw: Record<string, unknown>): ToolCardMeta {
   if (typeof raw.exitCode === "number") meta.exitCode = raw.exitCode
   if (raw.error === true) meta.error = true
   if (raw.absLines === true) meta.absLines = true
+  if (Array.isArray(raw.plan)) {
+    const plan = coercePlanSteps(raw.plan)
+    if (plan.length > 0) meta.plan = plan
+  }
   return meta
+}
+
+/** Normalize CLI status strings onto the three plan-step values. */
+export function normalizePlanStatus(raw: unknown): PlanStepStatus {
+  if (typeof raw !== "string") return "pending"
+  const s = raw.trim().toLowerCase().replace(/[\s-]+/g, "_")
+  if (
+    s === "completed" ||
+    s === "complete" ||
+    s === "done" ||
+    s === "finished"
+  ) {
+    return "completed"
+  }
+  if (
+    s === "in_progress" ||
+    s === "inprogress" ||
+    s === "running" ||
+    s === "active" ||
+    s === "current"
+  ) {
+    return "in_progress"
+  }
+  return "pending"
+}
+
+/**
+ * Pull plan steps out of Claude TodoWrite / Codex update_plan / todo_list
+ * shapes. Unknown junk is skipped rather than failing the whole card.
+ */
+export function planStepsFromInput(input: unknown): PlanStep[] {
+  if (!input || typeof input !== "object") return []
+  const o = input as Record<string, unknown>
+  if (Array.isArray(o.todos)) return coercePlanSteps(o.todos)
+  if (Array.isArray(o.plan)) return coercePlanSteps(o.plan)
+  if (Array.isArray(o.items)) return coercePlanSteps(o.items)
+  if (Array.isArray(o.steps)) return coercePlanSteps(o.steps)
+  return []
+}
+
+export function coercePlanSteps(raw: unknown[]): PlanStep[] {
+  const out: PlanStep[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue
+    const r = item as Record<string, unknown>
+    const text =
+      strField(r.content) ||
+      strField(r.step) ||
+      strField(r.text) ||
+      strField(r.title) ||
+      strField(r.activeForm)
+    if (!text) continue
+    const status =
+      r.completed === true
+        ? "completed"
+        : normalizePlanStatus(r.status)
+    out.push({ text, status })
+  }
+  return out
+}
+
+function strField(v: unknown): string {
+  return typeof v === "string" ? v.trim() : ""
+}
+
+/** Tool names that carry a step checklist instead of free-form args. */
+export function isPlanToolName(name: string): boolean {
+  const lower = name.toLowerCase().replace(/[\s-]+/g, "_")
+  return (
+    lower === "todowrite" ||
+    lower === "todoread" ||
+    lower === "update_plan" ||
+    lower === "updateplan" ||
+    lower === "todo_list" ||
+    lower === "todolist"
+  )
 }
 
 export function fenceFor(body: string): string {

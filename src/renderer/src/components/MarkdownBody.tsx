@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import { buildTranscript, type TranscriptBlock } from "../lib/tool-runs"
 import { ChangedFiles } from "./ChangedFiles"
 import { DiffBody } from "./DiffBody"
+import { PlanSteps } from "./PlanSteps"
 import { ToolRun } from "./ToolRun"
 
 /** Lightweight agent-transcript renderer (headings, lists, code, tool runs). */
@@ -36,6 +37,16 @@ export function MarkdownBody({
 function Block({ block, live }: { block: TranscriptBlock; live: boolean }) {
   if (block.kind === "tools") {
     return <ToolRun calls={block.calls} live={live} />
+  }
+  if (block.kind === "plan") {
+    return (
+      <PlanSteps
+        steps={block.meta.plan ?? []}
+        title={block.title}
+        toolName={block.name}
+        expandKey={block.key}
+      />
+    )
   }
   if (block.kind === "h") {
     const Tag = block.level === 2 ? "h2" : "h3"
