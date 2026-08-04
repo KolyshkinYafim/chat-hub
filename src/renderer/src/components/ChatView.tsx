@@ -367,12 +367,19 @@ export function ChatView({
       onLoadOlder &&
       el.scrollTop < 48
     ) {
-      scrollRestoreRef.current = {
-        height: el.scrollHeight,
-        top: el.scrollTop,
-      }
-      onLoadOlder()
+      requestOlderMessages()
     }
+  }
+
+  function requestOlderMessages() {
+    const node = transcriptRef.current
+    if (node) {
+      scrollRestoreRef.current = {
+        height: node.scrollHeight,
+        top: node.scrollTop,
+      }
+    }
+    onLoadOlder?.()
   }
 
   function jumpToLatest() {
@@ -700,7 +707,7 @@ export function ChatView({
                 <button
                   type="button"
                   className="link-btn"
-                  onClick={() => onLoadOlder?.()}
+                  onClick={requestOlderMessages}
                 >
                   Load earlier messages
                 </button>
