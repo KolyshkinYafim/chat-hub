@@ -20,6 +20,7 @@ export const IpcChannels = {
   gitInit: "git:init",
   gitCommit: "git:commit",
   gitStatus: "git:status",
+  gitRepositories: "git:repositories",
   gitDiff: "git:diff",
   gitStage: "git:stage",
   gitUnstage: "git:unstage",

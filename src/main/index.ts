@@ -23,6 +23,7 @@ import {
   gitPush,
   gitCreatePr,
   gitInit,
+  findGitRepositories,
   listBranches,
   stagePaths,
   unstagePaths,
@@ -450,6 +451,9 @@ function registerIpc(
       return { root: null, branch: "no-git", ahead: 0, behind: 0, files: [] }
     }
   })
+  ipcMain.handle(IpcChannels.gitRepositories, async (_e, cwd: unknown) =>
+    findGitRepositories(gitCwd(cwd)),
+  )
 
   ipcMain.handle(
     IpcChannels.gitDiff,

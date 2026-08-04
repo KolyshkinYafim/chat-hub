@@ -5,6 +5,7 @@ import type {
   GitBranchList,
   GitCheckoutInfo,
   GitWorkingCopy,
+  GitRepository,
   HubEvent,
   MessageAttachment,
   PermissionRequestInfo,
@@ -107,6 +108,8 @@ const api = {
     ipcRenderer.invoke(IpcChannels.gitCommit, cwd, message),
   gitStatus: (cwd: string): Promise<GitWorkingCopy> =>
     ipcRenderer.invoke(IpcChannels.gitStatus, cwd),
+  gitRepositories: (cwd: string): Promise<GitRepository[]> =>
+    ipcRenderer.invoke(IpcChannels.gitRepositories, cwd),
   gitDiff: (
     cwd: string,
     path: string,
