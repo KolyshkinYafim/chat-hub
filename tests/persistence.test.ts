@@ -29,6 +29,29 @@ describe("atomic writes", () => {
 })
 
 describe("state store", () => {
+  it("stores complete transcripts separately from the hot state snapshot", async () => {
+    const folder = await dir()
+    const persistence = new Persistence(join(folder, "state.json"))
+    const messages = [{
+      id: "m1",
+      sessionId: "s1",
+      role: "user" as const,
+      content: "older message",
+      createdAt: 1,
+    }]
+    await persistence.saveTranscripts(new Map([["s1", messages]]))
+    expect(await persistence.loadTranscript("s1")).toEqual(messages)
+    await persistence.deleteTranscript("s1")
+    expect(await persistence.loadTranscript("s1")).toEqual([])
+  })
+
+  it("rejects path traversal in transcript ids", async () => {
+    const persistence = new Persistence(join(await dir(), "state.json"))
+    await expect(persistence.loadTranscript("../state")).rejects.toThrow(
+      /invalid session id/i,
+    )
+  })
+
   it("parks an unreadable state file instead of overwriting it", async () => {
     const folder = await dir()
     const file = join(folder, "state.json")

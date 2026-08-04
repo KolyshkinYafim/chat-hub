@@ -70,6 +70,7 @@ of asking you to run `pnpm dev`.
 - [MVP checklist](./docs/mvp.md)
 - [Providers](./docs/providers.md)
 - [Bridge contract](./docs/bridge.md)
+- [History and Git-flow sprint](./docs/SPRINT-HISTORY-GITFLOW.md)
 
 ## Data locations
 
