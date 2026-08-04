@@ -130,6 +130,12 @@ export type HubSettings = {
   instances: ProviderInstance[]
   /** App-wide preferences. */
   general: GeneralConfig
+  /**
+   * Sealed env values for MCP servers, keyed by server id then env var name.
+   * Never sent to the renderer — only key *names* surface via getMcpEnvKeys.
+   * Optional so older settings.json loads without a migration bump.
+   */
+  mcpEnv?: Record<string, Record<string, string>>
 }
 
 /** Env var names a provider commonly reads (surfaced as key/API-key fields). */

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron"
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from "electron"
 import { join } from "node:path"
 import { realpathSync, statSync } from "node:fs"
 import { IpcChannels } from "@shared/ipc"
@@ -47,6 +47,19 @@ import {
   registerSurfaceIpc,
   TerminalSessions,
 } from "./surfaces"
+import { installDeveloperMenu } from "./developer-menu"
+import {
+  appendMcpPathsToGitignore,
+  materializeMcpForProject,
+  mcpListForRenderer,
+  probeMcpStatuses,
+  readMcpConfig,
+  removeMcpServer,
+  setMcpServerEnabled,
+  upsertMcpServer,
+} from "./mcp"
+import type { McpServerDef } from "@shared/mcp"
+import { inspectAttachmentPaths } from "./attachments"
 
 const REAL_PROVIDER_IDS: ProviderId[] = [
   "claude",
@@ -195,6 +208,7 @@ function createWindow(): void {
   hardenWebviewHost(mainWindow.webContents, (url) => {
     void shell.openExternal(url)
   })
+  installDeveloperMenu(() => mainWindow)
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (isSafeExternalUrl(url)) {
@@ -249,6 +263,10 @@ function registerIpc(
     })
     // Pin the folder as a first-class project so it survives with no sessions.
     await projects.ensure(session.cwd, session.project)
+    // Keep CLI-native MCP files in sync for this project (non-blocking).
+    void materializeMcpForProject(session.cwd, (serverId) =>
+      settings.getMcpEnv(serverId),
+    ).catch((err) => console.error("[mcp] materialize on create failed", err))
     return session
   })
   ipcMain.handle(
@@ -776,6 +794,11 @@ function registerIpc(
     return result.filePaths
   })
 
+  ipcMain.handle(IpcChannels.inspectAttachments, (_e, paths: unknown) => {
+    if (!Array.isArray(paths)) return []
+    return inspectAttachmentPaths(paths.filter((path): path is string => typeof path === "string"))
+  })
+
   ipcMain.handle(
     IpcChannels.savePastedImage,
     async (_e, bytes: unknown, ext: unknown) => {
@@ -800,7 +823,7 @@ function registerIpc(
     },
   )
 
-  ipcMain.handle(IpcChannels.readImageDataUrl, async (_e, target: unknown) => {
+  ipcMain.handle(IpcChannels.readImageDataUrl, async (_e, target: unknown, requestedMax: unknown) => {
     if (typeof target !== "string" || !target) return null
     const ext = target.slice(target.lastIndexOf(".") + 1).toLowerCase()
     const mime: Record<string, string> = {
@@ -814,6 +837,24 @@ function registerIpc(
     }
     if (!mime[ext]) return null
     try {
+      const maxDimension =
+        typeof requestedMax === "number" && Number.isFinite(requestedMax)
+          ? Math.max(32, Math.min(1024, Math.round(requestedMax)))
+          : null
+      if (maxDimension) {
+        const image = nativeImage.createFromPath(target)
+        if (image.isEmpty()) return null
+        const size = image.getSize()
+        const scale = Math.min(1, maxDimension / Math.max(size.width, size.height))
+        const thumbnail = scale < 1
+          ? image.resize({
+              width: Math.max(1, Math.round(size.width * scale)),
+              height: Math.max(1, Math.round(size.height * scale)),
+              quality: "good",
+            })
+          : image
+        return thumbnail.toDataURL()
+      }
       const buf = await readFile(target)
       // A pasted screenshot is ~1-4MB; cap so a mis-attached huge file can't wedge
       // the renderer with a giant data URL.
@@ -856,6 +897,110 @@ function registerIpc(
     if (typeof id !== "string" || !id) throw new Error("Invalid project id")
     return projects.remove(id)
   })
+
+  const envLookup = (serverId: string) => settings.getMcpEnv(serverId)
+
+  async function mcpAfterMutate(cwd: string, cleanupNames: string[] = []) {
+    const materialized = await materializeMcpForProject(
+      cwd,
+      envLookup,
+      cleanupNames,
+    )
+    if (!materialized.ok) {
+      throw new Error(materialized.error || "MCP materialize failed")
+    }
+    return mcpListForRenderer(cwd, settings, true)
+  }
+
+  ipcMain.handle(IpcChannels.mcpList, async (_e, cwd: unknown) => {
+    if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
+    return mcpListForRenderer(cwd, settings, true)
+  })
+
+  ipcMain.handle(
+    IpcChannels.mcpUpsert,
+    async (_e, cwd: unknown, server: unknown) => {
+      if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
+      if (!server || typeof server !== "object") throw new Error("Invalid server")
+      const def = server as McpServerDef
+      const before = await readMcpConfig(cwd)
+      const previous = before.servers.find((item) => item.id === def.id)
+      await upsertMcpServer(cwd, def)
+      const cleanupNames =
+        previous && previous.name !== def.name ? [previous.name] : []
+      return mcpAfterMutate(cwd, cleanupNames)
+    },
+  )
+
+  ipcMain.handle(
+    IpcChannels.mcpRemove,
+    async (_e, cwd: unknown, id: unknown) => {
+      if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
+      if (typeof id !== "string" || !id) throw new Error("Invalid id")
+      const before = await readMcpConfig(cwd)
+      const previous = before.servers.find((item) => item.id === id)
+      await removeMcpServer(cwd, id)
+      const materialized = await materializeMcpForProject(
+        cwd,
+        envLookup,
+        previous ? [previous.name] : [],
+      )
+      if (!materialized.ok) {
+        throw new Error(materialized.error || "MCP materialize failed")
+      }
+      await settings.removeMcpServerEnv(id)
+      return mcpListForRenderer(cwd, settings, true)
+    },
+  )
+
+  ipcMain.handle(
+    IpcChannels.mcpSetEnabled,
+    async (_e, cwd: unknown, id: unknown, enabled: unknown) => {
+      if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
+      if (typeof id !== "string" || !id) throw new Error("Invalid id")
+      if (typeof enabled !== "boolean") throw new Error("Invalid enabled")
+      await setMcpServerEnabled(cwd, id, enabled)
+      return mcpAfterMutate(cwd)
+    },
+  )
+
+  ipcMain.handle(
+    IpcChannels.mcpSetEnv,
+    async (_e, serverId: unknown, envPatch: unknown) => {
+      if (typeof serverId !== "string" || !serverId) {
+        throw new Error("Invalid serverId")
+      }
+      if (!envPatch || typeof envPatch !== "object") {
+        throw new Error("Invalid env patch")
+      }
+      return settings.setMcpServerEnv(
+        serverId,
+        envPatch as Record<string, string>,
+      )
+    },
+  )
+
+  ipcMain.handle(IpcChannels.mcpMaterialize, async (_e, cwd: unknown) => {
+    if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
+    return materializeMcpForProject(cwd, envLookup)
+  })
+
+  ipcMain.handle(IpcChannels.mcpStatus, async (_e, cwd: unknown) => {
+    if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
+    const config = await readMcpConfig(cwd)
+    return probeMcpStatuses(config.servers)
+  })
+
+  ipcMain.handle(
+    IpcChannels.mcpAddGitignore,
+    async (_e, cwd: unknown, paths: unknown) => {
+      if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
+      if (!Array.isArray(paths) || !paths.every((p) => typeof p === "string")) {
+        throw new Error("Invalid paths")
+      }
+      return appendMcpPathsToGitignore(cwd, paths as string[])
+    },
+  )
 }
 
 /**
