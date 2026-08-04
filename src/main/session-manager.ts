@@ -28,8 +28,10 @@ import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
 import type { SettingsStore } from "./settings"
 import { HookRunner } from "./hooks"
 import { inspectAttachmentPaths } from "./attachments"
+import { MessageArchive } from "./message-archive"
 
-const MAX_MESSAGES_PER_SESSION = 200
+/** Live window size; older turns spill into MessageArchive, not the void. */
+export const MAX_MESSAGES_PER_SESSION = 200
 
 export type SendOpts = {
   effort?: EffortLevel
@@ -62,6 +64,12 @@ export class SessionManager {
   private usage = new Map<string, SessionUsage>()
   private permissions: PermissionBroker | null = null
   private readonly hooks: HookRunner
+  private readonly archive: MessageArchive
+  /** Live-window cap; overridable in tests so overflow is cheap to exercise. */
+  private readonly maxMessages: number
+  /** Sessions that have spilled into archive.jsonl (or already had one on disk). */
+  private archivedSessions = new Set<string>()
+  private inputStatusWired = false
 
   constructor(
     private readonly bus: EventBus,
@@ -70,6 +78,7 @@ export class SessionManager {
     private readonly notifications: NotificationService,
     private readonly settings: SettingsStore,
     private readonly watchdog: WatchdogConfig = WATCHDOG,
+    opts?: { archive?: MessageArchive; maxMessages?: number },
   ) {
     // Prompt hooks re-enter sendMessage so they share the normal queue (never
     // touch SessionMeta). Fire-and-forget from the runner; turn_done hooks that
@@ -78,14 +87,55 @@ export class SessionManager {
     this.hooks = new HookRunner(this.bus, (sessionId, text) => {
       void this.sendMessage(sessionId, text)
     })
+    this.archive =
+      opts?.archive ?? MessageArchive.fromStatePath(this.persistence.filePath)
+    this.maxMessages = opts?.maxMessages ?? MAX_MESSAGES_PER_SESSION
   }
 
   /**
    * The broker is built after the manager (it needs a session lookup that only
    * exists once the manager does), so it arrives by setter rather than by ctor.
+   * Wire waiting_input from Ask-mode pendingInputs here once.
    */
   setPermissionBroker(broker: PermissionBroker): void {
     this.permissions = broker
+    if (this.inputStatusWired) return
+    this.inputStatusWired = true
+    this.bus.on((event) => {
+      if (event.type === "input.request") {
+        const sid = event.request.sessionId
+        if (sid) this.syncWaitingInputStatus(sid)
+        return
+      }
+      if (event.type === "input.resolved") {
+        const sid = event.sessionId
+        if (sid) this.syncWaitingInputStatus(sid)
+      }
+    })
+  }
+
+  /** True when this session has spilled messages into the on-disk archive. */
+  hasArchivedMessages(sessionId: string): boolean {
+    return this.archivedSessions.has(sessionId)
+  }
+
+  /**
+   * Load older messages from the overflow archive (oldest→newest page).
+   * `beforeMessageId` is the currently oldest loaded message (or null for the
+   * first page under the live window).
+   */
+  async loadArchivedMessages(
+    sessionId: string,
+    beforeMessageId: string | null,
+    limit = 50,
+  ): Promise<{ messages: ChatMessage[]; hasMore: boolean; hasArchive: boolean }> {
+    const hasArchive = await this.archive.hasArchive(sessionId)
+    if (hasArchive) this.archivedSessions.add(sessionId)
+    if (!hasArchive) {
+      return { messages: [], hasMore: false, hasArchive: false }
+    }
+    const page = await this.archive.loadBefore(sessionId, beforeMessageId, limit)
+    return { ...page, hasArchive: true }
   }
 
   /**
@@ -274,6 +324,9 @@ export class SessionManager {
     // the persisted CLI session id for resume.
     for (const session of this.listSessions()) {
       await this.restoreAdapter(session)
+      if (await this.archive.hasArchive(session.id)) {
+        this.archivedSessions.add(session.id)
+      }
     }
 
     this.startWatchdog()
@@ -959,23 +1012,66 @@ export class SessionManager {
   private applyStatus(id: string, status: SessionStatus): void {
     const session = this.sessions.get(id)
     if (!session) return
-    if (session.status === status) {
-      this.publishSessionEvent({ type: "session.status", id, status })
+    // Ask-mode pending input wins over idle/running so the Wait filter stays true.
+    let effective = status
+    if (
+      this.hasPendingInput(id) &&
+      status !== "error" &&
+      status !== "done" &&
+      status !== "waiting_input"
+    ) {
+      effective = "waiting_input"
+    }
+    if (session.status === effective) {
+      this.publishSessionEvent({ type: "session.status", id, status: effective })
       return
     }
-    const next = { ...session, status, updatedAt: Date.now() }
+    const next = { ...session, status: effective, updatedAt: Date.now() }
     this.sessions.set(id, next)
-    this.publishSessionEvent({ type: "session.status", id, status })
+    this.publishSessionEvent({ type: "session.status", id, status: effective })
     this.bus.emit({ type: "sessions.replaced", sessions: this.listSessions() })
     this.scheduleSave()
+  }
+
+  private hasPendingInput(sessionId: string): boolean {
+    // Tests sometimes stub the broker with only socketPath/env helpers.
+    const list = this.permissions?.listInputs?.() ?? []
+    return list.some((r) => r.sessionId === sessionId)
+  }
+
+  /**
+   * Reflect Ask-mode pendingInputs as SessionStatus.waiting_input.
+   * When the last input closes: running if a turn is still live, else idle.
+   */
+  private syncWaitingInputStatus(sessionId: string): void {
+    if (!this.sessions.has(sessionId)) return
+    if (this.hasPendingInput(sessionId)) {
+      this.applyStatus(sessionId, "waiting_input")
+      return
+    }
+    const session = this.sessions.get(sessionId)
+    if (!session || session.status !== "waiting_input") return
+    this.applyStatus(sessionId, this.turns.has(sessionId) ? "running" : "idle")
   }
 
   private appendMessage(message: ChatMessage): void {
     const list = this.messages.get(message.sessionId) ?? []
     list.push(message)
-    while (list.length > MAX_MESSAGES_PER_SESSION) list.shift()
+    const overflow: ChatMessage[] = []
+    while (list.length > this.maxMessages) {
+      const old = list.shift()
+      if (old) overflow.push(old)
+    }
     this.messages.set(message.sessionId, list)
     this.bus.emit({ type: "chat.message", message })
+    if (overflow.length > 0) {
+      this.archivedSessions.add(message.sessionId)
+      void this.archive
+        .append(message.sessionId, overflow)
+        .catch((err) =>
+          console.error("[archive] append failed", message.sessionId, err),
+        )
+    }
   }
 
   /** Any sign of life from the CLI resets the watchdog's silence timer. */
