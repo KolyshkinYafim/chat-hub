@@ -19,6 +19,9 @@ work recoverable and reviewable.
 - Source Control exposes explicit `Push` and `Create PR` actions. Push uses
   `git push --set-upstream origin HEAD`; PR creation uses `gh pr create` with
   argument arrays, never shell interpolation.
+- Push and PR actions require an explicit review confirmation after inspecting
+  the current file list and diff. An empty PR body is filled from recent
+  commits, the latest diff stat, and working-tree status.
 
 ## Verification
 
@@ -31,7 +34,4 @@ work recoverable and reviewable.
 
 ## Deliberate follow-ups
 
-- A review gate before Push/PR (currently the existing diff pane is the review
-  surface, and actions remain explicit buttons).
-- PR title/body generation from the transcript.
 - Worktree cleanup UI for sessions whose dirty worktree was preserved.

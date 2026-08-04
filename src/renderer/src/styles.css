@@ -3611,6 +3611,38 @@ button {
   color: var(--text-secondary);
 }
 
+.scm-review-gate {
+  margin: 8px 16px 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(240, 180, 41, 0.32);
+  border-radius: 8px;
+  background: rgba(240, 180, 41, 0.07);
+}
+
+.scm-review-gate label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.scm-review-gate input {
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.scm-review-gate span {
+  display: grid;
+  gap: 2px;
+}
+
+.scm-review-gate small {
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
 .scm-empty {
   display: flex;
   flex-direction: column;
