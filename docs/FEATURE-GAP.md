@@ -1,299 +1,114 @@
-# Chat Hub vs Kiro vs T3 Code — карта функционала и чеклист доделок
-
-**Составлено:** 2026-08-04. Chat Hub — по рабочему дереву (`main`, коммит `d634e1f` + незакоммиченные правки).
-Kiro — по kiro.dev и docs. T3 Code — по t3.codes и github.com/pingdotgg/t3code.
-
----
-
-## 1. Что у Chat Hub есть сегодня
-
-Только то, что реально в коде.
-
-**Ядро**
-- Electron + React, macOS-first, свой воркбенч (не форк VS Code).
-- 4 живых CLI-адаптера: claude, grok, opencode, codex. Чистые argv-билдеры (`src/main/adapters/args.ts`) под юнит-тестами.
-- Очередь сообщений внутри turn'а, watchdog на зависший turn (15 с тик, 10 мин тишины → abort), честный статус из event bus, resume по CLI-native session id.
-- Учёт токенов и стоимости на turn и на сессию, переживает рестарт.
-- Multi-account через shadow-home (`CLAUDE_CONFIG_DIR` / `CODEX_HOME` / `GROK_HOME` / `OPENCODE_CONFIG`).
-- API-ключи запечатаны Electron `safeStorage`, renderer видит только имена ключей.
-
-**UI**
-- Сайдбар проектов и сессий, фильтры All/Work/Wait, архив (пока только localStorage).
-- ⌘K fuzzy-свитчер, поиск по телу транскрипта, tool-карточки и diff-блоки в транскрипте.
-- Правые сурфейсы (свежий коммит `d634e1f`): Browser, Terminal (node-pty + xterm), Files, Diff, Board.
-- Board — per-project `.chathub/board.json`, который правит и агент, и юзер.
-- Settings с карточками провайдеров: auth-точка, версия, override пути к бинарю, список моделей, Test/Login.
-- First-run wizard, Source Control панель (стейдж/аншейдж/дифф/ветка/коммит).
-- Клавиатура: ⌘K, ⌘N, ⌘,, ⌘/, ⌘G, Esc. Не переназначается.
-
-**Интеграция**
-- Мост в Session Monitor (JSONL) + единый permission-сокет: аппрув приходит в Hub и зеркалится на «остров», первый ответ выигрывает.
-- `pnpm install:mac` со штампом identity в Info.plist.
-
-**Известные дыры (из TODO.md / roadmap-v2.md)**
-- In-app Allow/Deny написан, но `resolvePermission` не прокинут в `ChatView` — аппрувить приходится в острове.
-- Приложение не подписано (`identity: null`), после zip/AirDrop macOS зовёт его повреждённым.
-- Транскрипт жёстко режется на 200 сообщениях, без архива и ленивой подгрузки.
-- `waiting_input` не эмитит ни один реальный адаптер — фильтр «Wait» мёртвый.
-- Нет `requestSingleInstanceLock()`, второй запуск уводит сокет у первого.
-- Grok ни разу не прогонялся живьём (не залогинен), парсер стрима — защитная догадка.
-- Board: гонка записи (перезапись целиком), нестабильные id из индекса.
-
----
-
-## 2. Kiro — полный функционал
-
-Kiro — это IDE (форк Code OSS) + CLI + web + iOS от AWS. Другая весовая категория, но идеи оттуда берутся хорошо.
-
-**Spec-driven development (главная фича)**
-- Из промпта генерит три файла: `requirements.md` (user stories + acceptance criteria), `design.md` (архитектура, диаграммы), `tasks.md` (разложенные задачи).
-- Экран исполнения задач с прогрессом. **Run all Tasks** строит граф зависимостей и гоняет независимые задачи «волнами» параллельно.
-- Отдельный режим `bugfix.md` для багов, чтобы не было регрессий.
-- Automated reasoning: проверка требований на противоречия.
-- Property-based тесты («как фаззинг») для проверки корректности до имплементации.
-
-**Hooks (автоматизация)**
-- JSON-файлы в `.kiro/hooks/`, триггер + матчер (regex) + действие (промпт агенту или shell-команда) + timeout + enabled.
-- Триггеры: `PostFileCreate`, `PostFileSave`, `PostFileDelete`, `PreToolUse`, `PostToolUse`, `PreTaskExec`, `PostTaskExec`, `UserPromptSubmit`, `SessionStart`.
-- Создаются тремя способами: описал словами → сгенерился хук, форма в UI, руками JSON.
-- Cloud automations по расписанию (пока только в web).
-
-**Steering**
-- Файлы правил и контекста, которые едут за тобой во все интерфейсы (IDE, CLI, web, mobile).
-- Поддержка `AGENTS.md` и `Skills.md` как открытых стандартов.
-
-**Агенты и модели**
-- Параллельные субагенты, распределение задач между ними.
-- Auto-выбор модели под сложность задачи. Claude Opus/Sonnet/Haiku, Deepseek v3.2, MiniMax M2.5.
-- Мультимодальный ввод (скриншоты, картинки как контекст).
-- Autonomous mode vs spec mode.
-
-**Поверхности**
-- IDE в браузере, совместимость с настройками/темами/Open VSX-расширениями VS Code.
-- CLI с headless-режимом для CI/CD, поддержка bash/zsh/fish и 500+ CLI.
-- Web с облачной песочницей, GitHub/GitLab интеграция, сессия живёт когда ты офлайн.
-- iOS.
-
-**Протоколы и интеграции**
-- MCP, ACP (Agent Client Protocol), AGENTS.md, Skills.md.
-- Figma, Postman, Datadog, Miro, Stripe, Supabase, ElevenLabs, Firebase, GitHub, GitLab, Terraform.
-
-**Enterprise**
-- IAM/SSO, дашборды расхода и cost management, IP indemnity, governance.
-- Кредитная модель без дневных/недельных лимитов.
-
----
-
-## 3. T3 Code — полный функционал
-
-Прямой конкурент Chat Hub, из него ты и брал идеи. Open source (MIT), 14k+ звёзд.
-
-**Ядро**
-- «Control plane» над локальными CLI-харнессами: Claude Code, Codex, Cursor, Grok Build, OpenCode.
-- Свои подписки, ничего не перепродаётся.
-- Строго типизированный TS-монорепо, форкается и селф-хостится.
-
-**Поверхности**
-- Desktop (Electron): macOS, Windows, Linux.
-- Mobile: iOS и Android — управление агентами с телефона.
-- Web-приложение.
-- Вход одной командой: `npx t3@latest`.
-- Linux background service.
-
-**Треды и модели**
-- Много тредов агентов в одном воркспейсе.
-- Смена модели и агента **посередине треда**.
-- Мультиаккаунт на провайдера.
-- Переключение проектов и длинных тредов мгновенное, параллельные агенты не роняют UI.
-
-**Git-флоу (сильнейшая часть)**
-- Каждый тред агента пишет в свою ветку автоматически.
-- Одна кнопка: commit → push → PR.
-- Авто-генерация заголовка PR, тела и changelog.
-- Inline-дифф ревью до пуша.
-- Draft PR, stacked PR, amend PR прямо из GUI.
-- Работает на существующей GitHub-авторизации.
-
-**Прочее**
-- MCP.
-- Переназначаемые кейбинды.
-- Режимы разрешений.
-
----
-
-## 3b. ADHDev — третий ориентир (github.com/vilmire/adhdev, AGPL-3.0)
-
-Не конкурент чат-шеллу, а **control plane**: демон + веб-дашборд, который цепляется к уже
-установленным агентам, а не заменяет их. Ближе всего к твоей паре Hub + остров.
-
-- Демон + дашборд на `localhost:3847`: чат, терминал, скриншоты, аппрувы.
-- **Repo Mesh** — pull-based очередь задач по машинам: `queued → idle-нода забрала → воркер в своём
-  git worktree → completed/failed`, append-only ledger.
-- **Refinery** — сведение параллельной работы в `main`: гейты валидации, проверка
-  patch-equivalence, merge с учётом сабмодулей, ff-only, никаких force-push. Тесты самого репо
-  решают, вливать или нет.
-- **MAGI** — несколько независимых агентов на одну задачу, потом сверка расхождений и пометка
-  того, что надо проверить руками.
-- 30+ агентов через четыре типа провайдеров: CLI (Claude Code, Cursor, Antigravity), IDE через
-  Chrome DevTools Protocol, IDE-расширения (Cline, Roo Code), ACP.
-- Пуш-аппрувы на телефон в один тап. Скриншот вставляется в чат и попадает в контекст агента на
-  той машине, где он крутится.
-- Standalone полностью локальный: без аккаунта и телеметрии. Cloud — мульти-машинность, P2P,
-  пуши, REST.
-- `npm i -g adhdev && adhdev standalone`, Node 22.
-
-**Для чего оно подходит нам**
-
-1. **Как эталон worktree-диспатча.** Их `queued → claimed → worktree → merge-gate` — ровно то,
-   чего не хватает нашему P1/P3. Логику гейта (тесты репо решают) можно взять целиком, не трогая
-   мешовую часть про несколько машин.
-2. **Как готовый удалённый доступ вместо своей мобилки.** Наш P4 «локальный HTTP/WS + PWA» у них
-   уже написан. Дешевле подглядеть архитектуру демона, чем изобретать.
-3. **Пуш-аппрувы на телефон** закрывают тот же сценарий, что наш остров, но когда ты не за маком.
-   Остров и пуш дополняют друг друга — это не или/или.
-4. **MAGI как паттерн для верификации.** Дёшево ложится на наши параллельные сессии: одна задача,
-   два провайдера, сравнение выводов.
-5. **Чего у них нет, а у нас есть:** нативный mac-UI и menubar-остров, честный статус из event
-   bus с watchdog, sealed keys, встроенный браузер-сурфейс. Слияние на уровне идей, не кода.
-
-**Осторожно с лицензией.** AGPL-3.0. Читать и вдохновляться можно, копировать код в Chat Hub —
-только если весь Chat Hub готов стать AGPL. Для дистрибутива десктоп-приложения это, скорее всего,
-не то, что ты хочешь.
-
----
-
-## 3c. Panes (panesade.com, github.com/wygoralves/panes) — прямой аналог по позиционированию
-
-Ближайший конкурент из всех трёх: тоже нативный mac-кокпит для агентных CLI, а не веб-чат. Free, open source.
-
-- Мульти-CLI хаб: Codex, Claude, OpenCode, Antigravity CLI, Factory Droid и другие в нативных чат/терминал-панах внутри одного воркспейса.
-- Единый воркбенч: чат + терминалы + git + поиск + worktrees вместе, репозиторий — центр экрана, а не сайдбар.
-- Полный аудит-трейл действий агента: прочитанные файлы, выполненные команды, вывод терминала — всё ревьюится как дифф перед коммитом.
-- Гейт на аппрув чувствительных команд; stage/commit не выходя из тред-вью.
-- Несколько агентов работают одновременно в разных git worktree параллельно.
-- Идея, которой у нас нет: сессии агентов как первоклассные, ревьюабельные «треды» привязанные к конкретному worktree — контрольная вышка для жонглирования несколькими агентами, а не единое окно чата.
-
-**Для нас:** ближе всего к нашей связке Hub+остров, но без части, которую мы уже сделали (menubar, watchdog, sealed keys). Их сильная сторона — worktree-per-thread с ревью-трейлом, это то же самое, что просится в P1 (ветка на сессию → worktree) и P1 дифф-гейт до пуша. Стоит взять паттерн «один тред = один worktree, весь аудит-трейл виден как дифф» как референс при реализации.
-
----
-
-## 4. Матрица
-
-| Возможность | Chat Hub | T3 Code | Kiro |
-|---|---|---|---|
-| Мульти-CLI адаптеры | ✅ 4 | ✅ 5 (+Cursor) | своя модель |
-| Мультиаккаунт на провайдера | ✅ shadow-home | ✅ | ✅ SSO |
-| Смена модели в середине треда | 🟡 чип есть, resume-семантика не проверена | ✅ | ✅ auto-выбор |
-| Честный статус / watchdog | ✅ сильнее обоих | 🟡 | 🟡 |
-| Токены и стоимость | ✅ | 🟡 | ✅ дашборд |
-| Очередь сообщений в turn'е | ✅ | ❌ | ❌ |
-| Ветка на тред | ❌ | ✅ | 🟡 |
-| Commit→push→PR одной кнопкой | ❌ (только commit) | ✅ | ✅ |
-| Авто-заголовок/тело PR | ❌ | ✅ | ✅ |
-| Draft / stacked / amend PR | ❌ | ✅ | 🟡 |
-| Worktrees | ❌ | ✅ | ✅ |
-| Inline-дифф до пуша | 🟡 Diff-сурфейс есть, до-пуш-гейта нет | ✅ | ✅ |
-| Терминал внутри | ✅ | 🟡 | ✅ |
-| Файловый браузер | ✅ | 🟡 | ✅ |
-| Встроенный браузер | ✅ | ❌ | ✅ preview |
-| Board / задачи | ✅ (сырой) | ❌ | ✅ specs+tasks |
-| Spec-driven (req→design→tasks) | ❌ | ❌ | ✅ |
-| Параллельные волны задач | ❌ | ❌ | ✅ |
-| Субагенты | ❌ | ❌ | ✅ |
-| Хуки на события | ❌ | ❌ | ✅ 9 триггеров |
-| Steering / AGENTS.md / Skills | ❌ | 🟡 | ✅ |
-| MCP-менеджер | ❌ | ✅ | ✅ |
-| Мультимодальный ввод | 🟡 attach путей | 🟡 | ✅ |
-| In-app Allow/Deny | ✅ прокинуто (`App.tsx:938` → `ChatView.tsx:479,486`) | ✅ | ✅ |
-| Mobile | ❌ | ✅ iOS+Android | ✅ iOS |
-| Windows / Linux | ❌ | ✅ | ✅ |
-| Подписанный билд | ❌ | ✅ | ✅ |
-| Menubar/остров с аппрувами | ✅ уникально | ❌ | ❌ |
-| Headless / CI | ❌ | ❌ | ✅ |
-
-**Где ты уже сильнее обоих:** честный статус из event bus, watchdog, очередь сообщений, sealed keys, единый permission-сокет с зеркалом в menubar-остров, встроенный браузер как сурфейс.
-
-**Где отстаёшь болезненно:** git-флоу (ветка на тред → PR), worktrees, отсутствие MCP, отсутствие планирования задач уровня spec.
-
-**В работе прямо сейчас (2026-08-04, две параллельные ветки, не дублировать):**
-- Основная сессия в `chat-hub/` (main): worktree-per-session → разведение двух `touchedFiles` → History-панель (коммиты→дифф) → run-spec/журнал прогона.
-- Отдельный worktree `agent-desktop-suite-worktrees/chat-hub-panes-features` (ветка `feature/panes-hooks-audit`, задачи расписаны в `TASKS-FOR-GROK.md` этого worktree, исполнитель — Grok): хуки на события (`.chathub/hooks/*.json`, индикатор `[hooks: N]` в терминал-сурфейсе) + pre-commit audit-trail (дифф + трейл действий агента рядом в `DiffSurface.tsx`). Идеи — из Panes и Kiro, см. разделы 2 и 3c выше.
-
----
-
-## 5. Чеклист доделок
-
-### P0 — долги, без которых «круто» не считается
-
-- [ ] **Прокинуть `resolvePermission` в `ChatView`.** Всё написано, не хватает одного пропа. Сегодня аппрув требует ухода в остров. `src/renderer/src/App.tsx` → `ChatView.tsx`.
-- [ ] **Подписать билд.** `electron-builder.yml` → `identity: null`. Скопировать ad-hoc `codesign --force --deep --sign -` из `session-monitor/packaging/install-app.sh`.
-- [ ] **`requestSingleInstanceLock()`** в `src/main/index.ts`. Второй запуск сейчас уводит permission-сокет.
-- [ ] **Архив транскрипта.** Снять хардкап 200 сообщений: писать хвост в отдельный файл, ленивая подгрузка вверх по скроллу. `session-manager.ts` → `appendMessage()`.
-- [ ] **Решить судьбу `waiting_input`.** Дать смысл (Ask-mode turn ждёт ответа) или убрать фильтр «Wait».
-- [ ] **Board: стабильные id + per-item merge.** Гонка записи агент↔UI сейчас теряет правки. `src/main/surfaces/board.ts:31,47,69-75`.
-- [ ] **Живой прогон grok** и записанный фикстур стрима.
-- [ ] **`testProvider` перевести с `codex exec --full-auto`** на то, что делает `buildCodexArgs`.
-
-### P1 — паритет с T3 Code (git-флоу, это главное отставание)
-
-- [ ] **Ветка на сессию.** При создании сессии — опционально `chathub/<slug>` от текущей ветки. Поле `branch` в `SessionMeta`, показ в сайдбаре и хедере.
-- [ ] **Worktrees.** Сессия = отдельный worktree в `~/.chathub/worktrees/<project>/<session>`. Убирает конфликт параллельных агентов в одном репо. Требует UI очистки мёртвых worktree.
-- [ ] **Кнопка Push.** `git push -u origin <branch>` с прогрессом и обработкой ошибок аутентификации.
-- [ ] **Create PR через `gh`.** Детект `gh`, `gh pr create`. Draft-чекбокс, выбор base-ветки.
-- [ ] **Авто-заголовок и тело PR.** Отдельный дешёвый turn (Haiku) по диффу и транскрипту сессии, с возможностью отредактировать перед отправкой.
-- [ ] **Amend и stacked PR.** Amend последнего коммита, PR с base = ветка другой сессии.
-- [ ] **Дифф-гейт до пуша.** Diff-сурфейс уже есть, добавить режим «review before push» со списком файлов и per-hunk одобрением.
-- [ ] **Смена модели/провайдера в середине треда.** Сейчас чип есть, но что происходит с `agentSessionId` при смене — не определено. Решить: новый resume-контекст или переinject истории.
-- [ ] **Переназначаемые кейбинды.** Сегодня карта захардкожена в `App.tsx`, `ShortcutsOverlay` её просто перечисляет.
-- [ ] **Архив сессий в `SessionMeta`,** а не в `localStorage`.
-
-### P2 — MCP и контекст (общее у Kiro и T3)
-
-- [ ] **MCP-менеджер.** Список серверов, вкл/выкл на проект, статус подключения, лог. Прокидывать в CLI: `claude mcp`, конфиг codex, `opencode.json`.
-- [ ] **Секреты MCP-серверов** через тот же `safeStorage`-путь, что и API-ключи.
-- [ ] **`AGENTS.md` / `CLAUDE.md` редактор.** Панель с project-инструкциями, показ, что реально уедет в промпт.
-- [ ] **Skills/команды.** Список доступных скиллов и слэш-команд проекта, вставка в композер.
-- [ ] **Мультимодальный ввод.** Drag-drop скриншота, paste из буфера. Для claude/codex — во временный файл + `@path`, у них это работает.
-
-#### UX-заметка: изображения и их превью (2026-08-04)
-
-Пользователю нравится подача изображений в T3 Code на последнем присланном скриншоте: **карточная
-галерея с читаемыми миниатюрами**, а не только файловые «пилюли». В Chat Hub уже работают
-paste/drag-drop, миниатюра в композере и fullscreen lightbox, но текущая миниатюра — 26×26 px и
-теряет смысл картинки. Отдельная задача UI:
-
-- [ ] Сделать сетку attachment-карточек 96–140 px с `object-fit: cover`, именем/размером и явной кнопкой удаления.
-- [ ] Открывать модальное превью с исходным соотношением сторон, масштабированием и навигацией между несколькими изображениями.
-- [ ] После отправки показывать те же карточки внутри user-message, чтобы в истории оставался визуальный контекст задачи.
-- [ ] Добавить состояния loading/error и не помещать base64-копии изображений в `state.json`.
-
-### P3 — фичи из Kiro, которые дают отрыв
-
-- [ ] **Spec-режим поверх Board.** Из промпта генерить `requirements` / `design` / `tasks` в `.chathub/specs/<slug>/`, tasks линковать в существующий Board. Это соединяет то, что у тебя уже наполовину есть.
-- [ ] **Волны задач.** Граф зависимостей между todo, «Run all» гоняет независимые параллельно в отдельных сессиях (и, с worktrees, без конфликтов). Прямое продолжение P1-worktrees.
-- [ ] **Хуки.** `.chathub/hooks/*.json`: триггер (`SessionStart`, `TurnDone`, `FileSave`, `PreToolUse`) + матчер + действие (промпт или shell). У тебя уже есть точка входа `session-manager.ts:824` `onStreamDone`.
-- [ ] **Экстрактор интентов в Board** (T4/T5 из HANDOFF-board.md) — фоновый Haiku/Ollama после turn'а, авто-добавление задач с undo.
-- [ ] **Интеграции трекеров** (T6): ClickUp / Asana / GitHub Issues / Projects через один `TrackerProvider`.
-- [ ] **Auto-выбор модели** по сложности промпта — дешёвая эвристика (длина, ключевые слова, размер диффа) плюс ручной override.
-- [ ] **Дашборд расхода.** Данные уже собираются (`usage.ts`), не хватает экрана: по дням, по проектам, по провайдерам.
-- [ ] **Кастомные субагенты.** Именованные пресеты (провайдер + модель + permission + системный промпт), запуск нескольких по одной задаче.
-
-### P4 — платформа
-
-- [ ] **Windows и Linux сборки.** Основное препятствие — macOS-специфика в packaging и мост в остров, который Mac-only.
-- [ ] **Headless-режим.** `chat-hub run --spec X` для CI, переиспользуя адаптеры.
-- [ ] **Удалённый доступ.** Локальный HTTP/WS-сервер + PWA — дешёвый способ получить «мобилку» T3 Code без нативных приложений.
-- [ ] **Автообновление** (electron-updater) — после подписи из P0.
-
----
-
-## 6. Порядок, который я бы взял
-
-1. P0 целиком — это неделя, и без неё приложение не «крутое», а бета.
-2. Ветка на сессию → worktree → push → PR через `gh` → авто-описание PR. Это то, за что T3 Code любят, и у тебя половина инфраструктуры (`src/main/git.ts`) уже есть.
-3. MCP-менеджер — самая заметная дыра относительно обоих конкурентов.
-4. Spec-режим поверх Board + волны задач на worktrees. Здесь ты обгоняешь T3 Code, а не догоняешь.
-
-**Не проверено:** пост на Reddit (r/brdev, «open-source альтернатива Codex app») — reddit.com заблокирован политикой сети для всех доступных инструментов (fetch, browser, curl, reader-прокси). Если важно — пришли текст поста или скриншот, разберу отдельно.
-
-**Источники:** [kiro.dev](https://kiro.dev/), [Kiro docs](https://kiro.dev/docs/), [t3.codes](https://t3.codes/), [pingdotgg/t3code](https://github.com/pingdotgg/t3code), [Better Stack: T3 Code](https://betterstack.com/community/guides/ai/t3-code/), [panesade.com](https://panesade.com/), [github.com/wygoralves/panes](https://github.com/wygoralves/panes).
+# Chat Hub vs Kiro, T3 Code и Panes — актуальная карта
+
+**Проверено:** 2026-08-04, `origin/main` `6d7861d`.
+
+Это reference-документ: галочка означает, что возможность уже есть в текущем коде и не должна
+попадать в backlog повторно. Локальная проверка текущего `main`: typecheck ✅, полный Vitest ✅
+(live-тесты провайдеров пропускаются без явного opt-in), production build ✅.
+
+## Что уже готово в Chat Hub
+
+### Агентное ядро
+
+- Claude Code, Grok Build, OpenCode и Codex через реальные CLI-адаптеры.
+- Live auth/version/model probes, shadow-home аккаунты, sealed API keys и binary overrides.
+- Codex app-server runtime: live model catalog, retired-model filtering и per-model reasoning
+  capabilities (Sol/Terra/Luna и доступные уровни effort приходят от runtime).
+- Очередь сообщений, watchdog, честный event-bus status, shutdown recovery и native resume.
+- Usage/cost на turn и сессию.
+- Structured tool/file/plan/review items, readable diffs и agent audit trail.
+
+### Поверхности и UX
+
+- Sidebar проектов/сессий, archive, transcript search, ⌘K switcher, first-run wizard.
+- Browser, Terminal, Files, Diff и Board surfaces.
+- Paste/drag-drop attachments, карточная gallery, lightbox, loading/error states и previews
+  внутри user messages.
+- In-app Allow/Deny с зеркалированием в Session Monitor island.
+- MCP manager с project scope и sealed server secrets.
+- Project hooks `.chathub/hooks/*.json` (shell/prompt, matching, timeout, enabled) и их статус
+  в terminal surface.
+
+### Git / Panes-style delivery
+
+- Опциональный branch/worktree на сессию: `chathub/<slug>-<id>` в
+  `~/.chathub/worktrees/<project>/…`.
+- При удалении сессии clean worktree удаляется; dirty worktree не уничтожается.
+- Source Control умеет repository picker, stage/unstage, per-file diff, branch switch и commit.
+- Push и Create PR через `gh`, draft flag, review gate до публикации.
+- PR body fallback строится из commits, diff-stat и working-tree status.
+- Worktree list показывает current/clean/dirty/stale, есть безопасный Remove и Prune.
+- Audit trail показывает команды, file changes, tool calls, web/image actions, ошибки и running
+  items рядом с Diff до commit/push.
+
+## Матрица текущего состояния
+
+| Возможность | Chat Hub сейчас | Комментарий |
+|---|---:|---|
+| Multi-CLI | ✅ | Claude, Grok, OpenCode, Codex |
+| Live model catalog | ✅ | Grok/OpenCode/Codex live; Claude aliases stable |
+| Reasoning levels | ✅ | Codex capabilities приходят от app-server |
+| Queue / watchdog / honest status | ✅ | Покрыто тестами |
+| Worktree-per-session | ✅ | Опционально в New Session |
+| Worktree cleanup | ✅ | Clean remove + stale prune |
+| Commit / Push / Create PR | ✅ | Source Control + `gh` |
+| Review before publish | ✅ | Whole-snapshot gate + agent trail |
+| Per-hunk approval | ❌ | Backlog |
+| Amend / stacked PR / base selection | ❌ | Backlog |
+| MCP manager | ✅ | Project scope + sealed env |
+| Hooks | ✅ | `.chathub/hooks` |
+| Board | ✅ | `.chathub/board.json`, per-item merge |
+| Spec-driven planning | ❌ | Backlog |
+| Parallel task waves | ❌ | Backlog |
+| Custom subagents | ❌ | Backlog |
+| AGENTS.md / CLAUDE.md editor | ❌ | Backlog |
+| Skills / slash commands | ❌ | Backlog |
+| Usage dashboard | ❌ | Backlog; raw usage already persisted |
+| Auto model routing | ❌ | Backlog |
+| Mobile / remote PWA | ❌ | Separate platform track |
+| Windows / Linux | ❌ | Separate platform track |
+
+## Backlog для агентов
+
+Задачи ниже намеренно не реализованы. Каждую брать в отдельный worktree и закрывать PR-ом с
+тестами, typecheck, полным Vitest и build.
+
+### P1 — Git
+
+- Amend последнего commit с confirmation после push.
+- Выбор PR base branch и stacked PR между session branches.
+- Per-hunk review decisions поверх текущего publish gate.
+- Опциональный AI-generated PR title/body; deterministic fallback оставить.
+- Guided export/backup dirty worktree перед ручным удалением.
+
+### P2 — Контекст
+
+- Редактор `AGENTS.md`/`CLAUDE.md` и preview того, что уйдёт в prompt.
+- Project skills/slash-command discovery и вставка в composer.
+- Перенос sidebar archive из localStorage в `SessionMeta`.
+
+### P3 — Kiro-подобная оркестрация
+
+- Spec mode: requirements → design → tasks, сохранение в `.chathub/specs/<slug>/` и линковка
+  с Board.
+- Dependency graph и task waves в независимых worktrees.
+- Named subagent presets и MAGI-подобное сравнение двух независимых прогонов.
+- Auto-routing по сложности с ручным override.
+- Usage dashboard по дням/проектам/провайдерам/моделям/effort.
+
+### P4 — Платформа
+
+- Auto-update для signed/notarized distribution.
+- Windows/Linux, headless CI и local HTTP/WS + PWA.
+
+## Как читать старые планы
+
+Старые roadmap-чеклисты могли помечать уже закрытые пункты (`resolvePermission`, signing,
+archive, worktrees, MCP, hooks, attachments) как незавершённые. Источником истины теперь являются
+этот файл и [roadmap-v2.md](./roadmap-v2.md), проверенные относительно `origin/main`.
+
+## Источники сравнения
+
+[Kiro](https://kiro.dev/), [T3 Code](https://t3.codes/), [T3 Code GitHub](https://github.com/pingdotgg/t3code),
+[Panes](https://panesade.com/), [Panes GitHub](https://github.com/wygoralves/panes),
+[ADHDev](https://github.com/vilmire/adhdev).
