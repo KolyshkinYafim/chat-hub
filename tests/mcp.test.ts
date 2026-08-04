@@ -20,11 +20,14 @@ vi.mock("electron", () => ({
 }))
 
 const {
+  appendMcpPathsToGitignore,
   buildCodexBlock,
+  listUnignoredMcpNativeFiles,
   materializeClaude,
   materializeCodex,
   materializeMcpForProject,
   materializeOpenCode,
+  normalizeGitignoreRequests,
   readMcpConfig,
   removeMcpServer,
   replaceMarkerBlock,
@@ -242,7 +245,129 @@ describe("materialize", () => {
     }
     expect(raw.mcpServers.x).toBeUndefined()
   })
+
+  it("removes stale native entries after deleting a managed server", async () => {
+    const cwd = await tmpProject()
+    await upsertMcpServer(
+      cwd,
+      stdio({ id: "gone", name: "gone", command: "true" }),
+    )
+    await materializeMcpForProject(cwd, () => ({}))
+
+    await removeMcpServer(cwd, "gone")
+    await materializeMcpForProject(cwd, () => ({}), ["gone"])
+
+    const claude = JSON.parse(await readFile(join(cwd, ".mcp.json"), "utf8")) as {
+      mcpServers: Record<string, unknown>
+    }
+    const opencode = JSON.parse(
+      await readFile(join(cwd, "opencode.json"), "utf8"),
+    ) as { mcp: Record<string, unknown> }
+    const codex = await readFile(join(cwd, ".codex", "config.toml"), "utf8")
+    expect(claude.mcpServers.gone).toBeUndefined()
+    expect(opencode.mcp.gone).toBeUndefined()
+    expect(codex).not.toContain("mcp_servers.gone")
+  })
+
+  it("replaces the old native name when a managed server is renamed", async () => {
+    const cwd = await tmpProject()
+    await upsertMcpServer(
+      cwd,
+      stdio({ id: "stable", name: "before", command: "true" }),
+    )
+    await materializeMcpForProject(cwd, () => ({}))
+
+    await upsertMcpServer(
+      cwd,
+      stdio({ id: "stable", name: "after", command: "true" }),
+    )
+    await materializeMcpForProject(cwd, () => ({}), ["before"])
+
+    const claude = JSON.parse(await readFile(join(cwd, ".mcp.json"), "utf8")) as {
+      mcpServers: Record<string, unknown>
+    }
+    const opencode = JSON.parse(
+      await readFile(join(cwd, "opencode.json"), "utf8"),
+    ) as { mcp: Record<string, unknown> }
+    const codex = await readFile(join(cwd, ".codex", "config.toml"), "utf8")
+    expect(claude.mcpServers.before).toBeUndefined()
+    expect(claude.mcpServers.after).toBeDefined()
+    expect(opencode.mcp.before).toBeUndefined()
+    expect(opencode.mcp.after).toBeDefined()
+    expect(codex).not.toContain("mcp_servers.before")
+    expect(codex).toContain("mcp_servers.after")
+  })
 })
+
+describe("gitignore warning helpers", () => {
+  it("normalizeGitignoreRequests only keeps known native paths", () => {
+    expect(
+      normalizeGitignoreRequests([
+        ".mcp.json",
+        "opencode.json",
+        "../evil",
+        ".env",
+        ".mcp.json",
+      ]),
+    ).toEqual([".mcp.json", "opencode.json"])
+  })
+
+  it("materialize does not write .gitignore on its own", async () => {
+    const cwd = await tmpProject()
+    await execGit(cwd, ["init"])
+    await upsertMcpServer(cwd, stdio({ id: "x", name: "x", command: "true" }))
+    const res = await materializeMcpForProject(cwd, () => ({}))
+    expect(res.ok).toBe(true)
+    await expect(readFile(join(cwd, ".gitignore"), "utf8")).rejects.toThrow()
+    expect(res.unignoredNative).toContain(".mcp.json")
+  })
+
+  it("lists unignored natives and stops warning after append", async () => {
+    const cwd = await tmpProject()
+    await execGit(cwd, ["init"])
+    await upsertMcpServer(cwd, stdio({ id: "x", name: "x", command: "true" }))
+    await materializeMcpForProject(cwd, () => ({}))
+
+    expect(await listUnignoredMcpNativeFiles(cwd)).toContain(".mcp.json")
+
+    const add = await appendMcpPathsToGitignore(cwd, [".mcp.json", "opencode.json"])
+    expect(add.ok).toBe(true)
+    expect(add.added).toEqual([".mcp.json", "opencode.json"])
+    const gi = await readFile(join(cwd, ".gitignore"), "utf8")
+    expect(gi).toContain(".mcp.json")
+    expect(gi).toContain("opencode.json")
+
+    // Idempotent second call.
+    const again = await appendMcpPathsToGitignore(cwd, [".mcp.json"])
+    expect(again.added).toEqual([])
+
+    expect(await listUnignoredMcpNativeFiles(cwd)).not.toContain(".mcp.json")
+  })
+
+  it("does not invent unignored when paths are already ignored", async () => {
+    const cwd = await tmpProject()
+    await execGit(cwd, ["init"])
+    await writeFile(join(cwd, ".gitignore"), ".mcp.json\nopencode.json\n")
+    await upsertMcpServer(cwd, stdio({ id: "x", name: "x", command: "true" }))
+    const res = await materializeMcpForProject(cwd, () => ({}))
+    expect(res.unignoredNative).toBeUndefined()
+  })
+})
+
+async function execGit(cwd: string, args: string[]): Promise<void> {
+  const { execFile } = await import("node:child_process")
+  const { promisify } = await import("node:util")
+  const run = promisify(execFile)
+  await run("git", ["-C", cwd, ...args], {
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: "test",
+      GIT_AUTHOR_EMAIL: "t@t",
+      GIT_COMMITTER_NAME: "test",
+      GIT_COMMITTER_EMAIL: "t@t",
+    },
+  })
+}
 
 describe("secrets", () => {
   it("seals env in settings, never writes secrets into .chathub/mcp.json, expands on materialize", async () => {
@@ -283,5 +408,25 @@ describe("secrets", () => {
     // empty string deletes
     await settings.setMcpServerEnv("gh", { GITHUB_TOKEN: "" })
     expect(settings.getMcpEnvKeys("gh")).toEqual([])
+  })
+
+  it("removes every sealed env value for a deleted server", async () => {
+    const cwd = await tmpProject()
+    const settingsPath = join(cwd, "settings.json")
+    const settings = new SettingsStore(settingsPath)
+    await settings.load()
+    await settings.setMcpServerEnv("gone", {
+      TOKEN_A: "dummy-a",
+      TOKEN_B: "dummy-b",
+    })
+
+    await settings.removeMcpServerEnv("gone")
+
+    expect(settings.getMcpEnvKeys("gone")).toEqual([])
+    const settingsRaw = await readFile(settingsPath, "utf8")
+    expect(settingsRaw).not.toContain("TOKEN_A")
+    expect(settingsRaw).not.toContain("TOKEN_B")
+    expect(settingsRaw).not.toContain("dummy-a")
+    expect(settingsRaw).not.toContain("dummy-b")
   })
 })

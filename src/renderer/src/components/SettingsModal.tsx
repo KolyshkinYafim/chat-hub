@@ -213,6 +213,10 @@ export function SettingsModal({
   const [mcpEnvKeys, setMcpEnvKeys] = useState<Record<string, string[]>>({})
   const [mcpBusy, setMcpBusy] = useState(false)
   const [mcpNotice, setMcpNotice] = useState<string | null>(null)
+  /** One-shot after materialize: native files exist but are not gitignored. */
+  const [mcpGitignoreWarn, setMcpGitignoreWarn] = useState<string[] | null>(
+    null,
+  )
   const [mcpForm, setMcpForm] = useState<McpFormState | null>(null)
 
   const refreshMcp = useCallback(async () => {
@@ -483,6 +487,7 @@ export function SettingsModal({
     if (!projectCwd) return
     setMcpBusy(true)
     setMcpNotice(null)
+    setMcpGitignoreWarn(null)
     setError(null)
     try {
       const res = await window.chatHub.mcpMaterialize(projectCwd)
@@ -492,7 +497,33 @@ export function SettingsModal({
           ? `Applied to CLIs · ${res.written.map((p) => p.split("/").pop()).join(", ")}`
           : "Nothing to write",
       )
+      if (res.unignoredNative && res.unignoredNative.length > 0) {
+        setMcpGitignoreWarn(res.unignoredNative)
+      }
       await refreshMcp()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setMcpBusy(false)
+    }
+  }
+
+  async function addMcpToGitignore() {
+    if (!projectCwd || !mcpGitignoreWarn?.length) return
+    setMcpBusy(true)
+    setError(null)
+    try {
+      const res = await window.chatHub.mcpAddGitignore(
+        projectCwd,
+        mcpGitignoreWarn,
+      )
+      if (!res.ok) throw new Error(res.error || "gitignore update failed")
+      setMcpGitignoreWarn(null)
+      setMcpNotice(
+        res.added.length
+          ? `Added to .gitignore · ${res.added.join(", ")}`
+          : "Already listed in .gitignore",
+      )
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -1297,6 +1328,34 @@ export function SettingsModal({
                     <div className="path-status">
                       <span className="auth-dot ok" />
                       {mcpNotice}
+                    </div>
+                  ) : null}
+                  {mcpGitignoreWarn && mcpGitignoreWarn.length > 0 ? (
+                    <div className="mcp-gitignore-warn" role="status">
+                      <div className="row-desc">
+                        <strong>{mcpGitignoreWarn.join(", ")}</strong> may
+                        contain secrets and is not in this project&apos;s{" "}
+                        <code>.gitignore</code>. Chat Hub will not change git
+                        ignore rules unless you ask.
+                      </div>
+                      <div className="provider-card-actions">
+                        <button
+                          type="button"
+                          className="tb-btn primary"
+                          disabled={mcpBusy}
+                          onClick={() => void addMcpToGitignore()}
+                        >
+                          Add to .gitignore
+                        </button>
+                        <button
+                          type="button"
+                          className="tb-btn"
+                          disabled={mcpBusy}
+                          onClick={() => setMcpGitignoreWarn(null)}
+                        >
+                          Dismiss
+                        </button>
+                      </div>
                     </div>
                   ) : null}
                 </div>
