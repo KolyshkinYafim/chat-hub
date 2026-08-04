@@ -1,6 +1,13 @@
 import { findBinary, isExecutable } from "./binary"
 import { buildGrokArgs } from "./args"
+import {
+  appendInteractiveInputInstruction,
+  formatInteractiveAnswer,
+  InteractiveQuestionStream,
+  type InteractiveQuestion,
+} from "./interactive-input"
 import { runProcess, type RunningProcess } from "./process-runner"
+import { randomUUID } from "node:crypto"
 import {
   beginAssistant,
   extractTextFromContent,
@@ -39,6 +46,7 @@ export class GrokAdapter implements AgentAdapter {
       grokSession?: string
       binaryPath?: string
       proc?: RunningProcess
+      waitingForInput?: boolean
       /** Set by abort() so the dying turn hands the session to the next send. */
       aborting?: boolean
     }
@@ -113,6 +121,7 @@ export class GrokAdapter implements AgentAdapter {
       cwd: state.cwd,
       permissionMode: mode,
       model: opts?.model,
+      systemPrompt: appendInteractiveInputInstruction(opts?.systemPrompt),
       attachments: opts?.attachments,
       resumeId: state.grokSession,
     })
@@ -128,6 +137,14 @@ export class GrokAdapter implements AgentAdapter {
     const snapshot = newSnapshot()
     const stderr: string[] = []
     let sawThought = false
+    const questionStream = new InteractiveQuestionStream()
+    let continuation: Promise<void> | null = null
+    const pushAssistantText = (text: string) => {
+      const visible = questionStream.push(text)
+      if (!visible) return
+      if (!turn) turn = beginAssistant(sessionId, cb)
+      pushDelta(turn, sessionId, visible, cb)
+    }
 
     const proc = runProcess({
       command: bin,
@@ -138,8 +155,7 @@ export class GrokAdapter implements AgentAdapter {
         const ev = safeJson(line)
         if (!ev) {
           if (line.trim()) {
-            if (!turn) turn = beginAssistant(sessionId, cb)
-            pushDelta(turn, sessionId, line + "\n", cb)
+            pushAssistantText(line + "\n")
           }
           return
         }
@@ -187,8 +203,7 @@ export class GrokAdapter implements AgentAdapter {
         const delta = extractGrokText(ev, type)
 
         if (delta) {
-          if (!turn) turn = beginAssistant(sessionId, cb)
-          pushDelta(turn, sessionId, delta, cb)
+          pushAssistantText(delta)
           // Grok streams deltas AND repeats the finished message: the snapshot
           // has to know what the deltas already put on screen.
           noteSnapshotDelta(snapshot, delta)
@@ -215,7 +230,7 @@ export class GrokAdapter implements AgentAdapter {
             // longer at a meaningless offset.
             const msgId = typeof msg.id === "string" ? msg.id : undefined
             const extra = snapshotDelta(snapshot, msgId, text)
-            if (extra) pushDelta(turn, sessionId, extra, cb)
+            if (extra) pushAssistantText(extra)
           }
           const touched = extractTouchedFiles(msg.content)
           if (touched.length) {
@@ -234,6 +249,11 @@ export class GrokAdapter implements AgentAdapter {
         stderr.push(err.message)
       },
       onExit: (code) => {
+        const completedQuestion = questionStream.finish()
+        if (completedQuestion.visible) {
+          if (!turn) turn = beginAssistant(sessionId, cb)
+          pushDelta(turn, sessionId, completedQuestion.visible, cb)
+        }
         const messageId = turn?.messageId
         if (sawThought && turn) {
           cb.onTurnItem(sessionId, turn.messageId, {
@@ -263,6 +283,14 @@ export class GrokAdapter implements AgentAdapter {
             id: sessionId,
             reason: "done",
           })
+          if (completedQuestion.question && cb.onUserInputRequest) {
+            continuation = this.continueAfterQuestion(
+              sessionId,
+              completedQuestion.question,
+              cb,
+              opts,
+            )
+          }
         } else if (code === null) {
           cb.onSessionEvent({
             type: "session.status",
@@ -292,18 +320,50 @@ export class GrokAdapter implements AgentAdapter {
 
     state.proc = proc
     await proc.done
+    if (continuation) await continuation
   }
 
   async abort(sessionId: string): Promise<void> {
     const state = this.sessions.get(sessionId)
-    if (!state?.proc) return
+    if (!state) return
     state.aborting = true
-    state.proc.abort()
+    state.proc?.abort()
   }
 
   async dispose(sessionId: string): Promise<void> {
     await this.abort(sessionId)
     this.sessions.delete(sessionId)
+  }
+
+  private async continueAfterQuestion(
+    sessionId: string,
+    question: InteractiveQuestion,
+    cb: AdapterCallbacks,
+    opts: AdapterSendOpts | undefined,
+  ): Promise<void> {
+    const state = this.sessions.get(sessionId)
+    if (!state || !cb.onUserInputRequest) return
+    state.waitingForInput = true
+    const answers = await cb.onUserInputRequest({
+      requestId: `grok-input-${randomUUID()}`,
+      sessionId,
+      source: "grok",
+      questions: question.questions,
+    })
+    state.waitingForInput = false
+    if (state.aborting) {
+      state.aborting = false
+      return
+    }
+    const message = formatInteractiveAnswer(question, answers)
+    cb.onMessage({
+      id: randomUUID(),
+      sessionId,
+      role: "user",
+      content: message,
+      createdAt: Date.now(),
+    })
+    await this.send(sessionId, message, cb, { ...opts, attachments: undefined })
   }
 }
 

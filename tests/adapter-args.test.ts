@@ -128,6 +128,12 @@ describe("buildGrokArgs", () => {
       flag(buildGrokArgs({ ...base, effort: "high" }), "--reasoning-effort"),
     ).toBe("high")
   })
+
+  it("uses Grok Build's rules flag for Hub instructions", () => {
+    const args = buildGrokArgs({ ...base, systemPrompt: "Ask before deploying." })
+    expect(flag(args, "--rules")).toBe("Ask before deploying.")
+    expect(args[1]).toBe("refactor the parser")
+  })
 })
 
 describe("buildOpenCodeArgs", () => {

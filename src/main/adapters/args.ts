@@ -72,6 +72,7 @@ export function buildGrokArgs(o: ArgvOpts): string[] {
   ]
   if (o.model) args.push("--model", o.model)
   if (o.effort) args.push("--reasoning-effort", o.effort)
+  if (o.systemPrompt?.trim()) args.push("--rules", o.systemPrompt.trim())
   if (o.resumeId) args.push("--resume", o.resumeId)
   return args
 }
