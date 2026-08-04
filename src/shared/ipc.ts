@@ -61,6 +61,13 @@ export const IpcChannels = {
   termExit: "surface:term-exit",
   boardRead: "surface:board-read",
   boardWrite: "surface:board-write",
+  mcpList: "mcp:list",
+  mcpUpsert: "mcp:upsert",
+  mcpRemove: "mcp:remove",
+  mcpSetEnabled: "mcp:set-enabled",
+  mcpSetEnv: "mcp:set-env",
+  mcpMaterialize: "mcp:materialize",
+  mcpStatus: "mcp:status",
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]
