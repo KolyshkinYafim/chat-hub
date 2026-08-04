@@ -17,6 +17,7 @@ import type {
   ProviderStatus,
   SettingsSnapshot,
 } from "@shared/settings-types"
+import type { McpServerDef } from "@shared/mcp"
 import { encodeToolCardMeta, type ToolCardMeta } from "@shared/tool-card"
 import type {
   Board,
@@ -362,6 +363,19 @@ const terminalExitListeners = new Set<(exit: TerminalExit) => void>()
 const livePtys = new Map<string, (data: string) => void>()
 let ptySeq = 0
 
+let mockMcpServers: McpServerDef[] = [
+  {
+    id: "memory",
+    name: "memory",
+    enabled: true,
+    transport: "stdio",
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-memory"],
+    envKeys: [],
+  },
+]
+let mockMcpEnvKeys: Record<string, string[]> = {}
+
 let mockBoard: Board = {
   todos: [
     { id: "d1", text: "Wire the composer", done: true, createdAt: 1 },
@@ -540,6 +554,58 @@ export function installDevMock(): void {
     gitCheckout: async () => ({ ok: true, output: "Switched branch" }),
     gitCommitStaged: async () => ({ ok: true, output: "[main abc1234] 1 file changed" }),
     onHubEvent: () => () => {},
+    mcpList: async () => ({
+      config: { version: 1 as const, servers: mockMcpServers },
+      statuses: mockMcpServers.map((s) => ({
+        id: s.id,
+        name: s.name,
+        enabled: s.enabled,
+        transport: s.transport,
+        state: s.enabled ? ("ok" as const) : ("disabled" as const),
+        detail: s.enabled ? "mock" : "disabled",
+        checkedAt: Date.now(),
+      })),
+      envKeysByServer: mockMcpEnvKeys,
+    }),
+    mcpUpsert: async (_cwd, server) => {
+      const idx = mockMcpServers.findIndex((s) => s.id === server.id)
+      if (idx === -1) mockMcpServers.push(server)
+      else mockMcpServers[idx] = server
+      return api.mcpList!(".")
+    },
+    mcpRemove: async (_cwd, id) => {
+      mockMcpServers = mockMcpServers.filter((s) => s.id !== id)
+      delete mockMcpEnvKeys[id]
+      return api.mcpList!(".")
+    },
+    mcpSetEnabled: async (_cwd, id, enabled) => {
+      mockMcpServers = mockMcpServers.map((s) =>
+        s.id === id ? { ...s, enabled } : s,
+      )
+      return api.mcpList!(".")
+    },
+    mcpSetEnv: async (serverId, envPatch) => {
+      const keys = new Set(mockMcpEnvKeys[serverId] ?? [])
+      for (const [k, v] of Object.entries(envPatch)) {
+        if (v === "") keys.delete(k)
+        else keys.add(k)
+      }
+      mockMcpEnvKeys[serverId] = [...keys]
+      return mockMcpEnvKeys[serverId]
+    },
+    mcpMaterialize: async () => ({
+      ok: true,
+      written: [".mcp.json", ".codex/config.toml"],
+    }),
+    mcpStatus: async () =>
+      mockMcpServers.map((s) => ({
+        id: s.id,
+        name: s.name,
+        enabled: s.enabled,
+        transport: s.transport,
+        state: s.enabled ? ("ok" as const) : ("disabled" as const),
+        checkedAt: Date.now(),
+      })),
   }
   ;(window as unknown as { chatHub: ChatHubApi }).chatHub = {
     ...api,
