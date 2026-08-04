@@ -124,6 +124,9 @@ describe("buildGrokArgs", () => {
   it("runs in the session cwd and resumes when it has an id", () => {
     expect(flag(buildGrokArgs(base), "--cwd")).toBe("/Users/me/code/mary")
     expect(flag(buildGrokArgs({ ...base, resumeId: "g1" }), "--resume")).toBe("g1")
+    expect(
+      flag(buildGrokArgs({ ...base, effort: "high" }), "--reasoning-effort"),
+    ).toBe("high")
   })
 })
 
@@ -139,14 +142,21 @@ describe("buildOpenCodeArgs", () => {
     expect(flag(args, "--format")).toBe("json")
   })
 
-  it("auto-approves for yolo and acceptEdits, never for ask", () => {
-    expect(buildOpenCodeArgs(base)).toContain("--auto")
+  it("uses OpenCode 1.x's full bypass only for yolo", () => {
+    expect(buildOpenCodeArgs(base)).toContain("--dangerously-skip-permissions")
+    expect(buildOpenCodeArgs(base)).not.toContain("--auto")
     expect(
       buildOpenCodeArgs({ ...base, permissionMode: "acceptEdits" }),
-    ).toContain("--auto")
+    ).not.toContain("--dangerously-skip-permissions")
     expect(
       buildOpenCodeArgs({ ...base, permissionMode: "default" }),
-    ).not.toContain("--auto")
+    ).not.toContain("--dangerously-skip-permissions")
+  })
+
+  it("passes the selected effort as OpenCode's model variant", () => {
+    expect(flag(buildOpenCodeArgs({ ...base, effort: "high" }), "--variant")).toBe(
+      "high",
+    )
   })
 
   it("continues an existing opencode session", () => {

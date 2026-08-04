@@ -84,7 +84,7 @@ claude   -p <prompt> --output-format stream-json --verbose --include-partial-mes
 grok     --single <prompt> --output-format streaming-json --cwd <cwd>
          [--permission-mode …] [--always-approve] [--model M] [--resume ID]
 
-opencode run <prompt> --format json --dir <cwd> [--model M] [--file P …] [--session ID] [--auto]
+opencode run <prompt> --format json --dir <cwd> [--model M] [--file P …] [--session ID] [--dangerously-skip-permissions]
 
 codex    exec <prompt> --cd <cwd> --json --skip-git-repo-check [--model M]
          [--dangerously-bypass-approvals-and-sandbox | --sandbox workspace-write|read-only]
@@ -125,14 +125,13 @@ Item types are parsed from `item.completed` only (`item.started` would double ev
 ends with a full recorded turn: *"yields the thread id, both messages, one tool card and the
 usage"*.
 
-### Grok is unverified
+### Grok streaming protocol (verified 2026-08-04)
 
-Grok is installed at `~/.grok/bin/grok` but **not signed in** — `grok --single …` answers
-`{"type":"error","message":"Not signed in…"}`. Its stream event shape could not be checked
-against a real turn. The parser is deliberately liberal (delta from `ev.delta`, `ev.text` on
-any type containing `delta`/`stream`, snapshots from `assistant|message|response|result`),
-and the snapshot-dedupe fix applied to it is **defensive and unverified against live grok
-output**. Treat any grok transcript weirdness as an open question, not a regression.
+Grok Build 0.2.118 is signed in and was smoke-tested against a one-turn live request. Its
+`streaming-json` format emits user text as `{"type":"text","data":"…"}`, reasoning as
+`{"type":"thought","data":"…"}`, and turn totals in an `end` event. The adapter handles the
+text form and deliberately keeps thoughts out of the transcript. The live run returned `OK`
+and a valid session id/usage record.
 
 ---
 
