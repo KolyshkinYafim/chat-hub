@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import {
   claudePermissionArgs,
   grokPermissionArgs,
-  opencodeAutoApprove,
+  opencodeSkipPermissions,
   DEFAULT_PERMISSION_MODE,
   PERMISSION_LABELS,
   PERMISSION_HINTS,
@@ -51,10 +51,10 @@ describe("permission modes", () => {
     expect(grokPermissionArgs("default")).not.toContain("--always-approve")
   })
 
-  it("auto-approves OpenCode for yolo and acceptEdits, not for ask", () => {
-    expect(opencodeAutoApprove("yolo")).toBe(true)
-    expect(opencodeAutoApprove("acceptEdits")).toBe(true)
-    expect(opencodeAutoApprove("default")).toBe(false)
+  it("uses OpenCode's full permission bypass for YOLO only", () => {
+    expect(opencodeSkipPermissions("yolo")).toBe(true)
+    expect(opencodeSkipPermissions("acceptEdits")).toBe(false)
+    expect(opencodeSkipPermissions("default")).toBe(false)
   })
 })
 
