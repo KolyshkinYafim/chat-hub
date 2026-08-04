@@ -19,7 +19,18 @@ export type ToolCall = {
 
 export type ToolRunBlock = { kind: "tools"; calls: ToolCall[] }
 
-export type TranscriptBlock = Exclude<Block, { kind: "tool" }> | ToolRunBlock
+export type PlanBlock = {
+  kind: "plan"
+  name: string
+  key: string
+  title: string
+  meta: ToolCardMeta
+}
+
+export type TranscriptBlock =
+  | Exclude<Block, { kind: "tool" | "plan" }>
+  | ToolRunBlock
+  | PlanBlock
 
 export type ChangedFile = {
   path: string
@@ -64,6 +75,21 @@ function pairToolBlocks(blocks: Block[], scope: string): TranscriptBlock[] {
   }
 
   for (const block of blocks) {
+    if (block.kind === "plan") {
+      // Plan cards stand alone — do not fold into "Ran N commands".
+      run = null
+      lastCall = null
+      const key = cardKey(scope, block.meta.id, `plan${index++}`)
+      out.push({
+        kind: "plan",
+        name: block.name,
+        key,
+        title: describeCall(block.name, block.body, block.meta),
+        meta: block.meta,
+      })
+      continue
+    }
+
     if (block.kind === "tool" && !block.result) {
       const call = makeCall(block, index++, scope)
       calls.push(call)
@@ -197,8 +223,28 @@ export function describeCall(
   if (lower === "glob") return clamp(head.replace(/^glob: /, "Glob "))
   if (lower === "websearch") return clamp(`Search ${head.replace(/^pattern: /, "")}`)
   if (lower === "task") return clamp(`Task ${head}`)
+  if (meta.plan && meta.plan.length > 0) {
+    const active =
+      meta.plan.find((s) => s.status === "in_progress") ??
+      meta.plan.find((s) => s.status === "pending")
+    return clamp(active?.text ? `Planning: ${active.text}` : "Planning")
+  }
   if (!head || head === "(no args)") return clamp(name)
   return clamp(`${name} ${head}`)
+}
+
+/** Index of the current step (1-based) and total for "Step 2/5" labels. */
+export function planProgress(steps: { status: string }[]): {
+  current: number
+  total: number
+} {
+  const total = steps.length
+  if (total === 0) return { current: 0, total: 0 }
+  const running = steps.findIndex((s) => s.status === "in_progress")
+  if (running >= 0) return { current: running + 1, total }
+  const firstPending = steps.findIndex((s) => s.status === "pending")
+  if (firstPending >= 0) return { current: firstPending + 1, total }
+  return { current: total, total }
 }
 
 function delta(meta: ToolCardMeta): string {

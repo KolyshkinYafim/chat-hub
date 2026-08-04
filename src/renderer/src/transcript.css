@@ -426,3 +426,135 @@
   gap: 6px;
   font-size: 10.5px;
 }
+
+/* ——— Plan checklist (TodoWrite / update_plan) ——— */
+
+.plan-card {
+  margin: 0 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #12141a;
+  overflow: hidden;
+}
+
+.plan-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--text);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.plan-head:hover {
+  background: var(--bg-hover);
+}
+
+.plan-card.open > .plan-head {
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.plan-caret {
+  flex-shrink: 0;
+  width: 12px;
+  color: var(--text-muted);
+  font-size: 8px;
+  line-height: 1;
+}
+
+.plan-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 620;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-step-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.plan-kind {
+  flex-shrink: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+}
+
+.plan-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 10px 10px;
+}
+
+.plan-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 4px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.plan-step.status-completed {
+  color: var(--text-muted);
+}
+
+.plan-step.status-completed .plan-step-text {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--text-muted) 55%, transparent);
+}
+
+.plan-step.status-in_progress {
+  color: var(--text);
+  font-weight: 550;
+}
+
+.plan-mark {
+  flex: none;
+  width: 1.1em;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.plan-mark.done {
+  color: #3ecf8e;
+}
+
+.plan-mark.running {
+  color: var(--accent);
+}
+
+.plan-mark.pending {
+  color: var(--text-faint);
+}
+
+.plan-step-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.plan-empty {
+  margin: 0;
+  padding: 8px 12px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Nested under turn activity (Codex live plan item) */
+.activity-item .plan-card {
+  margin: 6px 0 0;
+  border-color: var(--border-soft);
+}
