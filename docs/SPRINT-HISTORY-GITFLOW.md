@@ -22,6 +22,9 @@ work recoverable and reviewable.
 - Push and PR actions require an explicit review confirmation after inspecting
   the current file list and diff. An empty PR body is filled from recent
   commits, the latest diff stat, and working-tree status.
+- Source Control lists all repository worktrees, marks dirty/stale entries, and
+  only removes clean managed checkouts; stale Git metadata can be pruned
+  explicitly.
 
 ## Verification
 
@@ -34,4 +37,4 @@ work recoverable and reviewable.
 
 ## Deliberate follow-ups
 
-- Worktree cleanup UI for sessions whose dirty worktree was preserved.
+- Add a guided export/backup flow for dirty worktrees before manual removal.

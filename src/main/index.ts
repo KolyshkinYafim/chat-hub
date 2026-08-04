@@ -22,6 +22,9 @@ import {
   gitCommitStaged,
   gitPush,
   gitCreatePr,
+  listSessionWorktrees,
+  pruneSessionWorktrees,
+  removeSessionWorktree,
   gitInit,
   findGitRepositories,
   listBranches,
@@ -522,6 +525,37 @@ function registerIpc(
       )
     },
   )
+  ipcMain.handle(IpcChannels.gitWorktrees, (_e, cwd: unknown) =>
+    listSessionWorktrees(gitCwd(cwd)),
+  )
+  ipcMain.handle(
+    IpcChannels.gitRemoveWorktree,
+    async (_e, repoCwd: unknown, worktreePath: unknown) => {
+      if (typeof worktreePath !== "string" || !worktreePath) {
+        throw new Error("Invalid worktree path")
+      }
+      try {
+        await removeSessionWorktree(gitCwd(repoCwd), worktreePath)
+        return { ok: true, output: "Worktree removed" }
+      } catch (err) {
+        return {
+          ok: false,
+          output: err instanceof Error ? err.message : String(err),
+        }
+      }
+    },
+  )
+  ipcMain.handle(IpcChannels.gitPruneWorktrees, async (_e, repoCwd: unknown) => {
+    try {
+      await pruneSessionWorktrees(gitCwd(repoCwd))
+      return { ok: true, output: "Stale worktree entries pruned" }
+    } catch (err) {
+      return {
+        ok: false,
+        output: err instanceof Error ? err.message : String(err),
+      }
+    }
+  })
 
   ipcMain.handle(IpcChannels.getSettings, async () => {
     const snap = settings.snapshot

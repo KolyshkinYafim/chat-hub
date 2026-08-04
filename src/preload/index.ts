@@ -6,6 +6,7 @@ import type {
   GitCheckoutInfo,
   GitWorkingCopy,
   GitRepository,
+  GitWorktreeInfo,
   HubEvent,
   MessageAttachment,
   PermissionRequestInfo,
@@ -108,8 +109,7 @@ const api = {
     ipcRenderer.invoke(IpcChannels.gitCommit, cwd, message),
   gitStatus: (cwd: string): Promise<GitWorkingCopy> =>
     ipcRenderer.invoke(IpcChannels.gitStatus, cwd),
-  gitRepositories: (cwd: string): Promise<GitRepository[]> =>
-    ipcRenderer.invoke(IpcChannels.gitRepositories, cwd),
+  gitRepositories: (cwd: string): Promise<GitRepository[]> => ipcRenderer.invoke(IpcChannels.gitRepositories, cwd),
   gitDiff: (
     cwd: string,
     path: string,
@@ -142,6 +142,15 @@ const api = {
     draft: boolean,
   ): Promise<{ ok: boolean; output: string }> =>
     ipcRenderer.invoke(IpcChannels.gitCreatePr, cwd, title, body, draft),
+  gitWorktrees: (cwd: string): Promise<GitWorktreeInfo[]> =>
+    ipcRenderer.invoke(IpcChannels.gitWorktrees, cwd),
+  gitRemoveWorktree: (
+    repoCwd: string,
+    worktreePath: string,
+  ): Promise<{ ok: boolean; output: string }> =>
+    ipcRenderer.invoke(IpcChannels.gitRemoveWorktree, repoCwd, worktreePath),
+  gitPruneWorktrees: (repoCwd: string): Promise<{ ok: boolean; output: string }> =>
+    ipcRenderer.invoke(IpcChannels.gitPruneWorktrees, repoCwd),
   getSettings: (): Promise<SettingsSnapshot> =>
     ipcRenderer.invoke(IpcChannels.getSettings),
   setPermissionMode: (

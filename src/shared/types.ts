@@ -447,9 +447,15 @@ export type GitBranchList = {
   branches: string[]
 }
 
-export type GitRepository = {
-  root: string
-  name: string
+export type GitRepository = { root: string; name: string; branch: string; dirty: boolean }
+
+/** One checkout registered in a repository's worktree administrative file. */
+export type GitWorktreeInfo = {
+  path: string
   branch: string
+  head: string
   dirty: boolean
+  /** The checkout directory no longer exists but Git still has its metadata. */
+  prunable: boolean
+  bare: boolean
 }

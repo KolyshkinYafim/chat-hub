@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { GitFileChange, GitRepository, GitWorkingCopy } from "@shared/types"
+import type { GitFileChange, GitRepository, GitWorkingCopy, GitWorktreeInfo } from "@shared/types"
 import {
   actionForPath,
   type AgentAction,
@@ -108,6 +108,7 @@ export function SourceControl({
   const [prTitle, setPrTitle] = useState("")
   const [prDraft, setPrDraft] = useState(true)
   const [reviewConfirmed, setReviewConfirmed] = useState(false)
+  const [worktrees, setWorktrees] = useState<GitWorktreeInfo[]>([])
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const liveRef = useRef(true)
@@ -120,26 +121,21 @@ export function SourceControl({
   }, [])
 
   const reload = useCallback(async () => {
-    const [next, branchList] = await Promise.all([
+    const [next, branchList, worktreeList] = await Promise.all([
       window.chatHub.gitStatus(repoCwd),
       window.chatHub.gitBranches(repoCwd),
+      window.chatHub.gitWorktrees(repoCwd).catch(() => [] as GitWorktreeInfo[]),
     ])
     if (!liveRef.current) return
     setCopy(next)
     setBranches(branchList.branches)
+    setWorktrees(worktreeList)
     // A refresh may reveal a different diff or branch; publishing requires an
     // explicit review of the current snapshot.
     setReviewConfirmed(false)
   }, [repoCwd])
 
-  useEffect(() => {
-    setRepoCwd(cwd)
-    void window.chatHub.gitRepositories(cwd).then((found) => {
-      if (!liveRef.current) return
-      setRepos(found)
-      if (found.length === 1) setRepoCwd(found[0].root)
-    })
-  }, [cwd])
+  useEffect(() => { setRepoCwd(cwd); void window.chatHub.gitRepositories(cwd).then((found) => { if (!liveRef.current) return; setRepos(found); if (found.length === 1) setRepoCwd(found[0].root) }) }, [cwd])
 
   useEffect(() => {
     setSelected(null)
@@ -182,7 +178,7 @@ export function SourceControl({
     setDiff(null)
     void window.chatHub
       .gitDiff(
-        repoCwd,
+        cwd,
         selected.file.path,
         selected.staged,
         !selected.staged && selected.code === "?",
@@ -196,7 +192,7 @@ export function SourceControl({
     return () => {
       cancelled = true
     }
-  }, [repoCwd, selected])
+  }, [cwd, selected])
 
   async function run(
     op: () => Promise<GitWorkingCopy | { ok: boolean; output: string }>,
@@ -222,7 +218,7 @@ export function SourceControl({
     setBusy(true)
     setNotice(null)
     try {
-      await window.chatHub.gitInit(repoCwd)
+      await window.chatHub.gitInit(cwd)
       await reload()
       onChanged()
     } catch (err) {
@@ -233,11 +229,11 @@ export function SourceControl({
   }
 
   function stage(paths: string[]) {
-    void run(() => window.chatHub.gitStage(repoCwd, paths))
+    void run(() => window.chatHub.gitStage(cwd, paths))
   }
 
   function unstage(paths: string[]) {
-    void run(() => window.chatHub.gitUnstage(repoCwd, paths))
+    void run(() => window.chatHub.gitUnstage(cwd, paths))
   }
 
   async function commit() {
@@ -246,7 +242,7 @@ export function SourceControl({
     setBusy(true)
     setNotice(null)
     try {
-      const res = await window.chatHub.gitCommitStaged(repoCwd, text)
+      const res = await window.chatHub.gitCommitStaged(cwd, text)
       if (!liveRef.current) return
       setNotice(res.output)
       if (res.ok) setMessage("")
@@ -264,7 +260,7 @@ export function SourceControl({
     setBusy(true)
     setNotice(null)
     try {
-      const res = await window.chatHub.gitCheckout(repoCwd, branch)
+      const res = await window.chatHub.gitCheckout(cwd, branch)
       if (!liveRef.current) return
       // A dirty tree makes git refuse; its own message is the useful one.
       if (!res.ok) setNotice(res.output)
@@ -277,13 +273,22 @@ export function SourceControl({
 
   function push() {
     if (!reviewConfirmed) return
-    void run(() => window.chatHub.gitPush(repoCwd))
+    void run(() => window.chatHub.gitPush(cwd))
   }
 
   function createPr() {
     if (!reviewConfirmed) return
     const title = prTitle.trim() || copy.branch
-    void run(() => window.chatHub.gitCreatePr(repoCwd, title, message.trim(), prDraft))
+    void run(() => window.chatHub.gitCreatePr(cwd, title, message.trim(), prDraft))
+  }
+
+  function removeWorktree(worktree: GitWorktreeInfo) {
+    if (worktree.dirty || worktree.prunable || worktree.path === cwd) return
+    void run(() => window.chatHub.gitRemoveWorktree(cwd, worktree.path))
+  }
+
+  function pruneWorktrees() {
+    void run(() => window.chatHub.gitPruneWorktrees(cwd))
   }
 
   function fileRow(row: Row) {
@@ -341,19 +346,12 @@ export function SourceControl({
           ×
         </button>
       </header>
-
-      {repos.length > 0 ? (
-        <label className="chip select-chip scm-repo-select" title="Repository">
-          <select value={repoCwd} onChange={(e) => setRepoCwd(e.target.value)} aria-label="Repository">
-            {repos.map((repo) => <option key={repo.root} value={repo.root}>{repo.name} · {repo.branch}{repo.dirty ? " · dirty" : ""}</option>)}
-          </select>
-        </label>
-      ) : null}
+      {repos.length > 0 ? <label className="chip select-chip scm-repo-select"><select value={repoCwd} onChange={(e) => setRepoCwd(e.target.value)} aria-label="Repository">{repos.map((repo) => <option key={repo.root} value={repo.root}>{repo.name} · {repo.branch}{repo.dirty ? " · dirty" : ""}</option>)}</select></label> : null}
 
       {noRepo ? (
         <div className="scm-empty">
           <p>Not a git repository</p>
-          <span className="mono-soft dim">{repoCwd}</span>
+          <span className="mono-soft dim">{cwd}</span>
           <button
             type="button"
             className="tb-btn primary scm-init"
@@ -475,6 +473,40 @@ export function SourceControl({
               )}
             </div>
           </div>
+
+          {worktrees.length > 1 ? (
+            <div className="scm-worktrees">
+              <div className="scm-section-head">
+                <span>Worktrees ({worktrees.length})</span>
+                {worktrees.some((worktree) => worktree.prunable) ? (
+                  <button type="button" className="link-btn" disabled={busy} onClick={pruneWorktrees}>
+                    Prune stale
+                  </button>
+                ) : null}
+              </div>
+              <ul className="scm-worktree-list">
+                {worktrees.map((worktree) => {
+                  const current = worktree.path === cwd
+                  return (
+                    <li key={worktree.path} className={current ? "current" : undefined}>
+                      <span className="scm-worktree-main">
+                        <strong>{worktree.branch}</strong>
+                        <small title={worktree.path}>{worktree.path}</small>
+                      </span>
+                      <span className={`scm-worktree-state ${worktree.dirty ? "dirty" : ""}`}>
+                        {current ? "current" : worktree.prunable ? "stale" : worktree.dirty ? "dirty" : "clean"}
+                      </span>
+                      {!current && !worktree.dirty && !worktree.prunable ? (
+                        <button type="button" className="scm-act" disabled={busy} onClick={() => removeWorktree(worktree)}>
+                          Remove
+                        </button>
+                      ) : null}
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ) : null}
 
           <div className="scm-diff-wrap">
             {selected ? (

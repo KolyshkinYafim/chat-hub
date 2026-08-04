@@ -1,12 +1,13 @@
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import { mkdir, readdir } from "node:fs/promises"
-import { basename, dirname, join } from "node:path"
+import { basename, dirname, join, sep } from "node:path"
 import { homedir } from "node:os"
 import type {
   GitBranchList,
   GitFileChange,
   GitWorkingCopy,
+  GitWorktreeInfo,
   GitRepository,
 } from "@shared/types"
 
@@ -56,11 +57,65 @@ export async function removeSessionWorktree(
   repoCwd: string,
   worktreePath: string,
 ): Promise<void> {
+  const managedRoot = `${join(homedir(), ".chathub", "worktrees")}${sep}`
+  if (!worktreePath.startsWith(managedRoot)) {
+    throw new Error("Refusing to remove a worktree outside ~/.chathub/worktrees")
+  }
   await execFileAsync(
     "git",
     ["worktree", "remove", worktreePath],
     { cwd: repoCwd, timeout: 30_000 },
   )
+}
+
+/** List every checkout registered with the repository, including stale entries. */
+export async function listSessionWorktrees(cwd: string): Promise<GitWorktreeInfo[]> {
+  const { stdout } = await execFileAsync(
+    "git",
+    ["worktree", "list", "--porcelain"],
+    { cwd, timeout: 8000, maxBuffer: BUFFER },
+  )
+  const blocks = stdout.split(/\n(?=worktree )/).filter(Boolean)
+  return Promise.all(
+    blocks.map(async (block) => {
+      const lines = block.split("\n")
+      const path = lines.find((line) => line.startsWith("worktree "))?.slice(9) ?? ""
+      const head = lines.find((line) => line.startsWith("HEAD "))?.slice(5) ?? ""
+      const branchRef = lines.find((line) => line.startsWith("branch "))?.slice(7)
+      const prunable = lines.some((line) => line.startsWith("prunable"))
+      const bare = lines.includes("bare")
+      let dirty = false
+      if (path && !prunable && !bare) {
+        try {
+          const status = await execFileAsync(
+            "git",
+            ["status", "--porcelain"],
+            { cwd: path, timeout: 8000, maxBuffer: BUFFER },
+          )
+          dirty = status.stdout.trim().length > 0
+        } catch {
+          dirty = true
+        }
+      }
+      return {
+        path,
+        head: head.slice(0, 12),
+        branch: branchRef?.replace(/^refs\/heads\//, "") ?? "(detached)",
+        dirty,
+        prunable,
+        bare,
+      }
+    }),
+  )
+}
+
+/** Remove stale administrative entries after a checkout directory is gone. */
+export async function pruneSessionWorktrees(cwd: string): Promise<void> {
+  await execFileAsync("git", ["worktree", "prune"], {
+    cwd,
+    timeout: 15_000,
+    maxBuffer: BUFFER,
+  })
 }
 
 function slugify(value: string): string {
@@ -118,23 +173,12 @@ export async function getGitCheckout(cwd: string): Promise<GitCheckoutInfo> {
   }
 }
 
-/** Discover the project repo plus direct child repos (monorepo-friendly, bounded). */
 export async function findGitRepositories(cwd: string): Promise<GitRepository[]> {
-  const candidates = [cwd]
-  try {
-    const children = await readdir(cwd, { withFileTypes: true })
-    for (const child of children) {
-      if (!child.isDirectory() || child.name.startsWith(".") || ["node_modules", "out", "release"].includes(child.name)) continue
-      candidates.push(join(cwd, child.name))
-    }
-  } catch { /* the caller will still receive the project itself */ }
-  const found = await Promise.all(candidates.map(async (path) => ({ path, info: await getGitCheckout(path) })))
-  const roots = new Map<string, GitRepository>()
-  for (const { path, info } of found) {
-    if (!info.root || roots.has(info.root)) continue
-    roots.set(info.root, { root: info.root, name: basename(info.root) || basename(path), branch: info.branch, dirty: info.dirty })
-  }
-  return [...roots.values()].sort((a, b) => a.name.localeCompare(b.name))
+  const children = await readdir(cwd, { withFileTypes: true }).catch(() => [])
+  const paths = [cwd, ...children.filter((d) => d.isDirectory() && !d.name.startsWith(".") && !["node_modules", "out", "release"].includes(d.name)).map((d) => join(cwd, d.name))]
+  const seen = new Map<string, GitRepository>()
+  for (const path of paths) { const info = await getGitCheckout(path); if (info.root) seen.set(info.root, { root: info.root, name: basename(info.root), branch: info.branch, dirty: info.dirty }) }
+  return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** Initialise a repo in a folder that has none, then report its fresh state. */
