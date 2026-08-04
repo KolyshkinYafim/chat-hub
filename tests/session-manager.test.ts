@@ -91,13 +91,19 @@ vi.mock("../src/main/adapters", () => ({
   listProviderInfo: () => [],
 }))
 
-const { SessionManager } = await import("../src/main/session-manager")
+const { SessionManager, MAX_MESSAGES_PER_SESSION } = await import(
+  "../src/main/session-manager"
+)
 const { EventBus } = await import("../src/main/event-bus")
 const { Persistence } = await import("../src/main/persistence")
 const { SessionMonitorBridge } = await import("../src/main/bridge")
 const { SettingsStore } = await import("../src/main/settings")
+const { PermissionBroker } = await import("../src/main/permission-broker")
 
-async function makeManager(watchdog?: WatchdogConfig) {
+async function makeManager(
+  watchdog?: WatchdogConfig,
+  opts?: { maxMessages?: number },
+) {
   const dir = await mkdtemp(join(tmpdir(), "chat-hub-sm-"))
   const persistence = new Persistence(join(dir, "state.json"))
   const settings = new SettingsStore(join(dir, "settings.json"))
@@ -113,9 +119,10 @@ async function makeManager(watchdog?: WatchdogConfig) {
     notifications,
     settings,
     watchdog ?? { intervalMs: 60_000, silenceMs: 60_000 },
+    { maxMessages: opts?.maxMessages },
   )
   await sm.init()
-  return { sm, dir, persistence, events }
+  return { sm, dir, persistence, events, bus }
 }
 
 beforeEach(() => {
@@ -522,5 +529,173 @@ describe("per-session permission mode", () => {
 
     const saved = (await persistence.load()).sessions.find((s) => s.id === session.id)
     expect(saved?.permissionMode).toBe("acceptEdits")
+  })
+})
+
+describe("waiting_input from pendingInputs", () => {
+  function wireBroker(
+    sm: InstanceType<typeof SessionManager>,
+    bus: EventBus,
+    sessionId: string,
+  ) {
+    const broker = new PermissionBroker(
+      bus,
+      () => sessionId,
+      join(tmpdir(), `island-${Math.random()}.sock`),
+      join(tmpdir(), `hub-${Math.random()}.sock`),
+    )
+    sm.setPermissionBroker(broker)
+    return broker
+  }
+
+  function ask(
+    broker: InstanceType<typeof PermissionBroker>,
+    sessionId: string,
+    requestId: string,
+  ) {
+    return broker.requestInputFromAdapter({
+      requestId,
+      sessionId,
+      source: "codex",
+      questions: [{ id: "q1", header: "Q", prompt: "say?" }],
+    })
+  }
+
+  it("opens waiting_input when an Ask-mode input is pending", async () => {
+    const { sm, dir, bus } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    const broker = wireBroker(sm, bus, session.id)
+
+    void sm.sendMessage(session.id, "go")
+    await vi.waitFor(() => expect(sm.getSession(session.id)?.status).toBe("running"))
+
+    void ask(broker, session.id, "in-1")
+    await vi.waitFor(() =>
+      expect(sm.getSession(session.id)?.status).toBe("waiting_input"),
+    )
+  })
+
+  it("returns to running when the last input closes while a turn is live", async () => {
+    const { sm, dir, bus } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    const broker = wireBroker(sm, bus, session.id)
+
+    void sm.sendMessage(session.id, "go")
+    await vi.waitFor(() => expect(sm.getSession(session.id)?.status).toBe("running"))
+    void ask(broker, session.id, "in-1")
+    await vi.waitFor(() =>
+      expect(sm.getSession(session.id)?.status).toBe("waiting_input"),
+    )
+
+    expect(broker.resolveInput("in-1", { q1: ["ok"] })).toBe(true)
+    await vi.waitFor(() =>
+      expect(sm.getSession(session.id)?.status).toBe("running"),
+    )
+
+    state.pending?.resolve()
+    await vi.waitFor(() => expect(sm.getSession(session.id)?.status).toBe("idle"))
+  })
+
+  it("returns to idle when the last input closes and no turn is live", async () => {
+    const { sm, dir, bus } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    const broker = wireBroker(sm, bus, session.id)
+
+    // Input without a live turn (e.g. residual / race): still waiting_input.
+    void ask(broker, session.id, "in-idle")
+    await vi.waitFor(() =>
+      expect(sm.getSession(session.id)?.status).toBe("waiting_input"),
+    )
+    broker.resolveInput("in-idle", { q1: ["x"] })
+    await vi.waitFor(() => expect(sm.getSession(session.id)?.status).toBe("idle"))
+  })
+
+  it("stays waiting_input until every pending input is closed", async () => {
+    const { sm, dir, bus } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    const broker = wireBroker(sm, bus, session.id)
+
+    void sm.sendMessage(session.id, "go")
+    await vi.waitFor(() => expect(sm.getSession(session.id)?.status).toBe("running"))
+    void ask(broker, session.id, "a")
+    void ask(broker, session.id, "b")
+    await vi.waitFor(() =>
+      expect(sm.getSession(session.id)?.status).toBe("waiting_input"),
+    )
+
+    broker.resolveInput("a", { q1: ["1"] })
+    expect(sm.getSession(session.id)?.status).toBe("waiting_input")
+
+    broker.resolveInput("b", { q1: ["2"] })
+    await vi.waitFor(() =>
+      expect(sm.getSession(session.id)?.status).toBe("running"),
+    )
+    state.pending?.resolve()
+  })
+})
+
+describe("message archive overflow", () => {
+  async function fillAndResolve(
+    sm: InstanceType<typeof SessionManager>,
+    sessionId: string,
+    texts: string[],
+  ) {
+    for (const text of texts) {
+      await sm.sendMessage(sessionId, text)
+      state.pending?.resolve()
+      await vi.waitFor(() => expect(sm.getSession(sessionId)?.status).toBe("idle"))
+    }
+  }
+
+  it("spills the oldest message into archive instead of dropping it", async () => {
+    // Cap=5 so we do not need 200 real turns to exercise overflow.
+    const { sm, dir } = await makeManager(undefined, { maxMessages: 5 })
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+
+    await fillAndResolve(
+      sm,
+      session.id,
+      Array.from({ length: 8 }, (_, i) => `msg-${i}`),
+    )
+
+    const live = sm.getMessages(session.id)
+    expect(live).toHaveLength(5)
+    expect(sm.hasArchivedMessages(session.id)).toBe(true)
+
+    await vi.waitFor(async () => {
+      const page = await sm.loadArchivedMessages(session.id, live[0]!.id, 50)
+      expect(page.messages.length).toBe(3)
+    })
+
+    const page = await sm.loadArchivedMessages(session.id, live[0]!.id, 50)
+    expect(page.messages.map((m) => m.content)).toEqual([
+      "msg-0",
+      "msg-1",
+      "msg-2",
+    ])
+    expect(live[0]!.content).toBe("msg-3")
+  })
+
+  it("appends further overflow without rewriting the archive", async () => {
+    const { sm, dir } = await makeManager(undefined, { maxMessages: 3 })
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+
+    await fillAndResolve(sm, session.id, ["a", "b", "c", "d"])
+    await vi.waitFor(() => expect(sm.hasArchivedMessages(session.id)).toBe(true))
+    await fillAndResolve(sm, session.id, ["e", "f"])
+
+    const page = await sm.loadArchivedMessages(session.id, null, 200)
+    expect(page.messages.map((m) => m.content)).toEqual(["a", "b", "c"])
+    // "a" appears once — second overflow appended, did not rewrite from scratch.
+    expect(page.messages.filter((m) => m.content === "a")).toHaveLength(1)
+    expect(sm.getMessages(session.id).map((m) => m.content)).toEqual([
+      "d",
+      "e",
+      "f",
+    ])
+  })
+
+  it("keeps the production default cap at 200", () => {
+    expect(MAX_MESSAGES_PER_SESSION).toBe(200)
   })
 })
