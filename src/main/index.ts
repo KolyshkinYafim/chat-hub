@@ -47,6 +47,7 @@ import {
   registerSurfaceIpc,
   TerminalSessions,
 } from "./surfaces"
+import { installDeveloperMenu } from "./developer-menu"
 
 const REAL_PROVIDER_IDS: ProviderId[] = [
   "claude",
@@ -195,6 +196,7 @@ function createWindow(): void {
   hardenWebviewHost(mainWindow.webContents, (url) => {
     void shell.openExternal(url)
   })
+  installDeveloperMenu(() => mainWindow)
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (isSafeExternalUrl(url)) {
