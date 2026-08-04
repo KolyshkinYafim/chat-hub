@@ -277,6 +277,31 @@ describe("message attachments", () => {
   })
 })
 
+describe("transcript archive", () => {
+  it("keeps a fast 200-message tail while older messages remain loadable", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+
+    for (let i = 0; i < 205; i += 1) {
+      await sm.sendMessage(session.id, `message-${i}`)
+      state.pending?.resolve()
+      await vi.waitFor(() => expect(state.sent).toHaveLength(i + 1))
+    }
+
+    const tail = sm.getMessages(session.id)
+    expect(tail).toHaveLength(200)
+    expect(tail[0]?.content).toBe("message-5")
+    const older = sm.getMessagesBefore(session.id, tail[0]!.id, 100)
+    expect(older.messages).toHaveLength(5)
+    expect(older.messages[0]?.content).toBe("message-0")
+    expect(older.hasMore).toBe(false)
+
+    await sm.flush()
+    expect(await persistence.loadTranscript(session.id)).toHaveLength(205)
+    expect((await persistence.load()).messages[session.id]).toHaveLength(200)
+  })
+})
+
 describe("message queue", () => {
   it("queues a message sent mid-turn and flushes it when the turn ends", async () => {
     const { sm, dir } = await makeManager()
