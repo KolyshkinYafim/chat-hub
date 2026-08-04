@@ -285,6 +285,39 @@ function registerIpc(
     }
     return sm.hasArchivedMessages(sessionId)
   })
+  ipcMain.handle(
+    IpcChannels.loadArchiveThrough,
+    async (
+      _e,
+      sessionId: unknown,
+      beforeMessageId: unknown,
+      targetMessageId: unknown,
+    ) => {
+      if (typeof sessionId !== "string" || !sessionId) {
+        throw new Error("Invalid sessionId")
+      }
+      if (typeof targetMessageId !== "string" || !targetMessageId) {
+        throw new Error("Invalid targetMessageId")
+      }
+      const before =
+        typeof beforeMessageId === "string" ? beforeMessageId : null
+      return sm.loadArchiveThrough(sessionId, before, targetMessageId)
+    },
+  )
+  ipcMain.handle(
+    IpcChannels.searchArchivedTranscripts,
+    async (_e, query: unknown, loadedFrom: unknown) => {
+      if (typeof query !== "string") throw new Error("Invalid query")
+      const from: Record<string, string | null> = {}
+      if (loadedFrom && typeof loadedFrom === "object") {
+        for (const [id, oldest] of Object.entries(loadedFrom)) {
+          if (typeof id !== "string" || !id) continue
+          from[id] = typeof oldest === "string" ? oldest : null
+        }
+      }
+      return sm.searchArchivedTranscripts(query, from)
+    },
+  )
   ipcMain.handle(IpcChannels.createSession, async (_e, input: unknown) => {
     if (!input || typeof input !== "object") {
       throw new Error("Invalid createSession payload")

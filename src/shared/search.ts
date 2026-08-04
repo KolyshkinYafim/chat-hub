@@ -14,10 +14,26 @@ export type TranscriptHit = {
 }
 
 /**
+ * What main found in the parts of a transcript the renderer never loaded.
+ * `truncated` means at least one archive was deeper than the scan budget, so
+ * the counts below it are a floor rather than a total.
+ */
+export type ArchiveSearchResult = {
+  hits: TranscriptHit[]
+  truncated: boolean
+}
+
+/**
  * One letter matches every transcript ever written, so the full-text pass only
  * starts once the query says something. Title/project filtering is unaffected.
  */
 export const MIN_TRANSCRIPT_QUERY = 2
+
+/** Newest archived messages main scans per session for one search. */
+export const ARCHIVE_SEARCH_SCAN_LIMIT = 2000
+
+/** Ceiling on a single jump-to-hit load, so one click cannot hang the list. */
+export const ARCHIVE_JUMP_LIMIT = 600
 
 const PAD = 34
 const SNIPPET_MAX = 110
@@ -66,6 +82,29 @@ export function searchTranscripts(
       latest = { sessionId, messageId: m.id, ...found, hits: 0 }
     }
     if (latest) out.set(sessionId, { ...latest, hits })
+  }
+  return out
+}
+
+/**
+ * Fold main's archive hits into the loaded-transcript hits. The two scans cover
+ * disjoint halves of a session (main is told where the loaded half starts), so
+ * the counts add up; the loaded hit stays the landing point because it is the
+ * newer of the two.
+ */
+export function mergeTranscriptHits(
+  loaded: Map<string, TranscriptHit>,
+  archived: readonly TranscriptHit[],
+): Map<string, TranscriptHit> {
+  if (archived.length === 0) return loaded
+  const out = new Map(loaded)
+  for (const hit of archived) {
+    const known = out.get(hit.sessionId)
+    if (!known) {
+      out.set(hit.sessionId, hit)
+      continue
+    }
+    out.set(hit.sessionId, { ...known, hits: known.hits + hit.hits })
   }
   return out
 }

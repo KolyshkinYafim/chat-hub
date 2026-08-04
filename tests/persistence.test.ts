@@ -1,9 +1,10 @@
-import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import { writeFileAtomic } from "../src/main/atomic-write"
+import { MessageArchive } from "../src/main/message-archive"
 import { Persistence } from "../src/main/persistence"
 import { parseGrokModels } from "../src/main/provider-probe"
 
@@ -47,6 +48,60 @@ describe("state store", () => {
     const state = await new Persistence(join(folder, "state.json")).load()
     expect(state.sessions).toEqual([])
     expect(await readdir(folder)).toEqual([])
+  })
+
+  it("drops a removed message field on load so the next save loses it", async () => {
+    const file = join(await dir(), "state.json")
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        sessions: [{ id: "s1", title: "Old", project: "p", provider: "claude", cwd: "/tmp", status: "idle", createdAt: 1, updatedAt: 2 }],
+        messages: {
+          s1: [
+            { id: "m1", sessionId: "s1", role: "assistant", content: "edited two files", createdAt: 3, touchedFiles: ["a.ts", "b.ts"] },
+            { id: "m2", sessionId: "s1", role: "user", content: "thanks", createdAt: 4 },
+          ],
+        },
+        activeSessionId: "s1",
+      }),
+      "utf8",
+    )
+
+    const store = new Persistence(file)
+    const state = await store.load()
+    const [first, second] = state.messages.s1!
+    expect(first).not.toHaveProperty("touchedFiles")
+    expect(first?.content).toBe("edited two files")
+    expect(second?.content).toBe("thanks")
+
+    await store.save(state)
+    expect(await readFile(file, "utf8")).not.toContain("touchedFiles")
+  })
+})
+
+describe("spilled transcript", () => {
+  it("drops a removed message field from archived lines too", async () => {
+    const folder = await dir()
+    const archive = MessageArchive.fromStatePath(join(folder, "state.json"))
+    const file = archive.fileFor("s1")
+    await mkdir(join(file, ".."), { recursive: true })
+    await writeFile(
+      file,
+      JSON.stringify({
+        id: "m1",
+        sessionId: "s1",
+        role: "assistant",
+        content: "spilled turn",
+        createdAt: 1,
+        touchedFiles: ["a.ts"],
+      }) + "\n",
+      "utf8",
+    )
+
+    const page = await archive.loadBefore("s1", null, 50)
+    expect(page.messages[0]).not.toHaveProperty("touchedFiles")
+    expect(page.messages[0]?.content).toBe("spilled turn")
   })
 })
 

@@ -771,6 +771,44 @@ describe("message archive overflow", () => {
     expect(sm.hasArchivedMessages(session.id)).toBe(false)
   })
 
+  it("finds a spilled message that the live window no longer holds", async () => {
+    const { sm, dir } = await makeManager(undefined, { maxMessages: 3 })
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await fillAndResolve(sm, session.id, [
+      "the zeppelin deploy script",
+      "b",
+      "c",
+      "d",
+      "e",
+    ])
+    await vi.waitFor(() => expect(sm.hasArchivedMessages(session.id)).toBe(true))
+
+    const live = sm.getMessages(session.id)
+    expect(live.some((m) => m.content.includes("zeppelin"))).toBe(false)
+
+    const found = await sm.searchArchivedTranscripts("zeppelin", {
+      [session.id]: live[0]!.id,
+    })
+    expect(found.truncated).toBe(false)
+    expect(found.hits).toHaveLength(1)
+    expect(found.hits[0]?.sessionId).toBe(session.id)
+
+    const hitId = found.hits[0]!.messageId
+    const page = await sm.loadArchiveThrough(session.id, live[0]!.id, hitId)
+    expect(page.reachedTarget).toBe(true)
+    expect(page.messages.some((m) => m.id === hitId)).toBe(true)
+  })
+
+  it("reports nothing for a query no archived transcript contains", async () => {
+    const { sm, dir } = await makeManager(undefined, { maxMessages: 3 })
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await fillAndResolve(sm, session.id, ["a", "b", "c", "d"])
+    await vi.waitFor(() => expect(sm.hasArchivedMessages(session.id)).toBe(true))
+
+    const found = await sm.searchArchivedTranscripts("kubernetes", {})
+    expect(found).toEqual({ hits: [], truncated: false })
+  })
+
   it("refuses a session id that would escape the archive root", () => {
     const archive = MessageArchive.fromStatePath("/tmp/whatever/state.json")
     expect(() => archive.fileFor("../../etc")).toThrow(/Invalid session id/)

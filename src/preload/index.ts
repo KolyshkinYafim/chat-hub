@@ -18,6 +18,7 @@ import type {
   SessionSnapshot,
   ChatMessage,
 } from "@shared/types"
+import type { ArchiveSearchResult } from "@shared/search"
 import type { PermissionMode } from "@shared/permission"
 import type {
   Board,
@@ -71,6 +72,30 @@ const api = {
     ),
   hasArchivedMessages: (sessionId: string): Promise<boolean> =>
     ipcRenderer.invoke(IpcChannels.hasArchivedMessages, sessionId),
+  loadArchiveThrough: (
+    sessionId: string,
+    beforeMessageId: string | null,
+    targetMessageId: string,
+  ): Promise<{
+    messages: ChatMessage[]
+    hasMore: boolean
+    reachedTarget: boolean
+  }> =>
+    ipcRenderer.invoke(
+      IpcChannels.loadArchiveThrough,
+      sessionId,
+      beforeMessageId,
+      targetMessageId,
+    ),
+  searchArchivedTranscripts: (
+    query: string,
+    loadedFrom: Record<string, string | null>,
+  ): Promise<ArchiveSearchResult> =>
+    ipcRenderer.invoke(
+      IpcChannels.searchArchivedTranscripts,
+      query,
+      loadedFrom,
+    ),
   createSession: (input: CreateSessionInput): Promise<SessionMeta> =>
     ipcRenderer.invoke(IpcChannels.createSession, input),
   sendMessage: (
