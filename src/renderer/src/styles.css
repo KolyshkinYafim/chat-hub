@@ -3477,6 +3477,69 @@ button {
   background: var(--bg-row-active);
 }
 
+.scm-worktrees {
+  border-top: 1px solid var(--border);
+  padding: 10px 16px 0;
+}
+
+.scm-worktree-list {
+  display: grid;
+  gap: 5px;
+  margin: 7px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.scm-worktree-list li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 5px 0;
+}
+
+.scm-worktree-list li.current {
+  color: var(--text);
+}
+
+.scm-worktree-main {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.scm-worktree-main strong {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font: 11px var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scm-worktree-main small {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scm-worktree-state {
+  flex: none;
+  color: var(--ok);
+  font-size: 10px;
+}
+
+.scm-worktree-state.dirty,
+.scm-worktree-state:not(.dirty) {
+  color: var(--text-faint);
+}
+
+.scm-worktree-state.dirty {
+  color: var(--warning, #f0b429);
+}
+
 /* The whole row is the hit target for "show me this diff". */
 .scm-row-main {
   display: flex;
