@@ -672,6 +672,28 @@ button {
   margin: 0 0 10px;
 }
 
+/* A turn reads top-to-bottom as: safe reasoning summary → work done → result.
+   The individual cards remain available for command output and diffs. */
+.activity-overview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: rgba(18, 20, 26, 0.5);
+  font-size: 11px;
+}
+
+.activity-overview-summary {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .activity-item {
   border: 1px solid var(--border);
   border-radius: 9px;
@@ -748,6 +770,19 @@ button {
 .turn-provider,
 .turn-time {
   font-size: 11px;
+  color: var(--text-faint);
+}
+
+.turn-result {
+  min-width: 0;
+}
+
+.turn-result-label {
+  margin: 0 0 7px;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--text-faint);
 }
 
