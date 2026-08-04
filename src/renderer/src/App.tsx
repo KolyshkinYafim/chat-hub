@@ -72,6 +72,7 @@ export default function App() {
     Record<string, boolean>
   >({})
   const [loadingOlder, setLoadingOlder] = useState(false)
+  const loadingOlderRef = useRef(false)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -700,32 +701,35 @@ export default function App() {
   }
 
   async function loadOlderMessages() {
-    if (!activeId || loadingOlder) return
-    if (overflowHasMore[activeId] === false) return
-    const list = messagesBySession[activeId] ?? []
+    const sessionId = activeId
+    if (!sessionId || loadingOlderRef.current) return
+    if (overflowHasMore[sessionId] === false) return
+    const list = messagesBySession[sessionId] ?? []
     const beforeId = list[0]?.id ?? null
+    loadingOlderRef.current = true
     setLoadingOlder(true)
     try {
       const page = await window.chatHub.loadArchivedMessages(
-        activeId,
+        sessionId,
         beforeId,
         50,
       )
       if (page.messages.length > 0) {
         setMessagesBySession((curr) => {
-          const existing = curr[activeId] ?? []
+          const existing = curr[sessionId] ?? []
           const seen = new Set(existing.map((m) => m.id))
           const older = page.messages.filter((m) => !seen.has(m.id))
-          return { ...curr, [activeId]: [...older, ...existing] }
+          return { ...curr, [sessionId]: [...older, ...existing] }
         })
       }
       setOverflowHasMore((curr) => ({
         ...curr,
-        [activeId]: page.hasArchive && page.hasMore,
+        [sessionId]: page.hasArchive && page.hasMore,
       }))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
+      loadingOlderRef.current = false
       setLoadingOlder(false)
     }
   }

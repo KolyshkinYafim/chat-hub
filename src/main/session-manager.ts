@@ -69,6 +69,8 @@ export class SessionManager {
   private readonly maxMessages: number
   /** Sessions that have spilled into archive.jsonl (or already had one on disk). */
   private archivedSessions = new Set<string>()
+  /** Preserve archive order and let an immediate scroll-back wait for its write. */
+  private archiveWrites = new Map<string, Promise<void>>()
   private inputStatusWired = false
 
   constructor(
@@ -129,6 +131,7 @@ export class SessionManager {
     beforeMessageId: string | null,
     limit = 50,
   ): Promise<{ messages: ChatMessage[]; hasMore: boolean; hasArchive: boolean }> {
+    await this.archiveWrites.get(sessionId)
     const hasArchive = await this.archive.hasArchive(sessionId)
     if (hasArchive) this.archivedSessions.add(sessionId)
     if (!hasArchive) {
@@ -1066,12 +1069,23 @@ export class SessionManager {
     this.bus.emit({ type: "chat.message", message })
     if (overflow.length > 0) {
       this.archivedSessions.add(message.sessionId)
-      void this.archive
-        .append(message.sessionId, overflow)
-        .catch((err) =>
-          console.error("[archive] append failed", message.sessionId, err),
-        )
+      this.queueArchiveAppend(message.sessionId, overflow)
     }
+  }
+
+  private queueArchiveAppend(sessionId: string, messages: ChatMessage[]): void {
+    const previous = this.archiveWrites.get(sessionId) ?? Promise.resolve()
+    const write = previous
+      .catch(() => undefined)
+      .then(() => this.archive.append(sessionId, messages))
+    this.archiveWrites.set(sessionId, write)
+    void write
+      .catch((err) => console.error("[archive] append failed", sessionId, err))
+      .finally(() => {
+        if (this.archiveWrites.get(sessionId) === write) {
+          this.archiveWrites.delete(sessionId)
+        }
+      })
   }
 
   /** Any sign of life from the CLI resets the watchdog's silence timer. */
