@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { GitFileChange, GitWorkingCopy } from "@shared/types"
+import type { GitFileChange, GitWorkingCopy, GitWorktreeInfo } from "@shared/types"
 import {
   actionForPath,
   type AgentAction,
@@ -106,6 +106,7 @@ export function SourceControl({
   const [prTitle, setPrTitle] = useState("")
   const [prDraft, setPrDraft] = useState(true)
   const [reviewConfirmed, setReviewConfirmed] = useState(false)
+  const [worktrees, setWorktrees] = useState<GitWorktreeInfo[]>([])
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const liveRef = useRef(true)
@@ -118,13 +119,15 @@ export function SourceControl({
   }, [])
 
   const reload = useCallback(async () => {
-    const [next, branchList] = await Promise.all([
+    const [next, branchList, worktreeList] = await Promise.all([
       window.chatHub.gitStatus(cwd),
       window.chatHub.gitBranches(cwd),
+      window.chatHub.gitWorktrees(cwd).catch(() => [] as GitWorktreeInfo[]),
     ])
     if (!liveRef.current) return
     setCopy(next)
     setBranches(branchList.branches)
+    setWorktrees(worktreeList)
     // A refresh may reveal a different diff or branch; publishing requires an
     // explicit review of the current snapshot.
     setReviewConfirmed(false)
@@ -273,6 +276,15 @@ export function SourceControl({
     if (!reviewConfirmed) return
     const title = prTitle.trim() || copy.branch
     void run(() => window.chatHub.gitCreatePr(cwd, title, message.trim(), prDraft))
+  }
+
+  function removeWorktree(worktree: GitWorktreeInfo) {
+    if (worktree.dirty || worktree.prunable || worktree.path === cwd) return
+    void run(() => window.chatHub.gitRemoveWorktree(cwd, worktree.path))
+  }
+
+  function pruneWorktrees() {
+    void run(() => window.chatHub.gitPruneWorktrees(cwd))
   }
 
   function fileRow(row: Row) {
@@ -456,6 +468,40 @@ export function SourceControl({
               )}
             </div>
           </div>
+
+          {worktrees.length > 1 ? (
+            <div className="scm-worktrees">
+              <div className="scm-section-head">
+                <span>Worktrees ({worktrees.length})</span>
+                {worktrees.some((worktree) => worktree.prunable) ? (
+                  <button type="button" className="link-btn" disabled={busy} onClick={pruneWorktrees}>
+                    Prune stale
+                  </button>
+                ) : null}
+              </div>
+              <ul className="scm-worktree-list">
+                {worktrees.map((worktree) => {
+                  const current = worktree.path === cwd
+                  return (
+                    <li key={worktree.path} className={current ? "current" : undefined}>
+                      <span className="scm-worktree-main">
+                        <strong>{worktree.branch}</strong>
+                        <small title={worktree.path}>{worktree.path}</small>
+                      </span>
+                      <span className={`scm-worktree-state ${worktree.dirty ? "dirty" : ""}`}>
+                        {current ? "current" : worktree.prunable ? "stale" : worktree.dirty ? "dirty" : "clean"}
+                      </span>
+                      {!current && !worktree.dirty && !worktree.prunable ? (
+                        <button type="button" className="scm-act" disabled={busy} onClick={() => removeWorktree(worktree)}>
+                          Remove
+                        </button>
+                      ) : null}
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ) : null}
 
           <div className="scm-diff-wrap">
             {selected ? (
