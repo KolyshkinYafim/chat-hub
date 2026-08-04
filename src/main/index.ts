@@ -48,6 +48,7 @@ import {
   TerminalSessions,
 } from "./surfaces"
 import {
+  appendMcpPathsToGitignore,
   materializeMcpForProject,
   mcpListForRenderer,
   probeMcpStatuses,
@@ -873,10 +874,15 @@ function registerIpc(
 
   const envLookup = (serverId: string) => settings.getMcpEnv(serverId)
 
-  async function mcpAfterMutate(cwd: string) {
-    void materializeMcpForProject(cwd, envLookup).catch((err) =>
-      console.error("[mcp] materialize after mutate failed", err),
+  async function mcpAfterMutate(cwd: string, cleanupNames: string[] = []) {
+    const materialized = await materializeMcpForProject(
+      cwd,
+      envLookup,
+      cleanupNames,
     )
+    if (!materialized.ok) {
+      throw new Error(materialized.error || "MCP materialize failed")
+    }
     return mcpListForRenderer(cwd, settings, true)
   }
 
@@ -890,8 +896,13 @@ function registerIpc(
     async (_e, cwd: unknown, server: unknown) => {
       if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
       if (!server || typeof server !== "object") throw new Error("Invalid server")
-      await upsertMcpServer(cwd, server as McpServerDef)
-      return mcpAfterMutate(cwd)
+      const def = server as McpServerDef
+      const before = await readMcpConfig(cwd)
+      const previous = before.servers.find((item) => item.id === def.id)
+      await upsertMcpServer(cwd, def)
+      const cleanupNames =
+        previous && previous.name !== def.name ? [previous.name] : []
+      return mcpAfterMutate(cwd, cleanupNames)
     },
   )
 
@@ -900,8 +911,19 @@ function registerIpc(
     async (_e, cwd: unknown, id: unknown) => {
       if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
       if (typeof id !== "string" || !id) throw new Error("Invalid id")
+      const before = await readMcpConfig(cwd)
+      const previous = before.servers.find((item) => item.id === id)
       await removeMcpServer(cwd, id)
-      return mcpAfterMutate(cwd)
+      const materialized = await materializeMcpForProject(
+        cwd,
+        envLookup,
+        previous ? [previous.name] : [],
+      )
+      if (!materialized.ok) {
+        throw new Error(materialized.error || "MCP materialize failed")
+      }
+      await settings.removeMcpServerEnv(id)
+      return mcpListForRenderer(cwd, settings, true)
     },
   )
 
@@ -942,6 +964,17 @@ function registerIpc(
     const config = await readMcpConfig(cwd)
     return probeMcpStatuses(config.servers)
   })
+
+  ipcMain.handle(
+    IpcChannels.mcpAddGitignore,
+    async (_e, cwd: unknown, paths: unknown) => {
+      if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
+      if (!Array.isArray(paths) || !paths.every((p) => typeof p === "string")) {
+        throw new Error("Invalid paths")
+      }
+      return appendMcpPathsToGitignore(cwd, paths as string[])
+    },
+  )
 }
 
 /**

@@ -52,6 +52,24 @@ export type McpMaterializeResult = {
   ok: boolean
   written: string[]
   error?: string
+  /**
+   * Relative paths among `.mcp.json` / `opencode.json` that exist after
+   * materialize but are not covered by the project's `.gitignore`.
+   * Empty/absent when nothing to warn about (or the folder is not a git repo).
+   */
+  unignoredNative?: string[]
+}
+
+/** Paths that may receive expanded secrets and should usually be gitignored. */
+export const MCP_NATIVE_GITIGNORE_PATHS = [".mcp.json", "opencode.json"] as const
+
+export type McpGitignoreResult = {
+  ok: boolean
+  /** Absolute path of the .gitignore that was written (or would be). */
+  path: string
+  /** Entries actually appended this call. */
+  added: string[]
+  error?: string
 }
 
 export const MCP_REL_PATH = ".chathub/mcp.json"
