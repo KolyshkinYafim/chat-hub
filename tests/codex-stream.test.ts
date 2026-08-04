@@ -134,7 +134,7 @@ describe("renderCodexItem", () => {
     expect(out).toContain("$ npm test")
   })
 
-  it("renders a todo list as checkboxes", () => {
+  it("renders a todo list as a plan tool card", () => {
     const out = renderCodexItem({
       type: "todo_list",
       items: [
@@ -142,8 +142,11 @@ describe("renderCodexItem", () => {
         { text: "ship it", completed: false },
       ],
     })
-    expect(out).toContain("- [x] write it")
-    expect(out).toContain("- [ ] ship it")
+    expect(out).toContain("```tool:TodoWrite")
+    expect(out).toContain('"plan"')
+    expect(out).toContain("write it")
+    expect(out).toContain("ship it")
+    expect(out).not.toContain("- [x]")
   })
 
   it("surfaces an error item instead of dropping it", () => {
