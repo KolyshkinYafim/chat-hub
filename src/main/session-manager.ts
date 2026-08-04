@@ -29,6 +29,7 @@ import type { SettingsStore } from "./settings"
 import { HookRunner } from "./hooks"
 import { inspectAttachmentPaths } from "./attachments"
 import { MessageArchive } from "./message-archive"
+import { createSessionWorktree, removeSessionWorktree } from "./git"
 
 /** Live window size; older turns spill into MessageArchive, not the void. */
 export const MAX_MESSAGES_PER_SESSION = 200
@@ -447,8 +448,14 @@ export class SessionManager {
 
     const now = Date.now()
     const id = randomUUID()
-    const cwd = resolveSessionCwd(input.cwd)
-    const project = normalizeProject(input.project, cwd)
+    const baseCwd = resolveSessionCwd(input.cwd)
+    const project = normalizeProject(input.project, baseCwd)
+    let cwd = baseCwd
+    let worktree: Awaited<ReturnType<typeof createSessionWorktree>> | undefined
+    if (input.worktree) {
+      worktree = await createSessionWorktree(baseCwd, id, input.title || project)
+      cwd = worktree.cwd
+    }
     const model =
       input.model?.trim() || resolved.defaultModel || undefined
     const session: SessionMeta = {
@@ -459,6 +466,9 @@ export class SessionManager {
       instanceId,
       model,
       cwd,
+      ...(worktree
+        ? { baseCwd, branch: worktree.branch, worktreePath: worktree.path }
+        : {}),
       status: "idle",
       createdAt: now,
       updatedAt: now,
@@ -486,6 +496,11 @@ export class SessionManager {
       this.sessions.delete(id)
       this.messages.delete(id)
       this.activeSessionId = previousActive
+      if (worktree) {
+        await removeSessionWorktree(baseCwd, worktree.path).catch((cleanupErr) =>
+          console.warn("[session-manager] worktree cleanup failed", cleanupErr),
+        )
+      }
       throw err
     }
 
@@ -804,6 +819,12 @@ export class SessionManager {
       // ignore dispose errors
     }
 
+    if (session.worktreePath && session.baseCwd) {
+      await removeSessionWorktree(session.baseCwd, session.worktreePath).catch((err) =>
+        console.warn("[session-manager] worktree cleanup skipped", err),
+      )
+    }
+
     this.sessions.delete(sessionId)
     this.messages.delete(sessionId)
     this.turns.delete(sessionId)
@@ -837,6 +858,12 @@ export class SessionManager {
         /* ignore */
       }
       this.publishSessionEvent({ type: "session.ended", id, reason: "killed" })
+      const session = this.sessions.get(id)
+      if (session?.worktreePath && session.baseCwd) {
+        await removeSessionWorktree(session.baseCwd, session.worktreePath).catch((err) =>
+          console.warn("[session-manager] worktree cleanup skipped", err),
+        )
+      }
     }
     this.sessions.clear()
     this.messages.clear()

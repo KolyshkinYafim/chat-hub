@@ -6,8 +6,9 @@ work recoverable and reviewable.
 ## Implemented
 
 - `state.json` keeps only the newest 200 messages per session.
-- Complete transcripts live in `data/transcripts/<session-id>.json` and are
-  migrated from legacy `state.json` tails on first boot.
+- Overflow messages are appended to
+  `data/sessions/<session-id>/archive.jsonl`; the archive is read lazily when
+  the renderer scrolls above the in-memory tail.
 - The renderer requests older pages when the transcript reaches the top, and
   restores scroll position after prepending them.
 - New sessions can opt into an isolated `~/.chathub/worktrees/<project>/…`
@@ -21,7 +22,8 @@ work recoverable and reviewable.
 
 ## Verification
 
-- Full Vitest suite: 383 passed, 4 live-only tests skipped.
+- Full Vitest suite, TypeScript checks, and the production Electron build are
+  run as merge gates (the exact count is reported by CI for the current main).
 - Node and web TypeScript checks pass.
 - Production Electron build passes.
 - Dedicated tests cover transcript migration/tail paging, path traversal
