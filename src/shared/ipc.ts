@@ -26,6 +26,8 @@ export const IpcChannels = {
   gitBranches: "git:branches",
   gitCheckout: "git:checkout",
   gitCommitStaged: "git:commit-staged",
+  gitPush: "git:push",
+  gitCreatePr: "git:create-pr",
   getSettings: "settings:get",
   setPermissionMode: "settings:permission",
   getProviderStatuses: "providers:status",
