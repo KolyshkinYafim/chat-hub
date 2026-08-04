@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron"
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from "electron"
 import { join } from "node:path"
 import { realpathSync, statSync } from "node:fs"
 import { IpcChannels } from "@shared/ipc"
@@ -47,6 +47,7 @@ import {
   registerSurfaceIpc,
   TerminalSessions,
 } from "./surfaces"
+import { inspectAttachmentPaths } from "./attachments"
 
 const REAL_PROVIDER_IDS: ProviderId[] = [
   "claude",
@@ -776,6 +777,11 @@ function registerIpc(
     return result.filePaths
   })
 
+  ipcMain.handle(IpcChannels.inspectAttachments, (_e, paths: unknown) => {
+    if (!Array.isArray(paths)) return []
+    return inspectAttachmentPaths(paths.filter((path): path is string => typeof path === "string"))
+  })
+
   ipcMain.handle(
     IpcChannels.savePastedImage,
     async (_e, bytes: unknown, ext: unknown) => {
@@ -800,7 +806,7 @@ function registerIpc(
     },
   )
 
-  ipcMain.handle(IpcChannels.readImageDataUrl, async (_e, target: unknown) => {
+  ipcMain.handle(IpcChannels.readImageDataUrl, async (_e, target: unknown, requestedMax: unknown) => {
     if (typeof target !== "string" || !target) return null
     const ext = target.slice(target.lastIndexOf(".") + 1).toLowerCase()
     const mime: Record<string, string> = {
@@ -814,6 +820,24 @@ function registerIpc(
     }
     if (!mime[ext]) return null
     try {
+      const maxDimension =
+        typeof requestedMax === "number" && Number.isFinite(requestedMax)
+          ? Math.max(32, Math.min(1024, Math.round(requestedMax)))
+          : null
+      if (maxDimension) {
+        const image = nativeImage.createFromPath(target)
+        if (image.isEmpty()) return null
+        const size = image.getSize()
+        const scale = Math.min(1, maxDimension / Math.max(size.width, size.height))
+        const thumbnail = scale < 1
+          ? image.resize({
+              width: Math.max(1, Math.round(size.width * scale)),
+              height: Math.max(1, Math.round(size.height * scale)),
+              quality: "good",
+            })
+          : image
+        return thumbnail.toDataURL()
+      }
       const buf = await readFile(target)
       // A pasted screenshot is ~1-4MB; cap so a mis-attached huge file can't wedge
       // the renderer with a giant data URL.
