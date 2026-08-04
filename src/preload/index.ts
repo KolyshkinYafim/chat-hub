@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron"
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron"
 import { IpcChannels } from "@shared/ipc"
 import type {
   CreateSessionInput,
@@ -6,6 +6,7 @@ import type {
   GitCheckoutInfo,
   GitWorkingCopy,
   HubEvent,
+  MessageAttachment,
   PermissionRequestInfo,
   Project,
   ProviderId,
@@ -164,13 +165,19 @@ const api = {
     ipcRenderer.invoke(IpcChannels.setSessionTitle, sessionId, title),
   pickFiles: (): Promise<string[]> =>
     ipcRenderer.invoke(IpcChannels.pickFiles),
+  inspectAttachments: (paths: string[]): Promise<MessageAttachment[]> =>
+    ipcRenderer.invoke(IpcChannels.inspectAttachments, paths),
+  /** Resolve a dropped browser File without exposing Node APIs to the renderer. */
+  getPathForDroppedFile: (
+    file: Parameters<typeof webUtils.getPathForFile>[0],
+  ): string => webUtils.getPathForFile(file),
   /** Persist a pasted/dropped image blob to disk; returns its absolute path so
    *  the composer can attach it exactly like a file the picker returned. */
   savePastedImage: (bytes: Uint8Array, ext: string): Promise<string> =>
     ipcRenderer.invoke(IpcChannels.savePastedImage, bytes, ext),
   /** Read a local image as a data: URL for inline preview. null if unreadable. */
-  readImageDataUrl: (path: string): Promise<string | null> =>
-    ipcRenderer.invoke(IpcChannels.readImageDataUrl, path),
+  readImageDataUrl: (path: string, maxDimension?: number): Promise<string | null> =>
+    ipcRenderer.invoke(IpcChannels.readImageDataUrl, path, maxDimension),
   /** Project board (.chathub/board.json) — todos + agent notes. */
   boardRead: (cwd: string): Promise<Board> =>
     ipcRenderer.invoke(IpcChannels.boardRead, cwd),
