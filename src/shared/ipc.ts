@@ -34,6 +34,7 @@ export const IpcChannels = {
   setSessionPermission: "session:set-permission",
   setSessionTitle: "session:set-title",
   pickFiles: "dialog:pick-files",
+  inspectAttachments: "fs:inspect-attachments",
   savePastedImage: "clipboard:save-image",
   readImageDataUrl: "fs:read-image-data-url",
   listProjects: "projects:list-pinned",
