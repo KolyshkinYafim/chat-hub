@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest"
 import type { ChatMessage } from "@shared/types"
 import {
   excerpt,
+  mergeTranscriptHits,
   MIN_TRANSCRIPT_QUERY,
   searchTranscripts,
-} from "@renderer/lib/search"
+  type TranscriptHit,
+} from "@shared/search"
 
 function msg(id: string, sessionId: string, content: string): ChatMessage {
   return { id, sessionId, role: "assistant", content, createdAt: 0 }
@@ -64,5 +66,29 @@ describe("searchTranscripts", () => {
 
   it("returns nothing when no transcript matches", () => {
     expect(searchTranscripts("kubernetes", messages).size).toBe(0)
+  })
+})
+
+describe("mergeTranscriptHits", () => {
+  function hit(sessionId: string, messageId: string, hits: number): TranscriptHit {
+    return { sessionId, messageId, snippet: "…", matchStart: 0, matchLength: 1, hits }
+  }
+
+  it("adds an archive-only session to the result", () => {
+    const merged = mergeTranscriptHits(new Map(), [hit("s9", "a3", 2)])
+    expect(merged.get("s9")?.messageId).toBe("a3")
+    expect(merged.get("s9")?.hits).toBe(2)
+  })
+
+  it("keeps the loaded hit as the landing point and sums the counts", () => {
+    const loaded = new Map([["s1", hit("s1", "m2", 3)]])
+    const merged = mergeTranscriptHits(loaded, [hit("s1", "a7", 4)])
+    expect(merged.get("s1")?.messageId).toBe("m2")
+    expect(merged.get("s1")?.hits).toBe(7)
+  })
+
+  it("leaves the loaded map untouched when the archive found nothing", () => {
+    const loaded = new Map([["s1", hit("s1", "m2", 1)]])
+    expect(mergeTranscriptHits(loaded, [])).toBe(loaded)
   })
 })

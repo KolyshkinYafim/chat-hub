@@ -28,7 +28,12 @@ import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
 import type { SettingsStore } from "./settings"
 import { HookRunner } from "./hooks"
 import { inspectAttachmentPaths } from "./attachments"
-import { MessageArchive } from "./message-archive"
+import { MessageArchive, type ArchivedContext } from "./message-archive"
+import {
+  MIN_TRANSCRIPT_QUERY,
+  type ArchiveSearchResult,
+  type TranscriptHit,
+} from "@shared/search"
 import { createSessionWorktree, removeSessionWorktree } from "./git"
 
 /** Live window size; older turns spill into MessageArchive, not the void. */
@@ -140,6 +145,46 @@ export class SessionManager {
     }
     const page = await this.archive.loadBefore(sessionId, beforeMessageId, limit)
     return { ...page, hasArchive: true }
+  }
+
+  /**
+   * One contiguous archive page reaching back to `targetMessageId`, for opening
+   * a search hit that the renderer has never loaded.
+   */
+  async loadArchiveThrough(
+    sessionId: string,
+    beforeMessageId: string | null,
+    targetMessageId: string,
+  ): Promise<ArchivedContext> {
+    await this.archiveWrites.get(sessionId)
+    return this.archive.loadThrough(sessionId, beforeMessageId, targetMessageId)
+  }
+
+  /**
+   * Full-text search over the archived halves of every session's transcript.
+   * `loadedFrom` maps a session to the oldest message the renderer is holding,
+   * so each side searches only what the other cannot see.
+   */
+  async searchArchivedTranscripts(
+    query: string,
+    loadedFrom: Record<string, string | null>,
+  ): Promise<ArchiveSearchResult> {
+    const q = query.trim()
+    if (q.length < MIN_TRANSCRIPT_QUERY) return { hits: [], truncated: false }
+
+    const hits: TranscriptHit[] = []
+    let truncated = false
+    for (const sessionId of this.archivedSessions) {
+      if (!this.sessions.has(sessionId)) continue
+      const found = await this.archive.search(
+        sessionId,
+        q,
+        loadedFrom[sessionId] ?? null,
+      )
+      if (found.truncated) truncated = true
+      if (found.hit) hits.push(found.hit)
+    }
+    return { hits, truncated }
   }
 
   /**

@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { ChatMessage, SessionMeta, SessionUsage } from "@shared/types"
 import { quarantineCorrupt, writeFileAtomic } from "./atomic-write"
+import { dropLegacyMessageFieldsIn } from "./legacy-message"
 
 export type PersistedState = {
   version: 1
@@ -37,7 +38,7 @@ export class Persistence {
       return {
         version: 1,
         sessions: data.sessions,
-        messages: data.messages ?? {},
+        messages: stripLegacyFields(data.messages ?? {}),
         usage: data.usage ?? {},
         activeSessionId: data.activeSessionId ?? null,
       }
@@ -57,4 +58,14 @@ export class Persistence {
   static defaultPath(userData: string): string {
     return join(userData, "data", "state.json")
   }
+}
+
+function stripLegacyFields(
+  messages: Record<string, ChatMessage[]>,
+): Record<string, ChatMessage[]> {
+  const out: Record<string, ChatMessage[]> = {}
+  for (const [sessionId, list] of Object.entries(messages)) {
+    out[sessionId] = Array.isArray(list) ? dropLegacyMessageFieldsIn(list) : []
+  }
+  return out
 }

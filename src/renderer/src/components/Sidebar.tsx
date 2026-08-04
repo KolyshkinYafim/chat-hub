@@ -1,8 +1,19 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { ChatMessage, Project, SessionMeta } from "@shared/types"
+import {
+  MIN_TRANSCRIPT_QUERY,
+  mergeTranscriptHits,
+  searchTranscripts,
+  type ArchiveSearchResult,
+  type TranscriptHit,
+} from "@shared/search"
 import { formatRelative, statusLabel } from "../lib/format"
-import { searchTranscripts, type TranscriptHit } from "../lib/search"
 import { StatusDot } from "./StatusDot"
+
+/** Long enough that a typed word is one archive scan, not one per keystroke. */
+const ARCHIVE_SEARCH_DEBOUNCE_MS = 220
+
+const NO_ARCHIVE_HITS: ArchiveSearchResult = { hits: [], truncated: false }
 
 type Props = {
   sessions: SessionMeta[]
@@ -67,9 +78,57 @@ export function Sidebar({
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [showArchived, setShowArchived] = useState(false)
 
-  const hits = useMemo(
+  const [archiveHits, setArchiveHits] =
+    useState<ArchiveSearchResult>(NO_ARCHIVE_HITS)
+
+  const loadedHits = useMemo(
     () => searchTranscripts(query, messagesBySession),
     [query, messagesBySession],
+  )
+
+  // Where each session's loaded transcript starts — the boundary main searches
+  // up to. Deriving the effect's dep from this rather than from the messages
+  // themselves is what keeps a streaming turn from re-scanning every archive on
+  // every token: a token moves no boundary, a loaded archive page does.
+  const loadedFrom = useMemo(() => {
+    const out: Record<string, string | null> = {}
+    for (const [id, list] of Object.entries(messagesBySession)) {
+      out[id] = list[0]?.id ?? null
+    }
+    return out
+  }, [messagesBySession])
+  const boundaries = useMemo(() => JSON.stringify(loadedFrom), [loadedFrom])
+  const loadedFromRef = useRef(loadedFrom)
+  useEffect(() => {
+    loadedFromRef.current = loadedFrom
+  }, [loadedFrom])
+
+  useEffect(() => {
+    const q = query.trim()
+    if (q.length < MIN_TRANSCRIPT_QUERY) {
+      setArchiveHits(NO_ARCHIVE_HITS)
+      return
+    }
+    let live = true
+    const timer = window.setTimeout(() => {
+      void window.chatHub
+        .searchArchivedTranscripts(q, loadedFromRef.current)
+        .then((result) => {
+          if (live) setArchiveHits(result)
+        })
+        .catch(() => {
+          if (live) setArchiveHits(NO_ARCHIVE_HITS)
+        })
+    }, ARCHIVE_SEARCH_DEBOUNCE_MS)
+    return () => {
+      live = false
+      window.clearTimeout(timer)
+    }
+  }, [query, boundaries])
+
+  const hits = useMemo(
+    () => mergeTranscriptHits(loadedHits, archiveHits.hits),
+    [loadedHits, archiveHits],
   )
 
   const archivedSessions = useMemo(
@@ -374,6 +433,13 @@ export function Sidebar({
       {transcriptOnly > 0 ? (
         <div className="search-note">
           {transcriptOnly} found by message text only
+        </div>
+      ) : null}
+
+      {archiveHits.truncated ? (
+        <div className="search-note search-note-warn">
+          Archived history is deeper than one scan — the oldest messages were
+          not searched.
         </div>
       ) : null}
 

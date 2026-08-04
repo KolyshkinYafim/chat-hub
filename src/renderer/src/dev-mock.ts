@@ -19,6 +19,13 @@ import type {
   SettingsSnapshot,
 } from "@shared/settings-types"
 import type { McpServerDef } from "@shared/mcp"
+import {
+  ARCHIVE_JUMP_LIMIT,
+  ARCHIVE_SEARCH_SCAN_LIMIT,
+  excerpt,
+  MIN_TRANSCRIPT_QUERY,
+  type TranscriptHit,
+} from "@shared/search"
 import { encodeToolCardMeta, type ToolCardMeta } from "@shared/tool-card"
 import {
   BINARY_TYPE,
@@ -267,6 +274,45 @@ const messages: Record<string, ChatMessage[]> = {
     { id: "m6", sessionId: "s3", role: "user", content: "Reward curve is too flat past level 30 — players stop grinding there.", createdAt: now - 31e4 },
     { id: "m7", sessionId: "s3", role: "assistant", content: "Raised the late-game slope and re-ran the simulation: median session length goes from 14 to 21 minutes.", createdAt: now - 3e5 },
   ],
+}
+
+/**
+ * What s1 spilled out of the live window. Search and scroll-back are only
+ * honest once there is more transcript than memory holds, so the mock keeps a
+ * deeper archive than one scan covers: "zeppelin" sits inside the scan budget
+ * and can be opened, "wintergreen" sits behind it and must be reported missed.
+ */
+const ARCHIVE_TURNS = 2400
+const archivedMessages: Record<string, ChatMessage[]> = {
+  s1: Array.from({ length: ARCHIVE_TURNS }, (_, i) => {
+    const asked = i % 2 === 0
+    let content = asked
+      ? `Turn ${i}: check whether the session store still double-writes on retry.`
+      : `Turn ${i}: rechecked the store — the retry path writes once, the metric was double-counting.`
+    if (i === 50) {
+      content = `Turn ${i}: parked the wintergreen migration until the schema lock lands.`
+    }
+    if (i === 2100) {
+      content = `Turn ${i}: the zeppelin deploy script still points at the retired staging host.`
+    }
+    return {
+      id: `a${i}`,
+      sessionId: "s1",
+      role: asked ? "user" : "assistant",
+      content,
+      createdAt: now - 26e4 - (ARCHIVE_TURNS - i) * 6e4,
+    }
+  }),
+}
+
+/** Where the caller's own transcript starts, as an index into the archive. */
+function mockArchiveEnd(
+  all: ChatMessage[],
+  beforeMessageId: string | null,
+): number {
+  if (!beforeMessageId) return all.length
+  const idx = all.findIndex((m) => m.id === beforeMessageId)
+  return idx === -1 ? all.length : idx
 }
 
 // s1 is mid-turn, so a follow-up sits in the queue — that is the state the
@@ -658,12 +704,65 @@ export function installDevMock(): void {
     getSnapshot: async () => snapshot,
     listSessions: async () => sessions,
     getMessages: async (id: string) => messages[id] ?? [],
-    loadArchivedMessages: async () => ({
-      messages: [],
-      hasMore: false,
-      hasArchive: false,
-    }),
-    hasArchivedMessages: async () => false,
+    loadArchivedMessages: async (sessionId, beforeMessageId, limit = 50) => {
+      const all = archivedMessages[sessionId] ?? []
+      if (all.length === 0) {
+        return { messages: [], hasMore: false, hasArchive: false }
+      }
+      const end = mockArchiveEnd(all, beforeMessageId)
+      if (end <= 0) return { messages: [], hasMore: false, hasArchive: true }
+      const start = Math.max(0, end - Math.max(1, Math.min(limit, 200)))
+      return {
+        messages: all.slice(start, end),
+        hasMore: start > 0,
+        hasArchive: true,
+      }
+    },
+    hasArchivedMessages: async (sessionId) =>
+      (archivedMessages[sessionId] ?? []).length > 0,
+    loadArchiveThrough: async (sessionId, beforeMessageId, targetMessageId) => {
+      const all = archivedMessages[sessionId] ?? []
+      const end = mockArchiveEnd(all, beforeMessageId)
+      const target = all.findIndex((m) => m.id === targetMessageId)
+      if (target === -1) {
+        return { messages: [], hasMore: end > 0, reachedTarget: false }
+      }
+      if (target >= end) {
+        return { messages: [], hasMore: end > 0, reachedTarget: true }
+      }
+      let start = Math.max(0, target - 10)
+      if (end - start > ARCHIVE_JUMP_LIMIT) start = end - ARCHIVE_JUMP_LIMIT
+      return {
+        messages: all.slice(start, end),
+        hasMore: start > 0,
+        reachedTarget: start <= target,
+      }
+    },
+    searchArchivedTranscripts: async (query, loadedFrom) => {
+      const q = query.trim()
+      if (q.length < MIN_TRANSCRIPT_QUERY) {
+        return { hits: [], truncated: false }
+      }
+      const hits: TranscriptHit[] = []
+      let truncated = false
+      for (const [sessionId, all] of Object.entries(archivedMessages)) {
+        const end = mockArchiveEnd(all, loadedFrom[sessionId] ?? null)
+        if (end <= 0) continue
+        const start = Math.max(0, end - ARCHIVE_SEARCH_SCAN_LIMIT)
+        if (start > 0) truncated = true
+        let latest: TranscriptHit | null = null
+        let count = 0
+        for (let i = end - 1; i >= start; i--) {
+          const message = all[i]
+          const found = message ? excerpt(message.content, q) : null
+          if (!message || !found) continue
+          count += 1
+          latest ??= { sessionId, messageId: message.id, ...found, hits: 0 }
+        }
+        if (latest) hits.push({ ...latest, hits: count })
+      }
+      return { hits, truncated }
+    },
     listProviders: async () => [
       { id: "claude", label: "Claude Code", available: true, description: "Real CLI" },
       { id: "codex", label: "Codex CLI", available: true, description: "Real CLI" },

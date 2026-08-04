@@ -484,8 +484,12 @@ export function ChatView({
     // Deltas arrive per token; yanking the view down on each one makes the
     // scrollback unreadable while an agent works. Only follow if pinned.
     if (!atBottomRef.current) return
+    // A pending jump lands in the same commit that delivers the messages it was
+    // waiting for, and this effect runs first — following the tail here would
+    // scroll past the hit before the jump below ever sees it.
+    if (highlightMessageId && flashedRef.current !== highlightMessageId) return
     bottomRef.current?.scrollIntoView({ block: "end" })
-  }, [messages, session?.id])
+  }, [messages, session?.id, highlightMessageId])
 
   useEffect(() => {
     // Re-run on `messages` too: a jump into a session whose transcript is still
@@ -505,7 +509,17 @@ export function ChatView({
     // scroll fires, or the next delta yanks the user away from the hit.
     atBottomRef.current = false
     setAtBottom(false)
-    el.scrollIntoView({ behavior: "smooth", block: "center" })
+    // A smooth scroll across a freshly loaded archive never arrives: the browser
+    // drops the animation while those pages settle their layout. Glide for a hop
+    // inside the scrollback, jump outright when the hit is a transcript away.
+    const node = transcriptRef.current
+    const away = node
+      ? Math.abs(el.getBoundingClientRect().top - node.getBoundingClientRect().top)
+      : 0
+    el.scrollIntoView({
+      behavior: node && away > node.clientHeight * 3 ? "auto" : "smooth",
+      block: "center",
+    })
     el.classList.add("hit-flash")
     const timer = window.setTimeout(() => {
       el.classList.remove("hit-flash")

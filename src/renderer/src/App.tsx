@@ -135,6 +135,8 @@ export default function App() {
 
   const activeIdRef = useRef<string | null>(null)
   const selectSessionRef = useRef<(id: string) => void>(() => {})
+  // Read after an await, where the value this render closed over is already old.
+  const messagesBySessionRef = useRef(messagesBySession)
   // applyEvent below is a stable (empty-deps) callback bridging main-process
   // events into state; it needs the latest dock/surface/pref values without
   // taking them as deps (which would re-subscribe the IPC listener on every
@@ -405,6 +407,10 @@ export default function App() {
   }, [activeId])
 
   useEffect(() => {
+    messagesBySessionRef.current = messagesBySession
+  }, [messagesBySession])
+
+  useEffect(() => {
     dockOpenRef.current = dockOpen
   }, [dockOpen])
 
@@ -483,9 +489,45 @@ export default function App() {
     })
   }
 
-  function jumpToMessage(sessionId: string, messageId: string) {
+  async function jumpToMessage(sessionId: string, messageId: string) {
     setHighlight({ sessionId, messageId })
-    if (sessionId !== activeIdRef.current) void selectSession(sessionId)
+    if (sessionId !== activeIdRef.current) await selectSession(sessionId)
+
+    const loaded = messagesBySessionRef.current[sessionId] ?? []
+    if (loaded.some((m) => m.id === messageId)) return
+
+    // The hit came out of archive.jsonl, so nothing on screen can scroll to it
+    // until the pages between here and there are pulled in.
+    loadingOlderRef.current = true
+    setLoadingOlder(true)
+    try {
+      const page = await window.chatHub.loadArchiveThrough(
+        sessionId,
+        loaded[0]?.id ?? null,
+        messageId,
+      )
+      if (page.messages.length > 0) {
+        setMessagesBySession((curr) => {
+          const existing = curr[sessionId] ?? []
+          const seen = new Set(existing.map((m) => m.id))
+          const older = page.messages.filter((m) => !seen.has(m.id))
+          return { ...curr, [sessionId]: [...older, ...existing] }
+        })
+        setOverflowHasMore((curr) => ({ ...curr, [sessionId]: page.hasMore }))
+      }
+      if (!page.reachedTarget) {
+        setHighlight(null)
+        setError(
+          "That match sits further back than one jump can load — keep scrolling up in the transcript to reach it.",
+        )
+      }
+    } catch (err) {
+      setHighlight(null)
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      loadingOlderRef.current = false
+      setLoadingOlder(false)
+    }
   }
 
   const clearHighlight = useCallback(() => setHighlight(null), [])
