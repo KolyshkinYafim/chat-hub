@@ -15,6 +15,13 @@ export type Block =
       meta: ToolCardMeta
       result?: boolean
     }
+  /** TodoWrite / update_plan — checklist card, not a generic tool row. */
+  | {
+      kind: "plan"
+      name: string
+      body: string
+      meta: ToolCardMeta
+    }
   | { kind: "p"; text: string }
 
 const FENCE = /^(`{3,})(.*)$/
@@ -60,12 +67,13 @@ export function splitBlocks(src: string): Block[] {
         })
       } else if (lang.startsWith("tool:")) {
         const { meta, body } = decodeToolCardMeta(buf.join("\n"))
-        out.push({
-          kind: "tool",
-          name: lang.slice(5) || "tool",
-          body,
-          meta,
-        })
+        const name = lang.slice(5) || "tool"
+        // Plan tools carry steps in meta — surface as a checklist, not a tool run.
+        if (meta.plan && meta.plan.length > 0) {
+          out.push({ kind: "plan", name, body, meta })
+        } else {
+          out.push({ kind: "tool", name, body, meta })
+        }
       } else {
         out.push({ kind: "code", lang, code: buf.join("\n") })
       }

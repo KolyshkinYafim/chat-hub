@@ -10,6 +10,11 @@ import {
   touchedFileFromTool,
 } from "../src/main/adapters/stream-parse"
 import type { AdapterCallbacks } from "../src/main/adapters/types"
+import {
+  decodeToolCardMeta,
+  normalizePlanStatus,
+  planStepsFromInput,
+} from "../src/shared/tool-card"
 
 function callbacks() {
   return {
@@ -209,6 +214,77 @@ describe("toolUseBlock", () => {
     expect(toolUseBlock("Weird", { q: 1 })).toContain('{"q":1}')
     expect(toolUseBlock("Weird", {})).toContain("(no args)")
     expect(toolUseBlock("Weird", undefined)).toContain("(no args)")
+  })
+
+  it("encodes Claude TodoWrite as plan meta (round-trips)", () => {
+    const out = toolUseBlock(
+      "TodoWrite",
+      {
+        todos: [
+          { content: "Scaffold", status: "completed" },
+          { content: "Wire IPC", status: "in_progress" },
+          { content: "Ship", status: "pending" },
+        ],
+      },
+      "todo-1",
+    )
+    expect(out).toContain("```tool:TodoWrite")
+    expect(out).not.toContain('"todos"')
+    const fence = /```tool:TodoWrite\n([\s\S]*?)\n```/.exec(out)?.[1] ?? ""
+    const { meta } = decodeToolCardMeta(fence)
+    expect(meta.id).toBe("todo-1")
+    expect(meta.plan).toEqual([
+      { text: "Scaffold", status: "completed" },
+      { text: "Wire IPC", status: "in_progress" },
+      { text: "Ship", status: "pending" },
+    ])
+  })
+
+  it("encodes Codex update_plan with status aliases", () => {
+    const out = toolUseBlock("update_plan", {
+      explanation: "Ship the feature",
+      plan: [
+        { step: "Design", status: "completed" },
+        { step: "Implement", status: "inProgress" },
+        { step: "Test", status: "pending" },
+      ],
+    })
+    expect(out).toContain("```tool:update_plan")
+    const fence = /```tool:update_plan\n([\s\S]*?)\n```/.exec(out)?.[1] ?? ""
+    const { meta } = decodeToolCardMeta(fence)
+    expect(meta.plan?.map((s) => s.status)).toEqual([
+      "completed",
+      "in_progress",
+      "pending",
+    ])
+    expect(meta.plan?.[1]?.text).toBe("Implement")
+  })
+})
+
+describe("planStepsFromInput", () => {
+  it("normalizes status aliases", () => {
+    expect(normalizePlanStatus("inProgress")).toBe("in_progress")
+    expect(normalizePlanStatus("running")).toBe("in_progress")
+    expect(normalizePlanStatus("done")).toBe("completed")
+    expect(normalizePlanStatus("pending")).toBe("pending")
+  })
+
+  it("reads todos / plan / items shapes", () => {
+    expect(
+      planStepsFromInput({
+        todos: [{ content: "a", status: "pending" }],
+      }),
+    ).toEqual([{ text: "a", status: "pending" }])
+    expect(
+      planStepsFromInput({
+        plan: [{ step: "b", status: "completed" }],
+      }),
+    ).toEqual([{ text: "b", status: "completed" }])
+    expect(
+      planStepsFromInput({
+        items: [{ text: "c", completed: true }],
+      }),
+    ).toEqual([{ text: "c", status: "completed" }])
   })
 })
 

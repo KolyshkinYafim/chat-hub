@@ -28,6 +28,7 @@ import {
 } from "@shared/permission"
 import type { Mode, ModelInfo } from "@shared/settings-types"
 import { formatClock } from "../lib/format"
+import { PlanSteps, toPlanSteps } from "./PlanSteps"
 import { formatSessionUsage, formatUsage, usageDetail } from "../lib/usage"
 import { MarkdownBody } from "./MarkdownBody"
 import { TopBar } from "./TopBar"
@@ -119,11 +120,12 @@ function ItemBody({ item }: { item: AgentTurnItem }) {
       return <div className="activity-text">{item.summary}</div>
     case "plan":
       return item.steps?.length ? (
-        <ol className="activity-plan">
-          {item.steps.map((step, index) => (
-            <li key={`${index}-${step.text}`} data-status={step.status}>{step.text}</li>
-          ))}
-        </ol>
+        <PlanSteps
+          steps={toPlanSteps(item.steps)}
+          title={item.text ? `Planning: ${item.text}` : undefined}
+          expandKey={`turn-${item.id}`}
+          defaultOpen
+        />
       ) : <div className="activity-text">{item.text}</div>
     case "command":
       return (
