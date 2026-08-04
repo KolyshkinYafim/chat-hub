@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 import { renderCliFailure } from "../src/main/adapters/failure-message"
 import { extractGrokAction, extractGrokText } from "../src/main/adapters/grok"
+import {
+  formatInteractiveAnswer,
+  InteractiveQuestionStream,
+  parseInteractiveQuestion,
+} from "../src/main/adapters/interactive-input"
 
 describe("Grok Build 0.2.x stream compatibility", () => {
   it("renders the current text/data event instead of completing silently", () => {
@@ -37,5 +42,36 @@ describe("CLI failure copy", () => {
     const rendered = renderCliFailure("Grok", 1, ["Not signed in"])
     expect(rendered).toContain("Not signed in")
     expect(rendered).not.toContain("opencode auth login")
+  })
+})
+
+describe("universal interactive questions", () => {
+  const marker = '<chat-hub-question>{"header":"Deploy","prompt":"Where should I deploy?","options":[{"label":"Staging"}]}</chat-hub-question>'
+
+  it("withholds a split marker from the transcript and produces a form", () => {
+    const stream = new InteractiveQuestionStream()
+    expect(stream.push("Checked the diff.\n\n<chat-hub-que")).toBe("Checked the diff.\n\n")
+    expect(stream.push("stion>{\"header\":\"Deploy\",\"prompt\":\"Where should I deploy?\"}</chat-hub-question>")).toBe("")
+    expect(stream.finish()).toEqual({
+      visible: "",
+      question: {
+        questions: [{ id: "answer", header: "Deploy", prompt: "Where should I deploy?", options: undefined }],
+      },
+    })
+  })
+
+  it("keeps malformed markers visible instead of silently swallowing text", () => {
+    const stream = new InteractiveQuestionStream()
+    stream.push("<chat-hub-question>{bad}</chat-hub-question>")
+    expect(stream.finish()).toEqual({
+      visible: "<chat-hub-question>{bad}</chat-hub-question>",
+      question: null,
+    })
+  })
+
+  it("turns a form answer into an explicit continuation prompt", () => {
+    const question = parseInteractiveQuestion(marker)
+    expect(question).not.toBeNull()
+    expect(formatInteractiveAnswer(question!, { answer: ["Staging"] })).toContain("Staging")
   })
 })

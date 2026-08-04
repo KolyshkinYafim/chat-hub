@@ -1,6 +1,13 @@
 import { findBinary, isExecutable } from "./binary"
 import { buildClaudeArgs } from "./args"
+import {
+  appendInteractiveInputInstruction,
+  formatInteractiveAnswer,
+  InteractiveQuestionStream,
+  type InteractiveQuestion,
+} from "./interactive-input"
 import { runProcess, type RunningProcess } from "./process-runner"
+import { randomUUID } from "node:crypto"
 import {
   beginAssistant,
   beginSnapshotMessage,
@@ -41,6 +48,7 @@ export class ClaudeAdapter implements AgentAdapter {
       claudeSessionId?: string
       binaryPath?: string
       proc?: RunningProcess
+      waitingForInput?: boolean
       /** Set by abort() so the dying turn hands the session to the next send. */
       aborting?: boolean
     }
@@ -117,7 +125,7 @@ export class ClaudeAdapter implements AgentAdapter {
       permissionMode: mode,
       model: opts?.model,
       effort: opts?.effort,
-      systemPrompt: opts?.systemPrompt,
+      systemPrompt: appendInteractiveInputInstruction(opts?.systemPrompt),
       attachments: opts?.attachments,
       resumeId: state.claudeSessionId,
     })
@@ -137,6 +145,15 @@ export class ClaudeAdapter implements AgentAdapter {
     // Reasoning is activity metadata, not answer prose. Keep it in the same
     // first-class collapsible item used by Codex instead of synthetic Markdown.
     let thinking = ""
+    const questionStream = new InteractiveQuestionStream()
+    let continuation: Promise<void> | null = null
+    const pushAssistantText = (text: string) => {
+      const visible = questionStream.push(text)
+      if (!visible) return
+      if (!turn) turn = beginAssistant(sessionId, cb)
+      pushDelta(turn, sessionId, visible, cb)
+      sawText = true
+    }
 
     const proc = runProcess({
       command: bin,
@@ -147,9 +164,7 @@ export class ClaudeAdapter implements AgentAdapter {
         const ev = safeJson(line)
         if (!ev) {
           // plain fallback
-          if (!turn) turn = beginAssistant(sessionId, cb)
-          pushDelta(turn, sessionId, line + "\n", cb)
-          sawText = true
+          pushAssistantText(line + "\n")
           return
         }
 
@@ -203,10 +218,8 @@ export class ClaudeAdapter implements AgentAdapter {
           }
           const delta = extractPartialDelta(ev)
           if (delta) {
-            if (!turn) turn = beginAssistant(sessionId, cb)
-            pushDelta(turn, sessionId, delta, cb)
+            pushAssistantText(delta)
             noteSnapshotDelta(snap, delta)
-            sawText = true
           }
           return
         }
@@ -220,10 +233,8 @@ export class ClaudeAdapter implements AgentAdapter {
             // deltas could not carry (tool cards, and the text if partials are off).
             const extra = snapshotDelta(snap, messageIdOf(msg), text)
             if (extra) {
-              if (!turn) turn = beginAssistant(sessionId, cb)
-              pushDelta(turn, sessionId, extra, cb)
+              pushAssistantText(extra)
             }
-            sawText = true
           }
           const touched = extractTouchedFiles(rawContent)
           if (touched.length && turn) {
@@ -252,9 +263,7 @@ export class ClaudeAdapter implements AgentAdapter {
           usage = readUsage(ev) ?? usage
           // final envelope; text may already be streamed
           if (!turn && typeof ev.result === "string") {
-            turn = beginAssistant(sessionId, cb)
-            pushDelta(turn, sessionId, ev.result, cb)
-            sawText = true
+            pushAssistantText(ev.result)
           }
           return
         }
@@ -278,6 +287,12 @@ export class ClaudeAdapter implements AgentAdapter {
         stderr.push(err.message)
       },
       onExit: (code) => {
+        const completedQuestion = questionStream.finish()
+        if (completedQuestion.visible) {
+          if (!turn) turn = beginAssistant(sessionId, cb)
+          pushDelta(turn, sessionId, completedQuestion.visible, cb)
+          sawText = true
+        }
         if (thinking && turn) {
           cb.onTurnItem(sessionId, turn.messageId, {
             id: "claude-reasoning",
@@ -306,6 +321,14 @@ export class ClaudeAdapter implements AgentAdapter {
             id: sessionId,
             reason: "done",
           })
+          if (completedQuestion.question && cb.onUserInputRequest) {
+            continuation = this.continueAfterQuestion(
+              sessionId,
+              completedQuestion.question,
+              cb,
+              opts,
+            )
+          }
         } else if (code === null) {
           // aborted
           cb.onSessionEvent({
@@ -343,18 +366,50 @@ export class ClaudeAdapter implements AgentAdapter {
 
     state.proc = proc
     await proc.done
+    if (continuation) await continuation
   }
 
   async abort(sessionId: string): Promise<void> {
     const state = this.sessions.get(sessionId)
-    if (!state?.proc) return
+    if (!state) return
     state.aborting = true
-    state.proc.abort()
+    state.proc?.abort()
   }
 
   async dispose(sessionId: string): Promise<void> {
     await this.abort(sessionId)
     this.sessions.delete(sessionId)
+  }
+
+  private async continueAfterQuestion(
+    sessionId: string,
+    question: InteractiveQuestion,
+    cb: AdapterCallbacks,
+    opts: AdapterSendOpts | undefined,
+  ): Promise<void> {
+    const state = this.sessions.get(sessionId)
+    if (!state || !cb.onUserInputRequest) return
+    state.waitingForInput = true
+    const answers = await cb.onUserInputRequest({
+      requestId: `claude-input-${randomUUID()}`,
+      sessionId,
+      source: "claude",
+      questions: question.questions,
+    })
+    state.waitingForInput = false
+    if (state.aborting) {
+      state.aborting = false
+      return
+    }
+    const message = formatInteractiveAnswer(question, answers)
+    cb.onMessage({
+      id: randomUUID(),
+      sessionId,
+      role: "user",
+      content: message,
+      createdAt: Date.now(),
+    })
+    await this.send(sessionId, message, cb, { ...opts, attachments: undefined })
   }
 }
 

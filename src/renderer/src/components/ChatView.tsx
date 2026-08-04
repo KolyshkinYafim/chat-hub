@@ -263,7 +263,7 @@ function AgentInputCard({
         onSubmit(Object.fromEntries(Object.entries(answers).map(([id, answer]) => [id, [answer]])))
       }}
     >
-      <span className="permission-tag">Codex asks</span>
+      <span className="permission-tag">{providerAsksLabel(request.source)}</span>
       {request.questions.map((question) => (
         <fieldset key={question.id}>
           <legend>{question.header || "Question"}</legend>
@@ -297,6 +297,11 @@ function AgentInputCard({
       <button type="submit" className="tb-btn primary" disabled={!complete}>Send answer</button>
     </form>
   )
+}
+
+function providerAsksLabel(source: string): string {
+  const provider = source.split(":", 1)[0] || "Agent"
+  return `${provider.slice(0, 1).toUpperCase()}${provider.slice(1)} asks`
 }
 
 export function ChatView({

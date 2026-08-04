@@ -688,6 +688,10 @@ export class SessionManager {
     const session = this.sessions.get(sessionId)
     if (!session) return
     this.turns.delete(sessionId)
+    // A CLI-style interactive question has no child process while the user is
+    // deciding. Resolve it before aborting the adapter so it cannot resurrect
+    // the just-stopped turn when its promise settles.
+    this.permissions?.cancelForSession(sessionId)
     await getAdapter(session.provider).abort(sessionId)
     this.applyStatus(sessionId, "idle")
     this.dropQueued(sessionId, "the turn was stopped")
