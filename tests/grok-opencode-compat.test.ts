@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { renderCliFailure } from "../src/main/adapters/failure-message"
-import { extractGrokText } from "../src/main/adapters/grok"
+import { extractGrokAction, extractGrokText } from "../src/main/adapters/grok"
 
 describe("Grok Build 0.2.x stream compatibility", () => {
   it("renders the current text/data event instead of completing silently", () => {
@@ -9,6 +9,20 @@ describe("Grok Build 0.2.x stream compatibility", () => {
 
   it("does not leak reasoning events into the transcript", () => {
     expect(extractGrokText({ type: "thought", data: "internal" })).toBe("")
+  })
+
+  it("normalizes a tool lifecycle event into structured activity", () => {
+    expect(extractGrokAction({
+      type: "tool_call",
+      id: "call-1",
+      name: "Read",
+      input: { path: "src/a.ts" },
+    })).toMatchObject({
+      id: "grok-call-1",
+      kind: "tool",
+      status: "running",
+      name: "Read",
+    })
   })
 })
 

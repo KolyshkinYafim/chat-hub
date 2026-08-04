@@ -26,25 +26,18 @@ export function TopBar({
   onRename,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
+  // Provider/model/permission/effort live in system-banner + composer chips —
+  // keep the bar single-line with status, project path and git only.
   return (
     <header className="topbar">
       <div className="topbar-left">
+        <StatusDot status={session.status} />
         <h1 className="topbar-title" title="Double-click to rename">
           <button type="button" className="title-btn" onClick={onRename}>
             {session.title}
           </button>
         </h1>
-        <div className="topbar-sub">
-          <StatusDot status={session.status} showLabel />
-          <span className="sep">·</span>
-          <span className="mono-soft">{session.provider}</span>
-          {session.model ? (
-            <>
-              <span className="sep">·</span>
-              <span className="mono-soft">{session.model}</span>
-            </>
-          ) : null}
-          <span className="sep">·</span>
+        <div className="topbar-meta">
           <span className="mono-soft">{session.project}</span>
           <span className="sep">·</span>
           <span className="mono-soft" title={session.cwd}>
