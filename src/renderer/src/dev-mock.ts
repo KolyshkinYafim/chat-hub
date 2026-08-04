@@ -581,6 +581,8 @@ export function installDevMock(): void {
     gitUnstage: async (cwd: string) => api.gitStatus!(cwd),
     gitCheckout: async () => ({ ok: true, output: "Switched branch" }),
     gitCommitStaged: async () => ({ ok: true, output: "[main abc1234] 1 file changed" }),
+    gitPush: async () => ({ ok: true, output: "Everything up-to-date" }),
+    gitCreatePr: async () => ({ ok: true, output: "https://github.com/example/chat-hub/pull/1" }),
     onHubEvent: () => () => {},
     mcpList: async () => ({
       config: { version: 1 as const, servers: mockMcpServers },

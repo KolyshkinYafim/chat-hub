@@ -103,6 +103,8 @@ export function SourceControl({
   const [selected, setSelected] = useState<Row | null>(null)
   const [diff, setDiff] = useState<string | null>(null)
   const [message, setMessage] = useState("")
+  const [prTitle, setPrTitle] = useState("")
+  const [prDraft, setPrDraft] = useState(true)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const liveRef = useRef(true)
@@ -128,6 +130,7 @@ export function SourceControl({
     setSelected(null)
     setDiff(null)
     setNotice(null)
+    setPrTitle("")
     void reload()
   }, [reload, refreshKey])
 
@@ -257,6 +260,15 @@ export function SourceControl({
     }
   }
 
+  function push() {
+    void run(() => window.chatHub.gitPush(cwd))
+  }
+
+  function createPr() {
+    const title = prTitle.trim() || copy.branch
+    void run(() => window.chatHub.gitCreatePr(cwd, title, message.trim(), prDraft))
+  }
+
   function fileRow(row: Row) {
     const key = rowKey(row)
     const active = selected ? rowKey(selected) === key : false
@@ -362,6 +374,15 @@ export function SourceControl({
             >
               ↻
             </button>
+            <button
+              type="button"
+              className="scm-act"
+              disabled={busy || copy.branch === "HEAD" || copy.branch === "no-git"}
+              title="Push current branch to origin"
+              onClick={push}
+            >
+              Push
+            </button>
           </div>
 
           {notice ? <div className="scm-notice">{notice}</div> : null}
@@ -450,6 +471,31 @@ export function SourceControl({
             >
               Commit {staged.length > 0 ? `(${staged.length})` : ""}
             </button>
+            <div className="scm-pr-row">
+              <input
+                value={prTitle}
+                placeholder={`PR title · ${copy.branch}`}
+                onChange={(event) => setPrTitle(event.currentTarget.value)}
+                disabled={busy}
+              />
+              <label>
+                <input
+                  type="checkbox"
+                  checked={prDraft}
+                  onChange={(event) => setPrDraft(event.currentTarget.checked)}
+                  disabled={busy}
+                />
+                Draft
+              </label>
+              <button
+                type="button"
+                className="tb-btn"
+                disabled={busy || copy.branch === "HEAD" || copy.branch === "no-git"}
+                onClick={createPr}
+              >
+                Create PR
+              </button>
+            </div>
           </div>
         </>
       )}

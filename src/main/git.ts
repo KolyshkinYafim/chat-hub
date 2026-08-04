@@ -1,5 +1,8 @@
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
+import { mkdir } from "node:fs/promises"
+import { basename, dirname, join } from "node:path"
+import { homedir } from "node:os"
 import type {
   GitBranchList,
   GitFileChange,
@@ -7,6 +10,65 @@ import type {
 } from "@shared/types"
 
 const execFileAsync = promisify(execFile)
+
+export type SessionWorktree = {
+  cwd: string
+  root: string
+  branch: string
+  path: string
+}
+
+/** Create a clean, named branch/worktree from the repository's current HEAD. */
+export async function createSessionWorktree(
+  cwd: string,
+  sessionId: string,
+  title?: string,
+): Promise<SessionWorktree> {
+  const { stdout: rootOut } = await execFileAsync(
+    "git",
+    ["rev-parse", "--show-toplevel"],
+    { cwd, timeout: 4000 },
+  )
+  const root = rootOut.trim()
+  if (!root) throw new Error("The selected folder is not a Git repository")
+  const slug = slugify(title || "session")
+  const shortId = sessionId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)
+  const branch = `chathub/${slug}-${shortId}`
+  const path = join(
+    homedir(),
+    ".chathub",
+    "worktrees",
+    basename(root),
+    `${slug}-${shortId}`,
+  )
+  await mkdir(dirname(path), { recursive: true })
+  await execFileAsync(
+    "git",
+    ["worktree", "add", "-b", branch, path, "HEAD"],
+    { cwd: root, timeout: 30_000 },
+  )
+  return { cwd: path, root, branch, path }
+}
+
+/** Remove an isolated worktree without discarding uncommitted user changes. */
+export async function removeSessionWorktree(
+  repoCwd: string,
+  worktreePath: string,
+): Promise<void> {
+  await execFileAsync(
+    "git",
+    ["worktree", "remove", worktreePath],
+    { cwd: repoCwd, timeout: 30_000 },
+  )
+}
+
+function slugify(value: string): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+  return slug.slice(0, 42) || "session"
+}
 
 export type GitCheckoutInfo = {
   branch: string
@@ -296,5 +358,51 @@ export async function gitCommitAll(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     return { ok: false, output: msg }
+  }
+}
+
+/** Push the current branch explicitly; never force-push or infer a remote. */
+export async function gitPush(
+  cwd: string,
+): Promise<{ ok: boolean; output: string }> {
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      "git",
+      ["push", "--set-upstream", "origin", "HEAD"],
+      { cwd, timeout: 120_000, maxBuffer: BUFFER },
+    )
+    return { ok: true, output: (stdout || stderr || "pushed").trim() }
+  } catch (err) {
+    const e = err as { stdout?: string; stderr?: string; message?: string }
+    return {
+      ok: false,
+      output: (e.stderr || e.stdout || e.message || "push failed").trim(),
+    }
+  }
+}
+
+/** Create a PR through the installed GitHub CLI, with no shell interpolation. */
+export async function gitCreatePr(
+  cwd: string,
+  title: string,
+  body: string,
+  draft: boolean,
+): Promise<{ ok: boolean; output: string }> {
+  if (!title.trim()) throw new Error("PR title required")
+  const args = ["pr", "create", "--title", title.trim(), "--body", body.trim()]
+  if (draft) args.push("--draft")
+  try {
+    const { stdout, stderr } = await execFileAsync("gh", args, {
+      cwd,
+      timeout: 120_000,
+      maxBuffer: BUFFER,
+    })
+    return { ok: true, output: (stdout || stderr || "PR created").trim() }
+  } catch (err) {
+    const e = err as { stdout?: string; stderr?: string; message?: string }
+    return {
+      ok: false,
+      output: (e.stderr || e.stdout || e.message || "PR creation failed").trim(),
+    }
   }
 }
