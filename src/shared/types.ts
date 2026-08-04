@@ -40,6 +40,12 @@ export type SessionMeta = {
   /** The CLI's own session id, persisted so multi-turn resume survives restart. */
   agentSessionId?: string
   cwd: string
+  /** Original repository folder when this session runs in an isolated worktree. */
+  baseCwd?: string
+  /** Git branch created for an isolated session. */
+  branch?: string
+  /** Absolute worktree path, retained for safe cleanup on session deletion. */
+  worktreePath?: string
   status: SessionStatus
   /**
    * Who owns this session's card on the island: "hub" for one we spawned,
@@ -348,6 +354,8 @@ export type CreateSessionInput = {
   cwd?: string
   project?: string
   model?: string
+  /** Start the agent in a dedicated git worktree when the folder is a repo. */
+  worktree?: boolean
 }
 
 export type SessionSnapshot = {
@@ -362,6 +370,12 @@ export type SessionSnapshot = {
   /** Native agent questions still awaiting an answer. */
   inputRequests: AgentInputRequestInfo[]
   activeSessionId: string | null
+}
+
+/** A page of transcript history older than the currently loaded tail. */
+export type OlderMessagesResult = {
+  messages: ChatMessage[]
+  hasMore: boolean
 }
 
 /** Static fallback; main process returns live availability via listProviders. */

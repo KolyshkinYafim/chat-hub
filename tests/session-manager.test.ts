@@ -1,4 +1,6 @@
-import { mkdtemp, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, realpath, writeFile } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { promisify } from "node:util"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -99,6 +101,8 @@ const { Persistence } = await import("../src/main/persistence")
 const { SessionMonitorBridge } = await import("../src/main/bridge")
 const { SettingsStore } = await import("../src/main/settings")
 const { PermissionBroker } = await import("../src/main/permission-broker")
+
+const exec = promisify(execFile)
 
 async function makeManager(
   watchdog?: WatchdogConfig,
@@ -244,6 +248,31 @@ describe("session cwd", () => {
     ).rejects.toThrow(/binary not found/)
     expect(sm.listSessions()).toEqual([])
     expect(sm.getSnapshot().activeSessionId).toBeNull()
+  })
+
+  it("starts an opted-in session in an isolated worktree and cleans it up", async () => {
+    const { sm } = await makeManager()
+    const repo = await mkdtemp(join(tmpdir(), "chat-hub-session-repo-"))
+    await exec("git", ["init", "-q"], { cwd: repo })
+    await exec("git", ["config", "user.email", "test@example.com"], { cwd: repo })
+    await exec("git", ["config", "user.name", "Chat Hub Test"], { cwd: repo })
+    await writeFile(join(repo, "README.md"), "base\n")
+    await exec("git", ["add", "README.md"], { cwd: repo })
+    await exec("git", ["commit", "-qm", "initial"], { cwd: repo })
+
+    const session = await sm.createSession({
+      provider: "mock",
+      cwd: repo,
+      title: "Isolated review",
+      worktree: true,
+    })
+    expect(session.baseCwd).toBe(await realpath(repo))
+    expect(session.worktreePath).toBe(session.cwd)
+    expect(session.branch).toMatch(/^chathub\/isolated-review-/)
+    expect(await readFile(join(session.cwd, "README.md"), "utf8")).toBe("base\n")
+
+    await sm.deleteSession(session.id)
+    await expect(readFile(session.cwd)).rejects.toMatchObject({ code: "ENOENT" })
   })
 })
 

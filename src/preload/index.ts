@@ -130,6 +130,15 @@ const api = {
     message: string,
   ): Promise<{ ok: boolean; output: string }> =>
     ipcRenderer.invoke(IpcChannels.gitCommitStaged, cwd, message),
+  gitPush: (cwd: string): Promise<{ ok: boolean; output: string }> =>
+    ipcRenderer.invoke(IpcChannels.gitPush, cwd),
+  gitCreatePr: (
+    cwd: string,
+    title: string,
+    body: string,
+    draft: boolean,
+  ): Promise<{ ok: boolean; output: string }> =>
+    ipcRenderer.invoke(IpcChannels.gitCreatePr, cwd, title, body, draft),
   getSettings: (): Promise<SettingsSnapshot> =>
     ipcRenderer.invoke(IpcChannels.getSettings),
   setPermissionMode: (

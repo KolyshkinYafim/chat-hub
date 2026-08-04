@@ -664,6 +664,7 @@ export default function App() {
         project: projectFromCwd(draft.cwd),
         model: draft.model,
         title: draft.title,
+        worktree: draft.worktree,
       })
       setActiveId(session.id)
       setSessions((curr) => {
