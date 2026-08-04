@@ -1054,6 +1054,9 @@ export default function App() {
             setAutoOpenDock(enabled)
             saveAutoOpenDock(enabled)
           }}
+          projectCwd={
+            activeSession?.cwd ?? projects[0]?.cwd ?? null
+          }
         />
       ) : null}
       {wizardOpen ? (

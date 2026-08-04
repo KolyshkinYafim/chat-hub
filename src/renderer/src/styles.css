@@ -3986,3 +3986,34 @@ button {
 .surface-diff .scm-head {
   display: none;
 }
+
+/* ——— Settings: MCP manager ——— */
+
+.mcp-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.mcp-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.mcp-form .field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.mcp-form .field-label .text-input {
+  width: 100%;
+}
