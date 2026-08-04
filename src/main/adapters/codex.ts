@@ -781,11 +781,22 @@ export function renderCodexItem(item: Record<string, unknown>): string {
     case "todo_list": {
       const items = Array.isArray(item.items) ? (item.items as Record<string, unknown>[]) : []
       if (!items.length) return ""
-      const lines = items.map((t) => {
-        const done = t.completed === true || str(t.status) === "completed"
-        return `${done ? "- [x]" : "- [ ]"} ${str(t.text) || str(t.title)}`
-      })
-      return `\n\n${lines.join("\n")}\n\n`
+      // Same checklist card as Claude TodoWrite / update_plan (not markdown bullets).
+      return toolUseBlock(
+        "TodoWrite",
+        { todos: items },
+        str(item.id) || undefined,
+      )
+    }
+    case "update_plan": {
+      return toolUseBlock(
+        "update_plan",
+        {
+          explanation: str(item.explanation) || str(item.text),
+          plan: item.plan ?? item.steps ?? item.items,
+        },
+        str(item.id) || undefined,
+      )
     }
     case "web_search":
       return toolUseBlock("WebSearch", { pattern: str(item.query) })
