@@ -1,11 +1,25 @@
 import { ipcMain } from "electron"
 import { IpcChannels } from "@shared/ipc"
-import { listDir, openFile, readFileText, saveFileText } from "./files"
+import {
+  createDirectory,
+  createFile,
+  listDir,
+  openFile,
+  readFileText,
+  saveFileText,
+} from "./files"
 import { readBoard, writeBoard } from "./board"
 import { grantMediaUrl } from "./media"
 import { TerminalSessions } from "./terminal"
 
-export { listDir, openFile, readFileText, saveFileText } from "./files"
+export {
+  createDirectory,
+  createFile,
+  listDir,
+  openFile,
+  readFileText,
+  saveFileText,
+} from "./files"
 export { readBoard, writeBoard } from "./board"
 export {
   registerMediaProtocol,
@@ -13,8 +27,16 @@ export {
   revokeMediaGrants,
 } from "./media"
 export { TerminalSessions, type TerminalSink } from "./terminal"
-export { hardenWebviewHost, isAllowedGuestUrl } from "./browser"
-export { resolveContainedPath, resolveWorkspaceRoot } from "./paths"
+export {
+  hardenWebviewHost,
+  isAllowedGuestUrl,
+  isMediaGuestUrl,
+} from "./browser"
+export {
+  resolveContainedPath,
+  resolveCreatablePath,
+  resolveWorkspaceRoot,
+} from "./paths"
 
 export function registerSurfaceIpc(terminals: TerminalSessions): void {
   ipcMain.handle(IpcChannels.boardRead, (_e, cwd: unknown) => readBoard(cwd))
@@ -39,6 +61,15 @@ export function registerSurfaceIpc(terminals: TerminalSessions): void {
     IpcChannels.saveFile,
     (_e, cwd: unknown, relPath: unknown, text: unknown, stamp: unknown) =>
       saveFileText(cwd, relPath, text, stamp),
+  )
+
+  ipcMain.handle(IpcChannels.createFile, (_e, cwd: unknown, relPath: unknown) =>
+    createFile(cwd, relPath),
+  )
+
+  ipcMain.handle(
+    IpcChannels.createDirectory,
+    (_e, cwd: unknown, relPath: unknown) => createDirectory(cwd, relPath),
   )
 
   ipcMain.handle(

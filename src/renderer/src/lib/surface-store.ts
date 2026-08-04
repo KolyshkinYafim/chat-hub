@@ -84,7 +84,7 @@ export function saveAutoOpenDock(enabled: boolean): void {
 }
 
 /**
- * Whether a message that just touched files should pull the dock open to the
+ * Whether a message that just edited files should pull the dock open to the
  * diff surface, and whether the panel is currently in a state where that's
  * appropriate to do without yanking the user off something unrelated.
  *
@@ -95,10 +95,10 @@ export function saveAutoOpenDock(enabled: boolean): void {
  */
 export function shouldAutoOpenDock(
   current: { showDock: boolean; activeSurface: SurfaceKind | null },
-  touchedFiles: string[],
+  editedFiles: string[],
   autoOpenEnabled = true,
 ): SurfaceKind | null {
-  if (!autoOpenEnabled || touchedFiles.length === 0) return null
+  if (!autoOpenEnabled || editedFiles.length === 0) return null
   if (!current.showDock) return "diff"
   if (current.activeSurface === "files" || current.activeSurface === "diff") {
     return "diff"

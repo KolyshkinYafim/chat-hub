@@ -68,6 +68,7 @@ beforeAll(async () => {
     "tone.m4a",
     "payload.bin",
     "notes.md",
+    "report.pdf",
   ]) {
     await copyFile(join(FIXTURES, name), join(root, name))
   }
@@ -228,6 +229,15 @@ describe("opening a file for the viewer", () => {
     expect(tone.kind).toBe("audio")
     expect(tone.mime).toBe("audio/mp4")
     expect(tone.streamUrl).toBe("stub-media://audio/mp4")
+  })
+
+  it("points a PDF at a stream URL so a guest can render it", async () => {
+    const opened = await openFile(root, "report.pdf", mintMediaUrl)
+    expect(opened.kind).toBe("pdf")
+    expect(opened.mime).toBe("application/pdf")
+    expect(opened.streamUrl).toBe("stub-media://application/pdf")
+    expect(opened.dataUrl).toBeNull()
+    expect(opened.unavailable).toBeNull()
   })
 
   it("refuses a binary file with no text and no preview", async () => {

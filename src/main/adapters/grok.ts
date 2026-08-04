@@ -11,14 +11,12 @@ import { randomUUID } from "node:crypto"
 import {
   beginAssistant,
   extractTextFromContent,
-  extractTouchedFiles,
   finishTurn,
   newSnapshot,
   noteSnapshotDelta,
   pushDelta,
   safeJson,
   snapshotDelta,
-  touchedFileFromTool,
   type StreamTurn,
 } from "./stream-parse"
 import { readUsage } from "./usage"
@@ -192,10 +190,6 @@ export class GrokAdapter implements AgentAdapter {
         if (action) {
           if (!turn) turn = beginAssistant(sessionId, cb)
           cb.onTurnItem(sessionId, turn.messageId, action)
-          if (action.kind === "tool") {
-            const file = touchedFileFromTool(action.name, action.arguments)
-            if (file) cb.onTouchedFiles?.(sessionId, turn.messageId, [file])
-          }
           return
         }
 
@@ -231,11 +225,6 @@ export class GrokAdapter implements AgentAdapter {
             const msgId = typeof msg.id === "string" ? msg.id : undefined
             const extra = snapshotDelta(snapshot, msgId, text)
             if (extra) pushAssistantText(extra)
-          }
-          const touched = extractTouchedFiles(msg.content)
-          if (touched.length) {
-            if (!turn) turn = beginAssistant(sessionId, cb)
-            cb.onTouchedFiles?.(sessionId, turn.messageId, touched)
           }
         }
 

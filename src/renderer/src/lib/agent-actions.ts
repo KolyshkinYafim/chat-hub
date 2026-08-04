@@ -52,6 +52,26 @@ export function collectAgentActions(
   return out.slice(out.length - limit)
 }
 
+/**
+ * Paths this assistant turn has written to so far, from the same parse the
+ * transcript cards use. Reads, searches and shell calls never contribute.
+ */
+export function editedPathsInMessage(message: ChatMessage): string[] {
+  const paths: string[] = []
+  const add = (path: string) => {
+    if (path && !paths.includes(path)) paths.push(path)
+  }
+  if (message.content) {
+    const { changed } = buildTranscript(message.content, message.id)
+    for (const file of changed.files) add(file.path)
+  }
+  for (const item of message.items ?? []) {
+    if (item.kind !== "file_change") continue
+    for (const change of item.changes) add(change.path)
+  }
+  return paths
+}
+
 function actionFromItem(item: AgentTurnItem, messageId: string): AgentAction | null {
   const base = {
     key: `${messageId}/item-${item.id}`,

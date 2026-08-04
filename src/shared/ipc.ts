@@ -64,6 +64,8 @@ export const IpcChannels = {
   readFile: "surface:read-file",
   openFile: "surface:open-file",
   saveFile: "surface:save-file",
+  createFile: "surface:create-file",
+  createDirectory: "surface:create-dir",
   termStart: "surface:term-start",
   termWrite: "surface:term-write",
   termResize: "surface:term-resize",

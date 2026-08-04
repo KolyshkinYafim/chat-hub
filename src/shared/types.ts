@@ -200,12 +200,6 @@ export type ChatMessage = {
   streaming?: boolean
   /** Set on the assistant message once its turn's result line lands. */
   usage?: TurnUsage
-  /**
-   * Repo-relative-or-absolute paths this message's write/edit/multiedit tool
-   * calls actually touched, in first-touched order. Absent/empty on messages
-   * that never edited a file (including every user/system message).
-   */
-  touchedFiles?: string[]
   /** Structured agent activity for this assistant turn. */
   items?: AgentTurnItem[]
   /** Structured local-file references for user messages. */
@@ -306,13 +300,6 @@ export type HubEvent =
       item: AgentTurnItem
     }
   | { type: "chat.done"; sessionId: string; messageId: string }
-  | {
-      type: "chat.touchedFiles"
-      sessionId: string
-      messageId: string
-      /** Full accumulated set for this message so far, not just the delta. */
-      files: string[]
-    }
   | { type: "sessions.replaced"; sessions: SessionMeta[] }
   | {
       type: "messages.replaced"

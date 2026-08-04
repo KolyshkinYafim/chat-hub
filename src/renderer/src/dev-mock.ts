@@ -505,7 +505,9 @@ async function openFixture(relPath: string): Promise<OpenedFile> {
   const blob = await (await fetch(url)).blob()
   const opened = emptyOpened(relPath, type, blob.size)
   if (type.kind === "image") opened.dataUrl = await blobToDataUrl(blob)
-  if (type.kind === "video" || type.kind === "audio") opened.streamUrl = url
+  if (type.kind === "video" || type.kind === "audio" || type.kind === "pdf") {
+    opened.streamUrl = url
+  }
   return opened
 }
 
@@ -523,6 +525,15 @@ async function openMockFile(relPath: string): Promise<OpenedFile> {
     opened.truncated = file.truncated ?? false
   }
   return opened
+}
+
+function mockParentOf(relPath: string): string {
+  const at = relPath.lastIndexOf("/")
+  return at === -1 ? "" : relPath.slice(0, at)
+}
+
+function mockNameOf(relPath: string): string {
+  return relPath.slice(relPath.lastIndexOf("/") + 1)
 }
 
 function makeSurfaceBridge(): SurfaceBridge {
@@ -567,6 +578,30 @@ function makeSurfaceBridge(): SurfaceBridge {
       const next = { mtimeMs: Date.now(), size: text.length }
       mockStamps[relPath] = next
       return { path: relPath, stamp: next }
+    },
+    createFile: async (_cwd, relPath) => {
+      const siblings = mockDirs[mockParentOf(relPath)]
+      if (!siblings) {
+        throw new Error(`Parent folder not found: ${mockParentOf(relPath) || "."}`)
+      }
+      if (relPath in mockFiles || relPath in mockDirs) {
+        throw new Error(`${relPath} already exists`)
+      }
+      mockFiles[relPath] = { text: "" }
+      siblings.push(mockNameOf(relPath))
+      return { path: relPath, stamp: stampFor(relPath, 0) }
+    },
+    createDirectory: async (_cwd, relPath) => {
+      const siblings = mockDirs[mockParentOf(relPath)]
+      if (!siblings) {
+        throw new Error(`Parent folder not found: ${mockParentOf(relPath) || "."}`)
+      }
+      if (relPath in mockFiles || relPath in mockDirs) {
+        throw new Error(`${relPath} already exists`)
+      }
+      mockDirs[relPath] = []
+      siblings.push(mockNameOf(relPath))
+      return { name: mockNameOf(relPath), path: relPath, kind: "dir" }
     },
     termStart: async (cwd, cols, rows) => {
       const ptyId = `mock-pty-${++ptySeq}`

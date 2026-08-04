@@ -20,7 +20,7 @@ import type {
   SessionMeta,
   SessionUsage,
 } from "@shared/types"
-import { collectAgentActions } from "./lib/agent-actions"
+import { collectAgentActions, editedPathsInMessage } from "./lib/agent-actions"
 import type { PermissionMode } from "@shared/permission"
 import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
 import type {
@@ -32,6 +32,7 @@ import type {
 import { DEFAULT_MODES } from "@shared/settings-types"
 import { projectFromCwd } from "@shared/project"
 import { loadArchived, pruneArchived, saveArchived } from "./lib/archive"
+import { mergeReplacedMessages } from "./lib/transcript-window"
 import { Sidebar } from "./components/Sidebar"
 import { ChatView } from "./components/ChatView"
 import { SurfaceDock } from "./components/surfaces/SurfaceDock"
@@ -141,6 +142,10 @@ export default function App() {
   const dockOpenRef = useRef(dockOpen)
   const surfaceBySessionRef = useRef(surfaceBySession)
   const autoOpenDockRef = useRef(autoOpenDock)
+  const autoOpenSeenRef = useRef<{ messageId: string; count: number }>({
+    messageId: "",
+    count: 0,
+  })
 
   const applyEvent = useCallback((event: HubEvent) => {
     switch (event.type) {
@@ -184,7 +189,10 @@ export default function App() {
       case "messages.replaced":
         setMessagesBySession((curr) => ({
           ...curr,
-          [event.sessionId]: event.messages,
+          [event.sessionId]: mergeReplacedMessages(
+            curr[event.sessionId] ?? [],
+            event.messages,
+          ),
         }))
         break
       case "chat.message":
@@ -221,45 +229,6 @@ export default function App() {
           }
         })
         break
-      case "chat.touchedFiles": {
-        const { sessionId, messageId, files } = event
-        setMessagesBySession((curr) => {
-          const list = curr[sessionId] ?? []
-          return {
-            ...curr,
-            [sessionId]: list.map((m) =>
-              m.id === messageId ? { ...m, touchedFiles: files } : m,
-            ),
-          }
-        })
-        // Only the session the user is looking at may steal the dock — a
-        // background session touching files must not yank the panel over.
-        if (sessionId === activeIdRef.current) {
-          const decision = shouldAutoOpenDock(
-            {
-              showDock: dockOpenRef.current,
-              activeSurface: surfaceBySessionRef.current[sessionId] ?? null,
-            },
-            files,
-            autoOpenDockRef.current,
-          )
-          if (decision) {
-            setSurfaceBySession((curr) => {
-              const next = { ...curr, [sessionId]: decision }
-              saveSurfaceBySession(next)
-              return next
-            })
-            setDockOpen(true)
-            saveDockOpen(true)
-            // The diff surface only refetches when its refreshKey bumps — if it
-            // was already open and showing "diff"/"files", switching kind to the
-            // same "diff" value doesn't remount SourceControl, so without this
-            // the panel would keep showing a stale diff from before the edit.
-            setGitRefresh((n) => n + 1)
-          }
-        }
-        break
-      }
       case "chat.item":
         setMessagesBySession((curr) => {
           const list = curr[event.sessionId] ?? []
@@ -377,6 +346,11 @@ export default function App() {
         setPermissions(snap.permissions)
         setInputRequests(snap.inputRequests)
         setActiveId(snap.activeSessionId)
+        // A session restored as the active one never goes through
+        // selectSession, and would show no scroll-back without this.
+        if (snap.activeSessionId) {
+          void seedOverflowFlag(snap.activeSessionId)
+        }
         setProjects(pinned)
         setProviders(prov)
         setPermissionMode(settings.permissionMode)
@@ -445,6 +419,43 @@ export default function App() {
   const messages = activeId ? (messagesBySession[activeId] ?? []) : []
   // Diff surface audit trail: same tool cards the transcript already parsed.
   const agentActions = useMemo(() => collectAgentActions(messages), [messages])
+
+  // Auto-open the diff dock off the same parse the transcript draws, so there
+  // is one answer to "what did this turn change" rather than two. Only the
+  // session in view may steal the dock, and only while its turn is still
+  // streaming — a transcript restored from disk must not yank the panel open.
+  useEffect(() => {
+    const sessionId = activeId
+    if (!sessionId) return
+    const last = messages[messages.length - 1]
+    if (!last || last.role !== "assistant" || !last.streaming) return
+    const edited = editedPathsInMessage(last)
+    const seen = autoOpenSeenRef.current
+    const known = seen.messageId === last.id ? seen.count : 0
+    if (edited.length <= known) return
+    autoOpenSeenRef.current = { messageId: last.id, count: edited.length }
+    const decision = shouldAutoOpenDock(
+      {
+        showDock: dockOpenRef.current,
+        activeSurface: surfaceBySessionRef.current[sessionId] ?? null,
+      },
+      edited,
+      autoOpenDockRef.current,
+    )
+    if (!decision) return
+    setSurfaceBySession((curr) => {
+      const next = { ...curr, [sessionId]: decision }
+      saveSurfaceBySession(next)
+      return next
+    })
+    setDockOpen(true)
+    saveDockOpen(true)
+    // The diff surface only refetches when its refreshKey bumps — if it was
+    // already open and showing "diff"/"files", switching kind to the same
+    // "diff" value doesn't remount SourceControl, so without this the panel
+    // would keep showing a stale diff from before the edit.
+    setGitRefresh((n) => n + 1)
+  }, [activeId, messages])
 
   useEffect(() => {
     // Sessions deleted elsewhere (or wiped) would otherwise leave their ids in
@@ -682,6 +693,16 @@ export default function App() {
     }
   }
 
+  async function seedOverflowFlag(id: string) {
+    try {
+      const hasOverflow = await window.chatHub.hasArchivedMessages(id)
+      setOverflowHasMore((curr) => ({ ...curr, [id]: hasOverflow }))
+    } catch {
+      // A missing archive is not an error worth a banner — the scroll-back
+      // affordance simply stays hidden.
+    }
+  }
+
   async function selectSession(id: string) {
     setActiveId(id)
     // Kept in step synchronously: main echoes session.active back at us, and a
@@ -694,8 +715,7 @@ export default function App() {
         const msgs = await window.chatHub.getMessages(id)
         setMessagesBySession((curr) => ({ ...curr, [id]: msgs }))
       }
-      const hasOverflow = await window.chatHub.hasArchivedMessages(id)
-      setOverflowHasMore((curr) => ({ ...curr, [id]: hasOverflow }))
+      await seedOverflowFlag(id)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }

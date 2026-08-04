@@ -376,12 +376,6 @@ export class CodexAdapter implements AgentAdapter {
     active.items ??= new Map()
     active.items.set(mapped.id, mapped)
     state.callbacks.onTurnItem(state.sessionId, active.stream.messageId, mapped)
-    if (mapped.kind === "file_change") {
-      const files = mapped.changes.map((change) => change.path).filter(Boolean)
-      if (files.length) {
-        state.callbacks.onTouchedFiles?.(state.sessionId, active.stream.messageId, files)
-      }
-    }
   }
 
   private completeTurn(

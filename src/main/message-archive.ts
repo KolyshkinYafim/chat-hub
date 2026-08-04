@@ -1,5 +1,5 @@
-import { access, appendFile, mkdir, readFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { access, appendFile, mkdir, readFile, rm } from "node:fs/promises"
+import { dirname, join, resolve, sep } from "node:path"
 import type { ChatMessage } from "@shared/types"
 
 export type ArchivedPage = {
@@ -21,8 +21,18 @@ export class MessageArchive {
     return new MessageArchive(join(dirname(statePath), "sessions"))
   }
 
+  /** Session ids come from the app, but this path is what `remove` deletes. */
+  dirFor(sessionId: string): string {
+    const base = resolve(this.rootDir)
+    const dir = resolve(join(base, sessionId))
+    if (dir === base || !dir.startsWith(base + sep)) {
+      throw new Error(`Invalid session id: ${sessionId}`)
+    }
+    return dir
+  }
+
   fileFor(sessionId: string): string {
-    return join(this.rootDir, sessionId, "archive.jsonl")
+    return join(this.dirFor(sessionId), "archive.jsonl")
   }
 
   async hasArchive(sessionId: string): Promise<boolean> {
@@ -32,6 +42,11 @@ export class MessageArchive {
     } catch {
       return false
     }
+  }
+
+  /** Deleting a session must not leave its transcript readable on disk. */
+  async remove(sessionId: string): Promise<void> {
+    await rm(this.dirFor(sessionId), { recursive: true, force: true })
   }
 
   /** Append messages (already oldest→newest). Does nothing for empty input. */

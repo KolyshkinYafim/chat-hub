@@ -2,12 +2,10 @@ import { describe, expect, it, vi } from "vitest"
 import {
   beginAssistant,
   extractTextFromContent,
-  extractTouchedFiles,
   finishTurn,
   pushDelta,
   safeJson,
   toolUseBlock,
-  touchedFileFromTool,
 } from "../src/main/adapters/stream-parse"
 import type { AdapterCallbacks } from "../src/main/adapters/types"
 import {
@@ -288,66 +286,3 @@ describe("planStepsFromInput", () => {
   })
 })
 
-describe("touchedFileFromTool", () => {
-  it("reports the file for write/edit/multiedit/str_replace calls", () => {
-    expect(touchedFileFromTool("Write", { file_path: "/a.ts" })).toBe("/a.ts")
-    expect(touchedFileFromTool("Edit", { file_path: "/b.ts" })).toBe("/b.ts")
-    expect(touchedFileFromTool("MultiEdit", { file_path: "/c.ts" })).toBe("/c.ts")
-    expect(
-      touchedFileFromTool("str_replace_editor", { path: "/d.ts" }),
-    ).toBe("/d.ts")
-  })
-
-  it("falls back to path/notebook_path when file_path is absent", () => {
-    expect(touchedFileFromTool("Write", { path: "/a.ts" })).toBe("/a.ts")
-    expect(
-      touchedFileFromTool("Edit", { notebook_path: "/n.ipynb" }),
-    ).toBe("/n.ipynb")
-  })
-
-  it("is undefined for reads, searches, and any non-editing tool", () => {
-    expect(touchedFileFromTool("Read", { file_path: "/a.ts" })).toBeUndefined()
-    expect(touchedFileFromTool("Bash", { command: "ls" })).toBeUndefined()
-    expect(touchedFileFromTool("Grep", { pattern: "x" })).toBeUndefined()
-    expect(touchedFileFromTool("Glob", { pattern: "*.ts" })).toBeUndefined()
-  })
-
-  it("is undefined when an editing tool carries no file field", () => {
-    expect(touchedFileFromTool("Write", {})).toBeUndefined()
-    expect(touchedFileFromTool("Edit", undefined)).toBeUndefined()
-  })
-})
-
-describe("extractTouchedFiles", () => {
-  it("collects files from write/edit/multiedit tool_use blocks only", () => {
-    const files = extractTouchedFiles([
-      { type: "text", text: "doing stuff" },
-      { type: "tool_use", name: "Read", input: { file_path: "/ignored.ts" } },
-      { type: "tool_use", name: "Write", input: { file_path: "/a.ts" } },
-      {
-        type: "tool_use",
-        name: "MultiEdit",
-        input: { file_path: "/b.ts", edits: [] },
-      },
-      { type: "tool_use", name: "Bash", input: { command: "ls" } },
-    ])
-    expect(files).toEqual(["/a.ts", "/b.ts"])
-  })
-
-  it("dedupes a file touched by more than one tool call", () => {
-    const files = extractTouchedFiles([
-      { type: "tool_use", name: "Edit", input: { file_path: "/a.ts" } },
-      { type: "tool_use", name: "Edit", input: { file_path: "/a.ts" } },
-    ])
-    expect(files).toEqual(["/a.ts"])
-  })
-
-  it("returns empty for non-array, null, and malformed content", () => {
-    expect(extractTouchedFiles("plain string")).toEqual([])
-    expect(extractTouchedFiles(null)).toEqual([])
-    expect(extractTouchedFiles(undefined)).toEqual([])
-    expect(
-      extractTouchedFiles([null, "not-a-block", { type: "tool_use" }]),
-    ).toEqual([])
-  })
-})

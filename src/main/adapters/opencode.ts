@@ -4,14 +4,12 @@ import { runProcess, type RunningProcess } from "./process-runner"
 import {
   beginAssistant,
   extractTextFromContent,
-  extractTouchedFiles,
   finishTurn,
   newSnapshot,
   pushDelta,
   safeJson,
   snapshotDelta,
   toolUseBlock,
-  touchedFileFromTool,
   type StreamTurn,
 } from "./stream-parse"
 import { readUsage } from "./usage"
@@ -167,8 +165,6 @@ export class OpenCodeAdapter implements AgentAdapter {
           const toolState = asRecord(part?.state)
           if (!turn) turn = beginAssistant(sessionId, cb)
           pushDelta(turn, sessionId, toolUseBlock(name, toolState?.input), cb)
-          const file = touchedFileFromTool(name, toolState?.input)
-          if (file) cb.onTouchedFiles?.(sessionId, turn.messageId, [file])
           return
         }
 

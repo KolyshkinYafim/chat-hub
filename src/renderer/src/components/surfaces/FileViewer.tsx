@@ -14,6 +14,7 @@ import { MermaidDiagram } from "../MermaidDiagram"
 import { CodeEditor } from "./CodeEditor"
 import { ImagePreview } from "./ImagePreview"
 import { MediaPreview } from "./MediaPreview"
+import { PdfPreview } from "./PdfPreview"
 
 type Presentation =
   | "code"
@@ -343,12 +344,17 @@ function FileBody({
   }
 
   if (presentation === "pdf") {
+    if (!file.streamUrl) {
+      return (
+        <Refusal
+          headline={file.unavailable ?? "This PDF could not be read."}
+          file={file}
+          onOpenExternally={onOpenExternally}
+        />
+      )
+    }
     return (
-      <Refusal
-        headline={file.unavailable ?? "PDFs open outside Chat Hub."}
-        file={file}
-        onOpenExternally={onOpenExternally}
-      />
+      <PdfPreview src={file.streamUrl} onOpenExternally={onOpenExternally} />
     )
   }
 

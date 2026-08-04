@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -513,13 +514,16 @@ export function ChatView({
     return () => window.clearTimeout(timer)
   }, [highlightMessageId, messages, onHighlightShown])
 
-  useEffect(() => {
+  // Before paint, or the prepended page is visible at the old scrollTop for a
+  // frame and the transcript jumps under the reader.
+  useLayoutEffect(() => {
     const pending = scrollRestoreRef.current
-    const node = transcriptRef.current
-    if (!pending || !node) return
-    node.scrollTop = node.scrollHeight - pending.height + pending.top
+    if (!pending || loadingOlder) return
     scrollRestoreRef.current = null
-  }, [messages])
+    const node = transcriptRef.current
+    if (!node || node.scrollHeight === pending.height) return
+    node.scrollTop = node.scrollHeight - pending.height + pending.top
+  }, [messages, loadingOlder])
 
   function onTranscriptScroll(e: UIEvent<HTMLDivElement>) {
     const el = e.currentTarget

@@ -1,5 +1,5 @@
-import { open, readdir, realpath, stat, writeFile } from "node:fs/promises"
-import { join } from "node:path"
+import { mkdir, open, readdir, realpath, stat, writeFile } from "node:fs/promises"
+import { basename, join } from "node:path"
 import type { Dirent, Stats } from "node:fs"
 import {
   BINARY_SNIFF_BYTES,
@@ -16,7 +16,11 @@ import {
   type OpenedFile,
 } from "@shared/surfaces"
 import { carriesEditableText, detectFileType } from "@shared/file-kind"
-import { isContainedIn, resolveContainedPath } from "./paths"
+import {
+  isContainedIn,
+  resolveContainedPath,
+  resolveCreatablePath,
+} from "./paths"
 
 const SKIPPED_NAMES = new Set(HIDDEN_FROM_LISTING)
 
@@ -218,17 +222,12 @@ export async function openFile(
     }
   }
 
-  if (type.kind === "video" || type.kind === "audio") {
+  if (type.kind === "video" || type.kind === "audio" || type.kind === "pdf") {
     opened.streamUrl = mintMediaUrl({
       root: contained.root,
       absolutePath: contained.absolutePath,
       mime: type.mime,
     })
-  }
-
-  if (type.kind === "pdf") {
-    opened.unavailable =
-      "Chat Hub runs without the Chromium PDF plugin, so it cannot render this inline."
   }
 
   return opened
@@ -281,4 +280,50 @@ export async function saveFileText(
   await writeFile(contained.absolutePath, text, "utf8")
   const written = await stat(contained.absolutePath)
   return { path: contained.relativePath, stamp: stampOf(written) }
+}
+
+function isAlreadyThere(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { code?: unknown }).code === "EEXIST"
+  )
+}
+
+export async function createFile(
+  cwd: unknown,
+  relPath: unknown,
+): Promise<FileSaved> {
+  const target = resolveCreatablePath(cwd, relPath)
+  try {
+    const handle = await open(target.absolutePath, "wx")
+    await handle.close()
+  } catch (err) {
+    if (isAlreadyThere(err)) {
+      throw new Error(`${target.relativePath} already exists`)
+    }
+    throw err
+  }
+  const stats = await stat(target.absolutePath)
+  return { path: target.relativePath, stamp: stampOf(stats) }
+}
+
+export async function createDirectory(
+  cwd: unknown,
+  relPath: unknown,
+): Promise<DirEntry> {
+  const target = resolveCreatablePath(cwd, relPath)
+  try {
+    await mkdir(target.absolutePath)
+  } catch (err) {
+    if (isAlreadyThere(err)) {
+      throw new Error(`${target.relativePath} already exists`)
+    }
+    throw err
+  }
+  return {
+    name: basename(target.relativePath),
+    path: target.relativePath,
+    kind: "dir",
+  }
 }

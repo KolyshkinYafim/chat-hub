@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react"
 import { formatBytes } from "../../lib/format"
 import {
   errorText,
@@ -8,6 +15,17 @@ import {
 import { FileViewer } from "./FileViewer"
 
 const ROOT = ""
+
+type NewEntryKind = "file" | "dir"
+
+function parentOf(path: string): string {
+  const at = path.lastIndexOf("/")
+  return at === -1 ? ROOT : path.slice(0, at)
+}
+
+function childOf(dir: string, name: string): string {
+  return dir === ROOT ? name : `${dir}/${name}`
+}
 
 type Props = {
   cwd: string
@@ -20,8 +38,15 @@ export function FilesSurface({ cwd }: Props) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [treeError, setTreeError] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
+  /** Where "New file"/"New folder" will land: the last folder or file touched. */
+  const [activeDir, setActiveDir] = useState<string>(ROOT)
+  const [creating, setCreating] = useState<NewEntryKind | null>(null)
+  const [newName, setNewName] = useState("")
+  const [createBusy, setCreateBusy] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
   const dirtyRef = useRef(false)
   const liveRef = useRef(true)
+  const newNameRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     liveRef.current = true
@@ -59,8 +84,15 @@ export function FilesSurface({ cwd }: Props) {
     setExpanded(new Set([ROOT]))
     setSelectedPath(null)
     setTreeError(null)
+    setActiveDir(ROOT)
+    setCreating(null)
+    setCreateError(null)
     void loadDir(ROOT)
   }, [loadDir])
+
+  useEffect(() => {
+    if (creating !== null) newNameRef.current?.focus()
+  }, [creating])
 
   const onDirtyChange = useCallback((next: boolean) => {
     dirtyRef.current = next
@@ -68,6 +100,7 @@ export function FilesSurface({ cwd }: Props) {
   }, [])
 
   function toggleDir(path: string) {
+    setActiveDir(path)
     setExpanded((curr) => {
       const next = new Set(curr)
       if (next.has(path)) next.delete(path)
@@ -78,6 +111,7 @@ export function FilesSurface({ cwd }: Props) {
   }
 
   function selectFile(path: string) {
+    setActiveDir(parentOf(path))
     if (path === selectedPath) return
     if (dirtyRef.current && selectedPath !== null) {
       const leave = window.confirm(
@@ -88,6 +122,63 @@ export function FilesSurface({ cwd }: Props) {
     dirtyRef.current = false
     setDirty(false)
     setSelectedPath(path)
+  }
+
+  function startCreating(kind: NewEntryKind) {
+    setCreating(kind)
+    setNewName("")
+    setCreateError(null)
+  }
+
+  function cancelCreating() {
+    setCreating(null)
+    setNewName("")
+    setCreateError(null)
+  }
+
+  async function submitCreating() {
+    const name = newName.trim()
+    if (creating === null || name === "" || createBusy) return
+    const target = childOf(activeDir, name)
+    const parent = parentOf(target)
+    setCreateBusy(true)
+    setCreateError(null)
+    try {
+      if (creating === "dir") {
+        await surfaceBridge().createDirectory(cwd, target)
+      } else {
+        await surfaceBridge().createFile(cwd, target)
+      }
+      if (!liveRef.current) return
+      setExpanded((curr) => {
+        const next = new Set(curr).add(parent)
+        if (creating === "dir") next.add(target)
+        return next
+      })
+      await loadDir(parent)
+      if (creating === "dir") await loadDir(target)
+      if (!liveRef.current) return
+      if (creating === "file") selectFile(target)
+      else setActiveDir(target)
+      setCreating(null)
+      setNewName("")
+    } catch (err) {
+      if (liveRef.current) setCreateError(errorText(err))
+    } finally {
+      if (liveRef.current) setCreateBusy(false)
+    }
+  }
+
+  function onNewNameKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
+      event.preventDefault()
+      void submitCreating()
+      return
+    }
+    if (event.key === "Escape") {
+      event.preventDefault()
+      cancelCreating()
+    }
   }
 
   function renderRows(dirPath: string, depth: number): ReactNode[] {
@@ -149,8 +240,64 @@ export function FilesSurface({ cwd }: Props) {
     })
   }
 
+  const targetLabel = activeDir === ROOT ? "/" : `${activeDir}/`
+
   return (
     <div className="surface-files">
+      <div className="surface-tree-head">
+        <span className="tree-head-target" title={targetLabel}>
+          {targetLabel}
+        </span>
+        {creating === null ? (
+          <>
+            <button
+              type="button"
+              className="file-action"
+              onClick={() => startCreating("file")}
+            >
+              New file
+            </button>
+            <button
+              type="button"
+              className="file-action"
+              onClick={() => startCreating("dir")}
+            >
+              New folder
+            </button>
+          </>
+        ) : (
+          <>
+            <input
+              ref={newNameRef}
+              className="tree-new-name"
+              value={newName}
+              disabled={createBusy}
+              placeholder={creating === "dir" ? "folder name" : "file name"}
+              onChange={(event) => setNewName(event.target.value)}
+              onKeyDown={onNewNameKeyDown}
+            />
+            <button
+              type="button"
+              className="file-action"
+              disabled={createBusy || newName.trim() === ""}
+              onClick={() => void submitCreating()}
+            >
+              {createBusy ? "Creating…" : "Create"}
+            </button>
+            <button
+              type="button"
+              className="file-action"
+              disabled={createBusy}
+              onClick={cancelCreating}
+            >
+              Cancel
+            </button>
+          </>
+        )}
+      </div>
+      {createError ? (
+        <p className="surface-note error">{createError}</p>
+      ) : null}
       <div className="surface-tree">
         {treeError ? <p className="surface-note error">{treeError}</p> : null}
         <ul className="tree-list">{renderRows(ROOT, 0)}</ul>

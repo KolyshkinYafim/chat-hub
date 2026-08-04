@@ -69,6 +69,8 @@ export type SurfaceBridge = {
     text: string,
     stamp: FileStamp,
   ) => Promise<FileSaved>
+  createFile: (cwd: string, relPath: string) => Promise<FileSaved>
+  createDirectory: (cwd: string, relPath: string) => Promise<DirEntry>
   termStart: (
     cwd: string,
     cols: number,
@@ -92,6 +94,10 @@ export function surfaceBridgeReady(): boolean {
   return typeof bridge?.listDir === "function"
 }
 
+/** Electron wraps every rejected `invoke` in a sentence of its own — drop it. */
+const IPC_WRAPPER = /^Error invoking remote method '[^']*':\s*(?:\w*Error:\s*)?/
+
 export function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
+  const message = err instanceof Error ? err.message : String(err)
+  return message.replace(IPC_WRAPPER, "")
 }
