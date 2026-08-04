@@ -5,6 +5,7 @@
  */
 import type {
   ChatMessage,
+  MessageAttachment,
   PermissionRequestInfo,
   Project,
   QueuedMessage,
@@ -224,12 +225,29 @@ const sessions: SessionMeta[] = [
   { id: "s3", title: "Tune reward curve", project: "GiftArena", provider: "grok", model: "grok-4", cwd: projects[1].cwd, status: "idle", createdAt: now - 8e5, updatedAt: now - 3e5 },
 ]
 
+const mockAttachments: MessageAttachment[] = [
+  { path: "/mock/dashboard.png", name: "dashboard.png", sizeBytes: 348_160, kind: "image", mime: "image/png" },
+  { path: "/mock/mobile.png", name: "mobile.png", sizeBytes: 191_488, kind: "image", mime: "image/png" },
+  { path: "/mock/error.png", name: "error-state.png", sizeBytes: 88_064, kind: "image", mime: "image/png" },
+]
+
+function mockImage(path: string): string | null {
+  if (path.includes("error")) return null
+  const palette = path.includes("mobile")
+    ? ["#7567f8", "#312d63"]
+    : ["#32b98f", "#183d3b"]
+  const label = path.split("/").pop()?.replace(".png", "") ?? "preview"
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760"><defs><linearGradient id="g"><stop stop-color="${palette[0]}"/><stop offset="1" stop-color="${palette[1]}"/></linearGradient></defs><rect width="1200" height="760" rx="32" fill="url(#g)"/><rect x="70" y="70" width="1060" height="620" rx="22" fill="#0c1018" opacity=".9"/><rect x="110" y="120" width="250" height="520" rx="14" fill="#171d29"/><rect x="400" y="120" width="680" height="110" rx="14" fill="${palette[0]}" opacity=".28"/><rect x="400" y="265" width="320" height="170" rx="14" fill="#202838"/><rect x="760" y="265" width="320" height="170" rx="14" fill="#202838"/><rect x="400" y="470" width="680" height="170" rx="14" fill="#202838"/><text x="430" y="188" fill="white" font-family="system-ui" font-size="34" font-weight="700">${label}</text></svg>`
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+}
+
 const messages: Record<string, ChatMessage[]> = {
   s1: [
     { id: "m1", sessionId: "s1", role: "user", content: "Extract the JWT verification into a reusable middleware and add tests.", createdAt: now - 25e4 },
     { id: "m2", sessionId: "s1", role: "assistant", content: "I'll extract the verification logic.\n\n```tool:Edit\nsrc/middleware/auth.ts\n```\n```diff\n- const decoded = jwt.verify(token, process.env.JWT_SECRET)\n- if (!decoded) throw new Error('bad token')\n+ const decoded = verifyJwt(token)\n```\n\nDone — `verifyJwt()` now lives in `auth.ts` and both routes import it. Added 4 tests covering expired, malformed, and valid tokens.", createdAt: now - 24e4, usage: { inputTokens: 13300, outputTokens: 1370, cacheReadTokens: 96000, costUsd: 0.36, durationMs: 21800 } },
     { id: "m8", sessionId: "s1", role: "user", content: "The expiry test is failing. Find out why and fix it.", createdAt: now - 22e4 },
     { id: "m9", sessionId: "s1", role: "assistant", content: busyTurn, createdAt: now - 21e4, usage: { inputTokens: 41200, outputTokens: 3100, cacheReadTokens: 128000, costUsd: 0.71, durationMs: 48300 } },
+    { id: "m10", sessionId: "s1", role: "user", content: "Use these three screens as the visual reference for the final polish.", attachments: mockAttachments, createdAt: now - 3e4 },
     { id: "m3", sessionId: "s1", role: "assistant", content: "Running the suite now…", createdAt: now - 2e4, streaming: true },
   ],
   s2: [
@@ -511,7 +529,11 @@ export function installDevMock(): void {
     renameProject: async () => projects,
     removeProject: async () => projects,
     pickFolder: async () => "/Users/lic/code/landing-site",
-    pickFiles: async () => [],
+    pickFiles: async () => mockAttachments.map((item) => item.path),
+    inspectAttachments: async (paths) => mockAttachments.filter((item) => paths.includes(item.path)),
+    getPathForDroppedFile: (file) => `/mock/${file.name}`,
+    readImageDataUrl: async (path) => mockImage(path),
+    savePastedImage: async () => "/mock/pasted.png",
     createSession: async () => sessions[0],
     sendMessage: async () => {},
     cancelQueued: async (sessionId, queuedId) =>
