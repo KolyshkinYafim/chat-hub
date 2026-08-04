@@ -16,6 +16,7 @@ import {
   type StreamTurn,
 } from "./stream-parse"
 import { readUsage } from "./usage"
+import { renderCliFailure } from "./failure-message"
 import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
 import type { TurnUsage } from "@shared/types"
 import type {
@@ -124,7 +125,6 @@ export class GrokAdapter implements AgentAdapter {
     })
 
     let turn: StreamTurn | null = null
-    let sawText = false
     let usage: TurnUsage | null = null
     const snapshot = newSnapshot()
     const stderr: string[] = []
@@ -140,7 +140,6 @@ export class GrokAdapter implements AgentAdapter {
           if (line.trim()) {
             if (!turn) turn = beginAssistant(sessionId, cb)
             pushDelta(turn, sessionId, line + "\n", cb)
-            sawText = true
           }
           return
         }
@@ -160,13 +159,7 @@ export class GrokAdapter implements AgentAdapter {
         const type = String(ev.type ?? ev.event ?? "")
 
         // text deltas
-        const delta =
-          (typeof ev.delta === "string" && ev.delta) ||
-          (typeof ev.text === "string" &&
-          (type.includes("delta") || type.includes("stream"))
-            ? ev.text
-            : "") ||
-          extractPartial(ev)
+        const delta = extractGrokText(ev, type)
 
         if (delta) {
           if (!turn) turn = beginAssistant(sessionId, cb)
@@ -174,7 +167,6 @@ export class GrokAdapter implements AgentAdapter {
           // Grok streams deltas AND repeats the finished message: the snapshot
           // has to know what the deltas already put on screen.
           noteSnapshotDelta(snapshot, delta)
-          sawText = true
           return
         }
 
@@ -199,7 +191,6 @@ export class GrokAdapter implements AgentAdapter {
             const msgId = typeof msg.id === "string" ? msg.id : undefined
             const extra = snapshotDelta(snapshot, msgId, text)
             if (extra) pushDelta(turn, sessionId, extra, cb)
-            sawText = true
           }
           const touched = extractTouchedFiles(msg.content)
           if (touched.length) {
@@ -214,7 +205,6 @@ export class GrokAdapter implements AgentAdapter {
           // A bare tool name says nothing about what the agent did to the repo.
           const input = ev.input ?? ev.arguments
           pushDelta(turn, sessionId, toolUseBlock(name, input), cb)
-          sawText = true
           const file = touchedFileFromTool(name, input)
           if (file) cb.onTouchedFiles?.(sessionId, turn.messageId, [file])
         }
@@ -229,11 +219,13 @@ export class GrokAdapter implements AgentAdapter {
       },
       onExit: (code) => {
         const messageId = turn?.messageId
-        finishTurn(turn, sessionId, cb)
         if (usage) cb.onUsage?.(sessionId, usage, messageId)
         // A newer turn may already own this session (Stop then immediate
         // resend): a dead process must not overwrite the live turn's status.
-        if (state.proc !== proc) return
+        if (state.proc !== proc) {
+          finishTurn(turn, sessionId, cb)
+          return
+        }
         state.proc = undefined
         state.aborting = false
         if (code === 0) {
@@ -254,16 +246,11 @@ export class GrokAdapter implements AgentAdapter {
             status: "idle",
           })
         } else {
-          if (!sawText) {
-            const t = beginAssistant(sessionId, cb)
-            pushDelta(
-              t,
-              sessionId,
-              `Grok exited with code ${code}.\n\n\`\`\`\n${stderr.slice(-8).join("\n") || "(no stderr output)"}\n\`\`\``,
-              cb,
-            )
-            finishTurn(t, sessionId, cb)
-          }
+          // Tool output is not a successful answer. Append the failure even
+          // after a partial/tool event so the user never sees a dead turn as
+          // if it had completed normally.
+          if (!turn) turn = beginAssistant(sessionId, cb)
+          pushDelta(turn, sessionId, renderCliFailure("Grok", code, stderr), cb)
           cb.onSessionEvent({
             type: "session.status",
             id: sessionId,
@@ -275,6 +262,7 @@ export class GrokAdapter implements AgentAdapter {
             reason: "error",
           })
         }
+        finishTurn(turn, sessionId, cb)
       },
     })
 
@@ -295,7 +283,21 @@ export class GrokAdapter implements AgentAdapter {
   }
 }
 
-function extractPartial(ev: Record<string, unknown>): string {
+/** Parse both legacy and Grok Build 0.2.x streaming-json text events. */
+export function extractGrokText(
+  ev: Record<string, unknown>,
+  type = String(ev.type ?? ev.event ?? ""),
+): string {
+  // Current Grok Build emits { type: "text", data: "..." }. Thinking has
+  // the same data shape and must stay out of the user-visible transcript.
+  if (type === "text" && typeof ev.data === "string") return ev.data
+  if (typeof ev.delta === "string") return ev.delta
+  if (
+    typeof ev.text === "string" &&
+    (type.includes("delta") || type.includes("stream") || type === "text")
+  ) {
+    return ev.text
+  }
   if (ev.delta && typeof ev.delta === "object") {
     const d = ev.delta as Record<string, unknown>
     if (typeof d.text === "string") return d.text
