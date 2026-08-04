@@ -32,6 +32,12 @@ import type {
   ProviderStatus,
   SettingsSnapshot,
 } from "@shared/settings-types"
+import type {
+  McpListResult,
+  McpMaterializeResult,
+  McpServerDef,
+  McpServerStatus,
+} from "@shared/mcp"
 
 const api = {
   getSnapshot: (): Promise<SessionSnapshot> =>
@@ -246,6 +252,27 @@ const api = {
       ipcRenderer.removeListener(IpcChannels.termExit, handler)
     }
   },
+  mcpList: (cwd: string): Promise<McpListResult> =>
+    ipcRenderer.invoke(IpcChannels.mcpList, cwd),
+  mcpUpsert: (cwd: string, server: McpServerDef): Promise<McpListResult> =>
+    ipcRenderer.invoke(IpcChannels.mcpUpsert, cwd, server),
+  mcpRemove: (cwd: string, id: string): Promise<McpListResult> =>
+    ipcRenderer.invoke(IpcChannels.mcpRemove, cwd, id),
+  mcpSetEnabled: (
+    cwd: string,
+    id: string,
+    enabled: boolean,
+  ): Promise<McpListResult> =>
+    ipcRenderer.invoke(IpcChannels.mcpSetEnabled, cwd, id, enabled),
+  mcpSetEnv: (
+    serverId: string,
+    envPatch: Record<string, string>,
+  ): Promise<string[]> =>
+    ipcRenderer.invoke(IpcChannels.mcpSetEnv, serverId, envPatch),
+  mcpMaterialize: (cwd: string): Promise<McpMaterializeResult> =>
+    ipcRenderer.invoke(IpcChannels.mcpMaterialize, cwd),
+  mcpStatus: (cwd: string): Promise<McpServerStatus[]> =>
+    ipcRenderer.invoke(IpcChannels.mcpStatus, cwd),
 }
 
 contextBridge.exposeInMainWorld("chatHub", api)

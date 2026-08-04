@@ -47,6 +47,16 @@ import {
   registerSurfaceIpc,
   TerminalSessions,
 } from "./surfaces"
+import {
+  materializeMcpForProject,
+  mcpListForRenderer,
+  probeMcpStatuses,
+  readMcpConfig,
+  removeMcpServer,
+  setMcpServerEnabled,
+  upsertMcpServer,
+} from "./mcp"
+import type { McpServerDef } from "@shared/mcp"
 
 const REAL_PROVIDER_IDS: ProviderId[] = [
   "claude",
@@ -249,6 +259,10 @@ function registerIpc(
     })
     // Pin the folder as a first-class project so it survives with no sessions.
     await projects.ensure(session.cwd, session.project)
+    // Keep CLI-native MCP files in sync for this project (non-blocking).
+    void materializeMcpForProject(session.cwd, (serverId) =>
+      settings.getMcpEnv(serverId),
+    ).catch((err) => console.error("[mcp] materialize on create failed", err))
     return session
   })
   ipcMain.handle(
@@ -855,6 +869,78 @@ function registerIpc(
   ipcMain.handle(IpcChannels.removeProject, async (_e, id: unknown) => {
     if (typeof id !== "string" || !id) throw new Error("Invalid project id")
     return projects.remove(id)
+  })
+
+  const envLookup = (serverId: string) => settings.getMcpEnv(serverId)
+
+  async function mcpAfterMutate(cwd: string) {
+    void materializeMcpForProject(cwd, envLookup).catch((err) =>
+      console.error("[mcp] materialize after mutate failed", err),
+    )
+    return mcpListForRenderer(cwd, settings, true)
+  }
+
+  ipcMain.handle(IpcChannels.mcpList, async (_e, cwd: unknown) => {
+    if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
+    return mcpListForRenderer(cwd, settings, true)
+  })
+
+  ipcMain.handle(
+    IpcChannels.mcpUpsert,
+    async (_e, cwd: unknown, server: unknown) => {
+      if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
+      if (!server || typeof server !== "object") throw new Error("Invalid server")
+      await upsertMcpServer(cwd, server as McpServerDef)
+      return mcpAfterMutate(cwd)
+    },
+  )
+
+  ipcMain.handle(
+    IpcChannels.mcpRemove,
+    async (_e, cwd: unknown, id: unknown) => {
+      if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
+      if (typeof id !== "string" || !id) throw new Error("Invalid id")
+      await removeMcpServer(cwd, id)
+      return mcpAfterMutate(cwd)
+    },
+  )
+
+  ipcMain.handle(
+    IpcChannels.mcpSetEnabled,
+    async (_e, cwd: unknown, id: unknown, enabled: unknown) => {
+      if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
+      if (typeof id !== "string" || !id) throw new Error("Invalid id")
+      if (typeof enabled !== "boolean") throw new Error("Invalid enabled")
+      await setMcpServerEnabled(cwd, id, enabled)
+      return mcpAfterMutate(cwd)
+    },
+  )
+
+  ipcMain.handle(
+    IpcChannels.mcpSetEnv,
+    async (_e, serverId: unknown, envPatch: unknown) => {
+      if (typeof serverId !== "string" || !serverId) {
+        throw new Error("Invalid serverId")
+      }
+      if (!envPatch || typeof envPatch !== "object") {
+        throw new Error("Invalid env patch")
+      }
+      return settings.setMcpServerEnv(
+        serverId,
+        envPatch as Record<string, string>,
+      )
+    },
+  )
+
+  ipcMain.handle(IpcChannels.mcpMaterialize, async (_e, cwd: unknown) => {
+    if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
+    return materializeMcpForProject(cwd, envLookup)
+  })
+
+  ipcMain.handle(IpcChannels.mcpStatus, async (_e, cwd: unknown) => {
+    if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
+    const config = await readMcpConfig(cwd)
+    return probeMcpStatuses(config.servers)
   })
 }
 
