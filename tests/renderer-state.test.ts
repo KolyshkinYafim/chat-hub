@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest"
 import {
   actionForPath,
   collectAgentActions,
+  editedPathsInMessage,
 } from "@renderer/lib/agent-actions"
+import { mergeReplacedMessages } from "@renderer/lib/transcript-window"
 import {
   parseArchived,
   pruneArchived,
@@ -217,6 +219,72 @@ describe("agent audit trail", () => {
     ])
     expect(actionForPath(actions, "src/foo.ts")?.name).toBe("Edit")
     expect(actionForPath(actions, "src/other.ts")).toBeNull()
+  })
+
+  it("derives edited paths from the same parse the transcript draws", () => {
+    const content =
+      "```tool:Read\n" +
+      encodeToolCardMeta({ id: "r1" }) +
+      "src/read-only.ts\n```\n" +
+      "```tool:Edit\n" +
+      encodeToolCardMeta({ id: "e1", paths: ["src/foo.ts"], added: 2, removed: 1 }) +
+      "src/foo.ts\n```\n" +
+      "```tool:Write\n" +
+      encodeToolCardMeta({ id: "w1", paths: ["src/foo.ts"] }) +
+      "src/foo.ts\n```"
+    expect(editedPathsInMessage(msg("m1", content))).toEqual(["src/foo.ts"])
+  })
+
+  it("counts a Codex file_change item and ignores a viewed image", () => {
+    const message: ChatMessage = {
+      ...msg("m1", "Done."),
+      items: [
+        {
+          id: "edit-1",
+          kind: "file_change",
+          status: "completed",
+          changes: [{ path: "src/a.ts", kind: "edit" }],
+        },
+        { id: "img-1", kind: "image", status: "completed", path: "shot.png" },
+      ],
+    }
+    expect(editedPathsInMessage(message)).toEqual(["src/a.ts"])
+  })
+
+  it("reports nothing for a turn that only read and ran commands", () => {
+    expect(editedPathsInMessage(msg("m1", "just prose"))).toEqual([])
+    expect(
+      editedPathsInMessage(msg("m1", "```tool:Bash\npnpm test\n```")),
+    ).toEqual([])
+  })
+})
+
+describe("transcript window merge", () => {
+  function msg(id: string): ChatMessage {
+    return { id, sessionId: "s1", role: "assistant", content: id, createdAt: 1 }
+  }
+
+  it("keeps archive pages sitting in front of the live window", () => {
+    const existing = [msg("old-1"), msg("old-2"), msg("live-1"), msg("live-2")]
+    const replacement = [msg("live-1"), msg("live-2"), msg("live-3")]
+    expect(
+      mergeReplacedMessages(existing, replacement).map((m) => m.id),
+    ).toEqual(["old-1", "old-2", "live-1", "live-2", "live-3"])
+  })
+
+  it("takes the replacement whole when nothing older is held", () => {
+    const replacement = [msg("live-1")]
+    expect(mergeReplacedMessages([], replacement)).toEqual(replacement)
+    expect(mergeReplacedMessages([msg("live-1")], replacement)).toEqual(
+      replacement,
+    )
+  })
+
+  it("takes the replacement whole when the two lists share nothing", () => {
+    const existing = [msg("gone-1")]
+    const replacement = [msg("live-1")]
+    expect(mergeReplacedMessages(existing, replacement)).toEqual(replacement)
+    expect(mergeReplacedMessages(existing, [])).toEqual([])
   })
 })
 

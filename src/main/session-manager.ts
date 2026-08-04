@@ -834,6 +834,7 @@ export class SessionManager {
     this.turns.delete(sessionId)
     this.queued.delete(sessionId)
     this.usage.delete(sessionId)
+    await this.discardArchive(sessionId)
     this.hooks.clearSession(sessionId)
     // The CLI is dead, so nothing is left to answer its permission any more.
     this.permissions?.cancelForSession(sessionId)
@@ -874,6 +875,7 @@ export class SessionManager {
     this.turns.clear()
     this.queued.clear()
     this.usage.clear()
+    for (const id of ids) await this.discardArchive(id)
     for (const id of ids) this.hooks.clearSession(id)
     this.activeSessionId = null
     this.bus.emit({ type: "sessions.replaced", sessions: [] })
@@ -993,25 +995,6 @@ export class SessionManager {
         this.sessions.set(sessionId, { ...s, agentSessionId })
         this.scheduleSave()
       },
-      onTouchedFiles: (sessionId, messageId, files) => {
-        if (files.length === 0) return
-        const list = this.messages.get(sessionId)
-        const idx = list?.findIndex((m) => m.id === messageId) ?? -1
-        if (!list || idx === -1) return
-        const prev = list[idx]
-        const merged = prev.touchedFiles ? prev.touchedFiles.slice() : []
-        for (const f of files) if (!merged.includes(f)) merged.push(f)
-        if (merged.length === (prev.touchedFiles?.length ?? 0)) return
-        list[idx] = { ...prev, touchedFiles: merged }
-        this.bus.emit({
-          type: "chat.touchedFiles",
-          sessionId,
-          messageId,
-          files: merged,
-        })
-        this.touch(sessionId)
-        this.scheduleSave()
-      },
     }
   }
 
@@ -1102,6 +1085,15 @@ export class SessionManager {
       this.archivedSessions.add(message.sessionId)
       this.queueArchiveAppend(message.sessionId, overflow)
     }
+  }
+
+  private async discardArchive(sessionId: string): Promise<void> {
+    await this.archiveWrites.get(sessionId)?.catch(() => undefined)
+    this.archiveWrites.delete(sessionId)
+    this.archivedSessions.delete(sessionId)
+    await this.archive
+      .remove(sessionId)
+      .catch((err) => console.warn("[archive] remove failed", sessionId, err))
   }
 
   private queueArchiveAppend(sessionId: string, messages: ChatMessage[]): void {

@@ -21,6 +21,7 @@ import type {
 import type { PermissionMode } from "@shared/permission"
 import type {
   Board,
+  DirEntry,
   DirListing,
   FileContents,
   FileSaved,
@@ -283,6 +284,11 @@ const api = {
     stamp: FileStamp,
   ): Promise<FileSaved> =>
     ipcRenderer.invoke(IpcChannels.saveFile, cwd, relPath, text, stamp),
+  /** Creates an empty file, refusing when anything already sits at that path. */
+  createFile: (cwd: string, relPath: string): Promise<FileSaved> =>
+    ipcRenderer.invoke(IpcChannels.createFile, cwd, relPath),
+  createDirectory: (cwd: string, relPath: string): Promise<DirEntry> =>
+    ipcRenderer.invoke(IpcChannels.createDirectory, cwd, relPath),
   termStart: (
     cwd: string,
     cols: number,

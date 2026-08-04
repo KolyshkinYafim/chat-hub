@@ -13,14 +13,12 @@ import {
   beginSnapshotMessage,
   extractTextFromContent,
   extractToolResults,
-  extractTouchedFiles,
   finishTurn,
   newSnapshot,
   noteSnapshotDelta,
   pushDelta,
   safeJson,
   snapshotDelta,
-  touchedFileFromTool,
   type StreamTurn,
 } from "./stream-parse"
 import { readUsage } from "./usage"
@@ -236,10 +234,6 @@ export class ClaudeAdapter implements AgentAdapter {
               pushAssistantText(extra)
             }
           }
-          const touched = extractTouchedFiles(rawContent)
-          if (touched.length && turn) {
-            cb.onTouchedFiles?.(sessionId, turn.messageId, touched)
-          }
           return
         }
 
@@ -274,8 +268,6 @@ export class ClaudeAdapter implements AgentAdapter {
           if (!turn) turn = beginAssistant(sessionId, cb)
           pushDelta(turn, sessionId, `\n\n🔧 **${name}**\n`, cb)
           sawText = true
-          const file = touchedFileFromTool(name, ev.input)
-          if (file) cb.onTouchedFiles?.(sessionId, turn.messageId, [file])
         }
       },
       onStderrLine: (line) => {

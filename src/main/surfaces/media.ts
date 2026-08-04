@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { realpath, stat } from "node:fs/promises"
+import { basename } from "node:path"
 import { pathToFileURL } from "node:url"
 import { net, protocol } from "electron"
 import { MEDIA_SCHEME } from "@shared/surfaces"
@@ -69,6 +70,9 @@ export function registerMediaProtocol(): void {
     const headers = new Headers({
       "Content-Type": grant.mime,
       "Accept-Ranges": "bytes",
+      // The token is opaque, so without this the PDF viewer titles the tab with
+      // a UUID. RFC 5987 form: always header-safe, whatever the file is called.
+      "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(basename(grant.absolutePath))}`,
     })
     if (!range) {
       headers.set("Content-Length", String(size))

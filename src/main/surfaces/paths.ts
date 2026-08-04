@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from "node:fs"
-import { isAbsolute, join, resolve, sep } from "node:path"
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path"
 
 export type ContainedPath = {
   root: string
@@ -46,24 +46,33 @@ export function resolveWorkspaceRoot(cwd: unknown): string {
   return root
 }
 
-export function resolveContainedPath(
-  cwd: unknown,
-  relPath: unknown,
-): ContainedPath {
-  const root = resolveWorkspaceRoot(cwd)
+function relativeToRoot(root: string, absolutePath: string): string {
+  return toPosixPath(absolutePath.slice(root.length).replace(/^[/\\]/, ""))
+}
+
+/** Lexically normalized target, before any symlink is followed. */
+function lexicalTarget(root: string, relPath: unknown): string {
   if (typeof relPath !== "string" || relPath.includes("\0")) {
     reject("Invalid path")
   }
   if (isAbsolute(relPath) || WINDOWS_DRIVE_PREFIX.test(relPath)) {
     reject("Path must be relative to the workspace")
   }
-
   const lexical = resolve(join(root, relPath))
   if (!isInside(root, lexical)) {
     reject("Path escapes the workspace")
   }
+  return lexical
+}
 
-  const absolutePath = realpathOrReject(lexical, `Not found: ${relPath}`)
+export function resolveContainedPath(
+  cwd: unknown,
+  relPath: unknown,
+): ContainedPath {
+  const root = resolveWorkspaceRoot(cwd)
+  const lexical = lexicalTarget(root, relPath)
+
+  const absolutePath = realpathOrReject(lexical, `Not found: ${String(relPath)}`)
   if (!isInside(root, absolutePath)) {
     reject("Path escapes the workspace")
   }
@@ -71,7 +80,46 @@ export function resolveContainedPath(
   return {
     root,
     absolutePath,
-    relativePath: toPosixPath(absolutePath.slice(root.length).replace(/^[/\\]/, "")),
+    relativePath: relativeToRoot(root, absolutePath),
+  }
+}
+
+/**
+ * Where something that does not exist yet may be created. The target has no
+ * realpath of its own, so containment is decided on its parent directory — the
+ * same reasoning `resolveContainedPath` applies to an existing target — and only
+ * the basename is joined onto the resolved parent. A parent that is missing, is
+ * not a directory, or is reached through a symlink out of the workspace is
+ * refused, and so is the workspace root itself.
+ */
+export function resolveCreatablePath(
+  cwd: unknown,
+  relPath: unknown,
+): ContainedPath {
+  const root = resolveWorkspaceRoot(cwd)
+  const lexical = lexicalTarget(root, relPath)
+  if (lexical === root) {
+    reject("Path must name something to create inside the workspace")
+  }
+
+  const parentLexical = dirname(lexical)
+  const parentRelative = relativeToRoot(root, parentLexical) || "."
+  const parent = realpathOrReject(
+    parentLexical,
+    `Parent folder not found: ${parentRelative}`,
+  )
+  if (!isInside(root, parent)) {
+    reject("Path escapes the workspace")
+  }
+  if (!statSync(parent).isDirectory()) {
+    reject(`Not a directory: ${parentRelative}`)
+  }
+
+  const absolutePath = join(parent, basename(lexical))
+  return {
+    root,
+    absolutePath,
+    relativePath: relativeToRoot(root, absolutePath),
   }
 }
 

@@ -107,40 +107,6 @@ export function snapshotDelta(
   return extra
 }
 
-/** The file a tool_use actually wrote/edited, or undefined for reads/searches/etc. */
-export function touchedFileFromTool(name: string, input: unknown): string | undefined {
-  const lower = name.toLowerCase()
-  const touches =
-    lower === "write" || lower === "edit" || lower === "multiedit" ||
-    lower.includes("str_replace")
-  if (!touches) return undefined
-  const o = (input && typeof input === "object" ? input : {}) as Record<
-    string,
-    unknown
-  >
-  const str = (v: unknown) => (typeof v === "string" ? v : "")
-  const file = str(o.file_path) || str(o.path) || str(o.notebook_path)
-  return file || undefined
-}
-
-/**
- * Files a "write"/"edit"/"multiedit" tool_use block in this content array
- * actually touched — "read"/"bash"/"grep"/"glob" never contribute, so a turn
- * that only inspects the repo never trips an auto-open of the diff panel.
- */
-export function extractTouchedFiles(content: unknown): string[] {
-  if (!Array.isArray(content)) return []
-  const files: string[] = []
-  for (const block of content) {
-    if (!block || typeof block !== "object") continue
-    const b = block as Record<string, unknown>
-    if (b.type !== "tool_use" || typeof b.name !== "string") continue
-    const file = touchedFileFromTool(b.name, b.input)
-    if (file && !files.includes(file)) files.push(file)
-  }
-  return files
-}
-
 export function extractTextFromContent(content: unknown): string {
   if (typeof content === "string") return content
   if (!Array.isArray(content)) return ""

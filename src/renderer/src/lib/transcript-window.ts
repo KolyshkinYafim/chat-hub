@@ -1,0 +1,21 @@
+import type { ChatMessage } from "@shared/types"
+
+/**
+ * Main keeps only the newest `MAX_MESSAGES_PER_SESSION` turns in memory and
+ * re-sends that window whenever a session is focused. The renderer may be
+ * holding older turns it pulled out of the on-disk archive, so a replacement is
+ * merged onto the head instead of overwriting it: whatever sits before the
+ * window's first message survives, and the window itself always wins.
+ */
+export function mergeReplacedMessages(
+  existing: readonly ChatMessage[],
+  replacement: readonly ChatMessage[],
+): ChatMessage[] {
+  if (existing.length === 0 || replacement.length === 0) {
+    return [...replacement]
+  }
+  const inWindow = new Set(replacement.map((m) => m.id))
+  const overlap = existing.findIndex((m) => inWindow.has(m.id))
+  if (overlap <= 0) return [...replacement]
+  return [...existing.slice(0, overlap), ...replacement]
+}

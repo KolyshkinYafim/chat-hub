@@ -8,7 +8,12 @@ import {
   STALE_WRITE_MESSAGE,
   type FileStamp,
 } from "../src/shared/surfaces"
-import { readFileText, saveFileText } from "../src/main/surfaces/files"
+import {
+  createDirectory,
+  createFile,
+  readFileText,
+  saveFileText,
+} from "../src/main/surfaces/files"
 
 let root = ""
 let outside = ""
@@ -107,11 +112,100 @@ describe("save containment", () => {
     )
   })
 
-  it("refuses to create a file that does not exist yet", async () => {
+  it("still refuses to save into a path that does not exist yet", async () => {
     const stamp = await stampOf("src/app.ts")
     await expect(
       saveFileText(root, "src/brand-new.ts", "x", stamp),
     ).rejects.toThrow(/Not found/)
+  })
+})
+
+describe("create containment", () => {
+  it("creates an empty file inside the workspace and hands back its stamp", async () => {
+    const created = await createFile(root, "src/brand-new.ts")
+    expect(created.path).toBe("src/brand-new.ts")
+    expect(created.stamp.size).toBe(0)
+    expect(await readFile(join(root, "src", "brand-new.ts"), "utf8")).toBe("")
+  })
+
+  it("lets the normal stamped save write the file it just created", async () => {
+    const created = await createFile(root, "src/fresh.ts")
+    const saved = await saveFileText(root, "src/fresh.ts", "ok\n", created.stamp)
+    expect(saved.path).toBe("src/fresh.ts")
+    expect(await readFile(join(root, "src", "fresh.ts"), "utf8")).toBe("ok\n")
+  })
+
+  it("refuses to overwrite anything already at that path", async () => {
+    await expect(createFile(root, "src/app.ts")).rejects.toThrow(
+      /already exists/,
+    )
+    await expect(createFile(root, "src")).rejects.toThrow(/already exists/)
+    await expect(createFile(root, "escape-file")).rejects.toThrow(
+      /already exists/,
+    )
+    expect(await readFile(join(root, "src", "app.ts"), "utf8")).toBe(
+      "export const app = 1\n",
+    )
+  })
+
+  it("refuses a ../ escape", async () => {
+    await expect(createFile(root, "../outside/planted.txt")).rejects.toThrow(
+      /escapes the workspace/,
+    )
+    await expect(
+      createFile(root, "src/../../outside/planted.txt"),
+    ).rejects.toThrow(/escapes the workspace/)
+    await expect(
+      readFile(join(outside, "planted.txt"), "utf8"),
+    ).rejects.toThrow()
+  })
+
+  it("refuses an absolute path", async () => {
+    await expect(
+      createFile(root, join(outside, "planted.txt")),
+    ).rejects.toThrow(/must be relative/)
+  })
+
+  it("refuses a directory symlinked out of the workspace", async () => {
+    await expect(createFile(root, "escape-dir/planted.txt")).rejects.toThrow(
+      /escapes the workspace/,
+    )
+    await expect(
+      readFile(join(outside, "planted.txt"), "utf8"),
+    ).rejects.toThrow()
+  })
+
+  it("refuses a parent folder that does not exist", async () => {
+    await expect(createFile(root, "nope/deeper/file.ts")).rejects.toThrow(
+      /Parent folder not found/,
+    )
+  })
+
+  it("refuses a parent that is a file, the root itself, and a bad path", async () => {
+    await expect(createFile(root, "src/app.ts/child.ts")).rejects.toThrow(
+      /Not a directory/,
+    )
+    await expect(createFile(root, "")).rejects.toThrow(/must name something/)
+    await expect(createFile(root, ".")).rejects.toThrow(/must name something/)
+    await expect(createFile(root, "src\0/x.ts")).rejects.toThrow(/Invalid path/)
+  })
+
+  it("follows a symlink that stays inside and creates in the real folder", async () => {
+    const created = await createFile(root, "inside-link/linked.ts")
+    expect(created.path).toBe("src/linked.ts")
+    expect(await readFile(join(root, "src", "linked.ts"), "utf8")).toBe("")
+  })
+
+  it("creates a folder and refuses one that is already there", async () => {
+    const made = await createDirectory(root, "src/nested")
+    expect(made).toEqual({ name: "nested", path: "src/nested", kind: "dir" })
+    expect(statSync(join(root, "src", "nested")).isDirectory()).toBe(true)
+    await expect(createDirectory(root, "src/nested")).rejects.toThrow(
+      /already exists/,
+    )
+    await expect(createDirectory(root, "escape-dir/nested")).rejects.toThrow(
+      /escapes the workspace/,
+    )
   })
 })
 

@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, realpath, writeFile } from "node:fs/promises"
+import { existsSync } from "node:fs"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import { tmpdir } from "node:os"
@@ -101,6 +102,7 @@ const { Persistence } = await import("../src/main/persistence")
 const { SessionMonitorBridge } = await import("../src/main/bridge")
 const { SettingsStore } = await import("../src/main/settings")
 const { PermissionBroker } = await import("../src/main/permission-broker")
+const { MessageArchive } = await import("../src/main/message-archive")
 
 const exec = promisify(execFile)
 
@@ -726,5 +728,52 @@ describe("message archive overflow", () => {
 
   it("keeps the production default cap at 200", () => {
     expect(MAX_MESSAGES_PER_SESSION).toBe(200)
+  })
+
+  it("re-reports the archive after a restart so scroll-back stays reachable", async () => {
+    const { sm, dir, persistence } = await makeManager(undefined, {
+      maxMessages: 3,
+    })
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await fillAndResolve(sm, session.id, ["a", "b", "c", "d"])
+    await vi.waitFor(() => expect(sm.hasArchivedMessages(session.id)).toBe(true))
+    await sm.flush()
+
+    const restarted = new SessionManager(
+      new EventBus(),
+      persistence,
+      new SessionMonitorBridge(join(dir, "events.jsonl")),
+      { handle: () => {} } as unknown as NotificationService,
+      new SettingsStore(join(dir, "settings.json")),
+      { intervalMs: 60_000, silenceMs: 60_000 },
+      { maxMessages: 3, archive: MessageArchive.fromStatePath(persistence.filePath) },
+    )
+    await restarted.init()
+
+    expect(restarted.hasArchivedMessages(session.id)).toBe(true)
+    const page = await restarted.loadArchivedMessages(session.id, null, 200)
+    expect(page.messages.map((m) => m.content)).toEqual(["a"])
+  })
+
+  it("takes the archive with the session when it is deleted", async () => {
+    const { sm, dir } = await makeManager(undefined, { maxMessages: 3 })
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await fillAndResolve(sm, session.id, ["a", "b", "c", "d"])
+    await vi.waitFor(() => expect(sm.hasArchivedMessages(session.id)).toBe(true))
+
+    const archiveFile = MessageArchive.fromStatePath(
+      join(dir, "state.json"),
+    ).fileFor(session.id)
+    expect(existsSync(archiveFile)).toBe(true)
+
+    await sm.deleteSession(session.id)
+    expect(existsSync(archiveFile)).toBe(false)
+    expect(sm.hasArchivedMessages(session.id)).toBe(false)
+  })
+
+  it("refuses a session id that would escape the archive root", () => {
+    const archive = MessageArchive.fromStatePath("/tmp/whatever/state.json")
+    expect(() => archive.fileFor("../../etc")).toThrow(/Invalid session id/)
+    expect(() => archive.fileFor("")).toThrow(/Invalid session id/)
   })
 })
