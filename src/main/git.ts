@@ -1,12 +1,13 @@
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
-import { mkdir } from "node:fs/promises"
+import { mkdir, readdir } from "node:fs/promises"
 import { basename, dirname, join } from "node:path"
 import { homedir } from "node:os"
 import type {
   GitBranchList,
   GitFileChange,
   GitWorkingCopy,
+  GitRepository,
 } from "@shared/types"
 
 const execFileAsync = promisify(execFile)
@@ -115,6 +116,25 @@ export async function getGitCheckout(cwd: string): Promise<GitCheckoutInfo> {
   } catch {
     return { branch: "no-git", dirty: false, root: null }
   }
+}
+
+/** Discover the project repo plus direct child repos (monorepo-friendly, bounded). */
+export async function findGitRepositories(cwd: string): Promise<GitRepository[]> {
+  const candidates = [cwd]
+  try {
+    const children = await readdir(cwd, { withFileTypes: true })
+    for (const child of children) {
+      if (!child.isDirectory() || child.name.startsWith(".") || ["node_modules", "out", "release"].includes(child.name)) continue
+      candidates.push(join(cwd, child.name))
+    }
+  } catch { /* the caller will still receive the project itself */ }
+  const found = await Promise.all(candidates.map(async (path) => ({ path, info: await getGitCheckout(path) })))
+  const roots = new Map<string, GitRepository>()
+  for (const { path, info } of found) {
+    if (!info.root || roots.has(info.root)) continue
+    roots.set(info.root, { root: info.root, name: basename(info.root) || basename(path), branch: info.branch, dirty: info.dirty })
+  }
+  return [...roots.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** Initialise a repo in a folder that has none, then report its fresh state. */

@@ -446,3 +446,10 @@ export type GitBranchList = {
   current: string
   branches: string[]
 }
+
+export type GitRepository = {
+  root: string
+  name: string
+  branch: string
+  dirty: boolean
+}

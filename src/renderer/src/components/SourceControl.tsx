@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { GitFileChange, GitWorkingCopy } from "@shared/types"
+import type { GitFileChange, GitRepository, GitWorkingCopy } from "@shared/types"
 import {
   actionForPath,
   type AgentAction,
@@ -99,6 +99,8 @@ export function SourceControl({
   onChanged,
 }: Props) {
   const [copy, setCopy] = useState<GitWorkingCopy>(EMPTY)
+  const [repos, setRepos] = useState<GitRepository[]>([])
+  const [repoCwd, setRepoCwd] = useState(cwd)
   const [branches, setBranches] = useState<string[]>([])
   const [selected, setSelected] = useState<Row | null>(null)
   const [diff, setDiff] = useState<string | null>(null)
@@ -119,8 +121,8 @@ export function SourceControl({
 
   const reload = useCallback(async () => {
     const [next, branchList] = await Promise.all([
-      window.chatHub.gitStatus(cwd),
-      window.chatHub.gitBranches(cwd),
+      window.chatHub.gitStatus(repoCwd),
+      window.chatHub.gitBranches(repoCwd),
     ])
     if (!liveRef.current) return
     setCopy(next)
@@ -128,6 +130,15 @@ export function SourceControl({
     // A refresh may reveal a different diff or branch; publishing requires an
     // explicit review of the current snapshot.
     setReviewConfirmed(false)
+  }, [repoCwd])
+
+  useEffect(() => {
+    setRepoCwd(cwd)
+    void window.chatHub.gitRepositories(cwd).then((found) => {
+      if (!liveRef.current) return
+      setRepos(found)
+      if (found.length === 1) setRepoCwd(found[0].root)
+    })
   }, [cwd])
 
   useEffect(() => {
@@ -171,7 +182,7 @@ export function SourceControl({
     setDiff(null)
     void window.chatHub
       .gitDiff(
-        cwd,
+        repoCwd,
         selected.file.path,
         selected.staged,
         !selected.staged && selected.code === "?",
@@ -185,7 +196,7 @@ export function SourceControl({
     return () => {
       cancelled = true
     }
-  }, [cwd, selected])
+  }, [repoCwd, selected])
 
   async function run(
     op: () => Promise<GitWorkingCopy | { ok: boolean; output: string }>,
@@ -211,7 +222,7 @@ export function SourceControl({
     setBusy(true)
     setNotice(null)
     try {
-      await window.chatHub.gitInit(cwd)
+      await window.chatHub.gitInit(repoCwd)
       await reload()
       onChanged()
     } catch (err) {
@@ -222,11 +233,11 @@ export function SourceControl({
   }
 
   function stage(paths: string[]) {
-    void run(() => window.chatHub.gitStage(cwd, paths))
+    void run(() => window.chatHub.gitStage(repoCwd, paths))
   }
 
   function unstage(paths: string[]) {
-    void run(() => window.chatHub.gitUnstage(cwd, paths))
+    void run(() => window.chatHub.gitUnstage(repoCwd, paths))
   }
 
   async function commit() {
@@ -235,7 +246,7 @@ export function SourceControl({
     setBusy(true)
     setNotice(null)
     try {
-      const res = await window.chatHub.gitCommitStaged(cwd, text)
+      const res = await window.chatHub.gitCommitStaged(repoCwd, text)
       if (!liveRef.current) return
       setNotice(res.output)
       if (res.ok) setMessage("")
@@ -253,7 +264,7 @@ export function SourceControl({
     setBusy(true)
     setNotice(null)
     try {
-      const res = await window.chatHub.gitCheckout(cwd, branch)
+      const res = await window.chatHub.gitCheckout(repoCwd, branch)
       if (!liveRef.current) return
       // A dirty tree makes git refuse; its own message is the useful one.
       if (!res.ok) setNotice(res.output)
@@ -266,13 +277,13 @@ export function SourceControl({
 
   function push() {
     if (!reviewConfirmed) return
-    void run(() => window.chatHub.gitPush(cwd))
+    void run(() => window.chatHub.gitPush(repoCwd))
   }
 
   function createPr() {
     if (!reviewConfirmed) return
     const title = prTitle.trim() || copy.branch
-    void run(() => window.chatHub.gitCreatePr(cwd, title, message.trim(), prDraft))
+    void run(() => window.chatHub.gitCreatePr(repoCwd, title, message.trim(), prDraft))
   }
 
   function fileRow(row: Row) {
@@ -331,10 +342,18 @@ export function SourceControl({
         </button>
       </header>
 
+      {repos.length > 0 ? (
+        <label className="chip select-chip scm-repo-select" title="Repository">
+          <select value={repoCwd} onChange={(e) => setRepoCwd(e.target.value)} aria-label="Repository">
+            {repos.map((repo) => <option key={repo.root} value={repo.root}>{repo.name} · {repo.branch}{repo.dirty ? " · dirty" : ""}</option>)}
+          </select>
+        </label>
+      ) : null}
+
       {noRepo ? (
         <div className="scm-empty">
           <p>Not a git repository</p>
-          <span className="mono-soft dim">{cwd}</span>
+          <span className="mono-soft dim">{repoCwd}</span>
           <button
             type="button"
             className="tb-btn primary scm-init"
