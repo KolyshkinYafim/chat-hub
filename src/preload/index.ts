@@ -23,6 +23,9 @@ import type {
   Board,
   DirListing,
   FileContents,
+  FileSaved,
+  FileStamp,
+  OpenedFile,
   TerminalChunk,
   TerminalExit,
   TerminalHandle,
@@ -269,6 +272,17 @@ const api = {
     ipcRenderer.invoke(IpcChannels.listDir, cwd, relPath),
   readFileText: (cwd: string, relPath: string): Promise<FileContents> =>
     ipcRenderer.invoke(IpcChannels.readFile, cwd, relPath),
+  /** One round trip that also decides how the file should be rendered. */
+  openFile: (cwd: string, relPath: string): Promise<OpenedFile> =>
+    ipcRenderer.invoke(IpcChannels.openFile, cwd, relPath),
+  /** Rejects when the on-disk stamp no longer matches the one the read saw. */
+  saveFile: (
+    cwd: string,
+    relPath: string,
+    text: string,
+    stamp: FileStamp,
+  ): Promise<FileSaved> =>
+    ipcRenderer.invoke(IpcChannels.saveFile, cwd, relPath, text, stamp),
   termStart: (
     cwd: string,
     cols: number,

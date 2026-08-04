@@ -27,12 +27,33 @@ export type DirListing = {
   entries: DirEntry[]
 }
 
+export type FileStamp = { mtimeMs: number; size: number }
+
 export type FileContents = {
   path: string
   text: string
   truncated: boolean
   binary: boolean
+  stamp: FileStamp
 }
+
+export type MediaKind = "text" | "image" | "video" | "audio" | "pdf" | "binary"
+
+export type OpenedFile = {
+  path: string
+  absolutePath: string
+  kind: MediaKind
+  mime: string
+  size: number
+  stamp: FileStamp
+  text: string | null
+  truncated: boolean
+  dataUrl: string | null
+  streamUrl: string | null
+  unavailable: string | null
+}
+
+export type FileSaved = { path: string; stamp: FileStamp }
 
 export type TerminalChunk = { ptyId: string; data: string }
 
@@ -41,6 +62,13 @@ export type TerminalExit = { ptyId: string; exitCode: number }
 export type SurfaceBridge = {
   listDir: (cwd: string, relPath: string) => Promise<DirListing>
   readFileText: (cwd: string, relPath: string) => Promise<FileContents>
+  openFile: (cwd: string, relPath: string) => Promise<OpenedFile>
+  saveFile: (
+    cwd: string,
+    relPath: string,
+    text: string,
+    stamp: FileStamp,
+  ) => Promise<FileSaved>
   termStart: (
     cwd: string,
     cols: number,

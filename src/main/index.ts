@@ -50,7 +50,10 @@ import { HOME_ENV } from "./instances"
 import type { ProviderInstance } from "@shared/settings-types"
 import {
   hardenWebviewHost,
+  registerMediaProtocol,
+  registerMediaScheme,
   registerSurfaceIpc,
+  revokeMediaGrants,
   TerminalSessions,
 } from "./surfaces"
 import { installDeveloperMenu } from "./developer-menu"
@@ -209,6 +212,9 @@ function createWindow(): void {
 
   mainWindow.on("closed", () => {
     mainWindow = null
+    // Media tokens are capabilities into a workspace; nothing may replay them
+    // against the next window, which can be pointed at a different project.
+    revokeMediaGrants()
   })
 
   hardenWebviewHost(mainWindow.webContents, (url) => {
@@ -1208,6 +1214,7 @@ async function bootstrap(): Promise<void> {
 
   registerIpc(manager, bridge, settings, projects, userData)
   registerSurfaceIpc(terminals)
+  registerMediaProtocol()
   createWindow()
 
   commandBridge = new MonitorCommandBridge(manager, (sessionId) => {
@@ -1238,6 +1245,9 @@ let quitting = false
  * called quit() and give it a window and a socket on the way out.
  */
 function boot(): void {
+  // Privileged schemes are only registrable before "ready" — the media
+  // protocol the Files surface streams video/audio through is one of them.
+  registerMediaScheme()
   void app.whenReady().then(bootstrap)
 
   app.on("window-all-closed", () => {

@@ -1,10 +1,17 @@
-import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises"
-import { realpathSync } from "node:fs"
+import { copyFile, mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises"
+import { realpathSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { beforeAll, describe, expect, it } from "vitest"
-import { FILE_READ_LIMIT_BYTES } from "../src/shared/surfaces"
-import { listDir, readFileText } from "../src/main/surfaces/files"
+import {
+  FILE_READ_LIMIT_BYTES,
+  INLINE_IMAGE_LIMIT_BYTES,
+} from "../src/shared/surfaces"
+import { listDir, openFile, readFileText } from "../src/main/surfaces/files"
+
+const FIXTURES = join(__dirname, "..", "fixtures", "files-surface")
+
+const mintMediaUrl = ({ mime }: { mime: string }) => `stub-media://${mime}`
 
 let root = ""
 let outside = ""
@@ -53,6 +60,18 @@ beforeAll(async () => {
     "y".repeat(FILE_READ_LIMIT_BYTES),
     "utf8",
   )
+
+  for (const name of [
+    "logo.png",
+    "badge.svg",
+    "clip.mp4",
+    "tone.m4a",
+    "payload.bin",
+    "notes.md",
+  ]) {
+    await copyFile(join(FIXTURES, name), join(root, name))
+  }
+  await copyFile(join(FIXTURES, "logo.png"), join(root, "mislabelled.txt"))
 })
 
 describe("directory listing", () => {
@@ -115,12 +134,19 @@ describe("directory listing", () => {
 describe("file reading", () => {
   it("returns text untruncated for a small file", async () => {
     const contents = await readFileText(root, "src/app.ts")
-    expect(contents).toEqual({
+    expect(contents).toMatchObject({
       path: "src/app.ts",
       text: "export const app = 1\n",
       truncated: false,
       binary: false,
     })
+  })
+
+  it("stamps the read with the mtime and size it saw", async () => {
+    const contents = await readFileText(root, "src/app.ts")
+    const stats = statSync(join(root, "src", "app.ts"))
+    expect(contents.stamp.size).toBe(stats.size)
+    expect(contents.stamp.mtimeMs).toBe(Math.round(stats.mtimeMs))
   })
 
   it("caps at the read limit and says so", async () => {
@@ -162,5 +188,74 @@ describe("file reading", () => {
 
   it("refuses to read a directory", async () => {
     await expect(readFileText(root, "src")).rejects.toThrow(/Not a file/)
+  })
+})
+
+describe("opening a file for the viewer", () => {
+  it("hands a text file back as editable text", async () => {
+    const opened = await openFile(root, "src/app.ts", mintMediaUrl)
+    expect(opened.kind).toBe("text")
+    expect(opened.text).toBe("export const app = 1\n")
+    expect(opened.dataUrl).toBeNull()
+    expect(opened.streamUrl).toBeNull()
+  })
+
+  it("inlines a PNG as a data URL and never as text", async () => {
+    const opened = await openFile(root, "logo.png", mintMediaUrl)
+    expect(opened.kind).toBe("image")
+    expect(opened.mime).toBe("image/png")
+    expect(opened.text).toBeNull()
+    expect(opened.dataUrl?.startsWith("data:image/png;base64,")).toBe(true)
+    expect(opened.size).toBeLessThan(INLINE_IMAGE_LIMIT_BYTES)
+  })
+
+  it("gives an SVG both a picture and its source", async () => {
+    const opened = await openFile(root, "badge.svg", mintMediaUrl)
+    expect(opened.kind).toBe("image")
+    expect(opened.mime).toBe("image/svg+xml")
+    expect(opened.text).toContain("<svg")
+    expect(opened.dataUrl?.startsWith("data:image/svg+xml;base64,")).toBe(true)
+  })
+
+  it("points video and audio at a stream URL instead of inlining", async () => {
+    const clip = await openFile(root, "clip.mp4", mintMediaUrl)
+    expect(clip.kind).toBe("video")
+    expect(clip.mime).toBe("video/mp4")
+    expect(clip.dataUrl).toBeNull()
+    expect(clip.streamUrl).toBe("stub-media://video/mp4")
+
+    const tone = await openFile(root, "tone.m4a", mintMediaUrl)
+    expect(tone.kind).toBe("audio")
+    expect(tone.mime).toBe("audio/mp4")
+    expect(tone.streamUrl).toBe("stub-media://audio/mp4")
+  })
+
+  it("refuses a binary file with no text and no preview", async () => {
+    const opened = await openFile(root, "payload.bin", mintMediaUrl)
+    expect(opened.kind).toBe("binary")
+    expect(opened.text).toBeNull()
+    expect(opened.dataUrl).toBeNull()
+    expect(opened.streamUrl).toBeNull()
+  })
+
+  it("trusts magic bytes over a lying extension", async () => {
+    const opened = await openFile(root, "mislabelled.txt", mintMediaUrl)
+    expect(opened.kind).toBe("image")
+    expect(opened.mime).toBe("image/png")
+  })
+
+  it("keeps markdown as text so the viewer can render and edit it", async () => {
+    const opened = await openFile(root, "notes.md", mintMediaUrl)
+    expect(opened.kind).toBe("text")
+    expect(opened.text).toContain("```mermaid")
+  })
+
+  it("refuses to open outside the workspace", async () => {
+    await expect(
+      openFile(root, "../outside/passwd", mintMediaUrl),
+    ).rejects.toThrow(/escapes the workspace/)
+    await expect(openFile(root, "escape-file", mintMediaUrl)).rejects.toThrow(
+      /escapes the workspace/,
+    )
   })
 })

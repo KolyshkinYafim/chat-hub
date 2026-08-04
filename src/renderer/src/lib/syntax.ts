@@ -14,6 +14,7 @@ type Grammar = {
   types: Set<string>
   lineComment: string[]
   quotes: string[]
+  blockComment: boolean
 }
 
 const words = (source: string) => new Set(source.split(" "))
@@ -47,60 +48,98 @@ const RUST_TYPES = "String str i8 i16 i32 i64 u8 u16 u32 u64 usize isize f32 f64
 const CSS_KEYWORDS = "important media supports keyframes import font-face root from to"
 const CSS_TYPES = "color background border display flex grid margin padding font width height position top right bottom left overflow content"
 
+const HTML_KEYWORDS =
+  "html head body div span section article header footer nav main aside ul ol li table thead tbody tr td th form input button select option label img a p h1 h2 h3 h4 h5 h6 script style link meta title svg path g rect circle text template slot"
+const HTML_TYPES =
+  "class id href src alt type name value rel charset lang width height viewBox fill stroke xmlns role aria-label data-testid"
+
+const YAML_KEYWORDS = "true false null yes no on off"
+const YAML_TYPES = "version name image ports volumes environment services steps jobs runs-on uses with needs"
+
 const GRAMMARS: Record<string, Grammar> = {
   js: {
     keywords: words(JS_KEYWORDS),
     types: words(JS_TYPES),
     lineComment: ["//"],
     quotes: ['"', "'", "`"],
+    blockComment: true,
   },
   py: {
     keywords: words(PY_KEYWORDS),
     types: words(PY_TYPES),
     lineComment: ["#"],
     quotes: ['"', "'"],
+    blockComment: false,
   },
   swift: {
     keywords: words(SWIFT_KEYWORDS),
     types: words(SWIFT_TYPES),
     lineComment: ["//"],
     quotes: ['"'],
+    blockComment: true,
   },
   sh: {
     keywords: words(SHELL_KEYWORDS),
     types: words(SHELL_TYPES),
     lineComment: ["#"],
     quotes: ['"', "'"],
+    blockComment: false,
   },
   go: {
     keywords: words(GO_KEYWORDS),
     types: words(GO_TYPES),
     lineComment: ["//"],
     quotes: ['"', "`"],
+    blockComment: true,
   },
   rust: {
     keywords: words(RUST_KEYWORDS),
     types: words(RUST_TYPES),
     lineComment: ["//"],
     quotes: ['"'],
+    blockComment: true,
   },
   json: {
     keywords: words("true false null"),
     types: new Set<string>(),
     lineComment: [],
     quotes: ['"'],
+    blockComment: false,
   },
   css: {
     keywords: words(CSS_KEYWORDS),
     types: words(CSS_TYPES),
     lineComment: ["//"],
     quotes: ['"', "'"],
+    blockComment: true,
+  },
+  html: {
+    keywords: words(HTML_KEYWORDS),
+    types: words(HTML_TYPES),
+    lineComment: [],
+    quotes: ['"', "'"],
+    blockComment: false,
+  },
+  yaml: {
+    keywords: words(YAML_KEYWORDS),
+    types: words(YAML_TYPES),
+    lineComment: ["#"],
+    quotes: ['"', "'"],
+    blockComment: false,
+  },
+  md: {
+    keywords: new Set<string>(),
+    types: new Set<string>(),
+    lineComment: [],
+    quotes: ["`"],
+    blockComment: false,
   },
   text: {
     keywords: new Set<string>(),
     types: new Set<string>(),
     lineComment: [],
     quotes: [],
+    blockComment: false,
   },
 }
 
@@ -135,6 +174,18 @@ const BY_EXTENSION: Record<string, string> = {
   css: "css",
   scss: "css",
   less: "css",
+  html: "html",
+  htm: "html",
+  xml: "html",
+  svg: "html",
+  vue: "html",
+  yaml: "yaml",
+  yml: "yaml",
+  toml: "yaml",
+  md: "md",
+  markdown: "md",
+  mdx: "md",
+  mmd: "md",
 }
 
 export function languageOf(path: string): string {
@@ -160,7 +211,7 @@ export function highlight(text: string, language: string): SyntaxSpan[] {
       spans.push({ start: i, end: text.length, cls: "comment" })
       break
     }
-    if (rest.startsWith("/*")) {
+    if (grammar.blockComment && rest.startsWith("/*")) {
       const close = text.indexOf("*/", i + 2)
       const end = close === -1 ? text.length : close + 2
       spans.push({ start: i, end, cls: "comment" })
@@ -210,6 +261,80 @@ export function highlight(text: string, language: string): SyntaxSpan[] {
   }
 
   return spans
+}
+
+export function hasBlockComments(language: string): boolean {
+  return (GRAMMARS[language] ?? GRAMMARS.text!).blockComment
+}
+
+export function blockCommentStarts(text: string, language: string): boolean[] {
+  const lines = text.split("\n")
+  if (!hasBlockComments(language)) return lines.map(() => false)
+
+  const starts: boolean[] = []
+  let open = false
+  for (const line of lines) {
+    starts.push(open)
+    let at = 0
+    while (at <= line.length) {
+      if (open) {
+        const close = line.indexOf("*/", at)
+        if (close === -1) break
+        at = close + 2
+        open = false
+        continue
+      }
+      const start = line.indexOf("/*", at)
+      if (start === -1) break
+      const lineComment = line.indexOf("//", at)
+      if (lineComment !== -1 && lineComment < start) break
+      at = start + 2
+      open = true
+    }
+  }
+  return starts
+}
+
+export type LineHighlight = { spans: SyntaxSpan[]; openAtEnd: boolean }
+
+export function highlightLine(
+  text: string,
+  language: string,
+  openAtStart: boolean,
+): LineHighlight {
+  if (openAtStart) {
+    const close = text.indexOf("*/")
+    if (close === -1) {
+      return {
+        spans: [{ start: 0, end: text.length, cls: "comment" }],
+        openAtEnd: true,
+      }
+    }
+    const end = close + 2
+    const tail = highlightLine(text.slice(end), language, false)
+    return {
+      spans: [
+        { start: 0, end, cls: "comment" },
+        ...tail.spans.map((span) => ({
+          start: span.start + end,
+          end: span.end + end,
+          cls: span.cls,
+        })),
+      ],
+      openAtEnd: tail.openAtEnd,
+    }
+  }
+
+  const spans = highlight(text, language)
+  const last = spans[spans.length - 1]
+  const openAtEnd =
+    hasBlockComments(language) &&
+    last !== undefined &&
+    last.cls === "comment" &&
+    last.end === text.length &&
+    text.startsWith("/*", last.start) &&
+    !text.includes("*/", last.start + 2)
+  return { spans, openAtEnd }
 }
 
 function closingQuote(text: string, from: number, quote: string): number {

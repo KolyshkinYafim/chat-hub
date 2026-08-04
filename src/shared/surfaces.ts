@@ -1,3 +1,5 @@
+import type { MediaKind } from "./file-kind"
+
 export type SurfaceKind = "browser" | "terminal" | "files" | "diff" | "board"
 
 /**
@@ -49,12 +51,38 @@ export type DirListing = {
   entries: DirEntry[]
 }
 
+/** Identity of the bytes a read saw, so a later save can refuse a stale write. */
+export type FileStamp = { mtimeMs: number; size: number }
+
 export type FileContents = {
   path: string
   text: string
   truncated: boolean
   binary: boolean
+  stamp: FileStamp
 }
+
+/**
+ * Everything the viewer needs to pick a renderer in one round trip. `text` is
+ * filled for anything editable (plain text and SVG source); `dataUrl` carries
+ * small images inline; `streamUrl` points video/audio at the media protocol so
+ * a 500 MB file never becomes a base64 string.
+ */
+export type OpenedFile = {
+  path: string
+  absolutePath: string
+  kind: MediaKind
+  mime: string
+  size: number
+  stamp: FileStamp
+  text: string | null
+  truncated: boolean
+  dataUrl: string | null
+  streamUrl: string | null
+  unavailable: string | null
+}
+
+export type FileSaved = { path: string; stamp: FileStamp }
 
 export type TerminalChunk = { ptyId: string; data: string }
 
@@ -65,6 +93,16 @@ export type TerminalHandle = { ptyId: string }
 export const FILE_READ_LIMIT_BYTES = 512 * 1024
 
 export const BINARY_SNIFF_BYTES = 8 * 1024
+
+export const FILE_WRITE_LIMIT_BYTES = 4 * 1024 * 1024
+
+export const INLINE_IMAGE_LIMIT_BYTES = 16 * 1024 * 1024
+
+/** Custom scheme for video/audio, so playback streams instead of inlining. */
+export const MEDIA_SCHEME = "chathub-media"
+
+/** Matched by the renderer to offer a reload instead of a generic failure. */
+export const STALE_WRITE_MESSAGE = "changed on disk since it was opened"
 
 export const HIDDEN_FROM_LISTING: readonly string[] = [
   ".git",
