@@ -49,7 +49,11 @@ export function grokPermissionArgs(mode: PermissionMode): string[] {
   }
 }
 
-/** Whether OpenCode should pass --auto. */
-export function opencodeAutoApprove(mode: PermissionMode): boolean {
-  return mode === "yolo" || mode === "acceptEdits"
+/**
+ * OpenCode 1.x exposes only a full permission bypass — it has no equivalent
+ * of Claude/Grok's "accept edits but ask for shell" mode.  Never turn the
+ * Edits chip into a hidden full bypass.
+ */
+export function opencodeSkipPermissions(mode: PermissionMode): boolean {
+  return mode === "yolo"
 }

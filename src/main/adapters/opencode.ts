@@ -15,6 +15,7 @@ import {
   type StreamTurn,
 } from "./stream-parse"
 import { readUsage } from "./usage"
+import { renderCliFailure } from "./failure-message"
 import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
 import type { TurnUsage } from "@shared/types"
 import type {
@@ -114,11 +115,6 @@ export class OpenCodeAdapter implements AgentAdapter {
       attachments: opts?.attachments,
       resumeId: state.opencodeSession,
     })
-    // Escape hatch that predates the permission chip: force auto-approve.
-    if (process.env.CHAT_HUB_OPENCODE_AUTO === "1" && !args.includes("--auto")) {
-      args.push("--auto")
-    }
-
     cb.onSessionEvent({
       type: "session.status",
       id: sessionId,
@@ -126,7 +122,6 @@ export class OpenCodeAdapter implements AgentAdapter {
     })
 
     let turn: StreamTurn | null = null
-    let sawText = false
     let usage: TurnUsage | null = null
     const snap = newSnapshot()
     const stderr: string[] = []
@@ -142,7 +137,6 @@ export class OpenCodeAdapter implements AgentAdapter {
           if (line.trim()) {
             if (!turn) turn = beginAssistant(sessionId, cb)
             pushDelta(turn, sessionId, line + "\n", cb)
-            sawText = true
           }
           return
         }
@@ -173,7 +167,6 @@ export class OpenCodeAdapter implements AgentAdapter {
           const toolState = asRecord(part?.state)
           if (!turn) turn = beginAssistant(sessionId, cb)
           pushDelta(turn, sessionId, toolUseBlock(name, toolState?.input), cb)
-          sawText = true
           const file = touchedFileFromTool(name, toolState?.input)
           if (file) cb.onTouchedFiles?.(sessionId, turn.messageId, [file])
           return
@@ -205,7 +198,6 @@ export class OpenCodeAdapter implements AgentAdapter {
           const partId = typeof part?.id === "string" ? part.id : undefined
           const extra = snapshotDelta(snap, partId, text)
           if (extra) pushDelta(turn, sessionId, extra, cb)
-          sawText = true
         }
       },
       onStderrLine: (line) => {
@@ -218,11 +210,13 @@ export class OpenCodeAdapter implements AgentAdapter {
       },
       onExit: (code) => {
         const messageId = turn?.messageId
-        finishTurn(turn, sessionId, cb)
         if (usage) cb.onUsage?.(sessionId, usage, messageId)
         // A newer turn may already own this session (Stop then immediate
         // resend): a dead process must not overwrite the live turn's status.
-        if (state.proc !== proc) return
+        if (state.proc !== proc) {
+          finishTurn(turn, sessionId, cb)
+          return
+        }
         state.proc = undefined
         state.aborting = false
         if (code === 0) {
@@ -243,16 +237,8 @@ export class OpenCodeAdapter implements AgentAdapter {
             status: "idle",
           })
         } else {
-          if (!sawText) {
-            const t = beginAssistant(sessionId, cb)
-            pushDelta(
-              t,
-              sessionId,
-              `OpenCode exited with code ${code}.\n\n\`\`\`\n${stderr.slice(-8).join("\n") || "(no stderr output)"}\n\`\`\`\n\nTip: set CHAT_HUB_OPENCODE_AUTO=1 to auto-approve tools.`,
-              cb,
-            )
-            finishTurn(t, sessionId, cb)
-          }
+          if (!turn) turn = beginAssistant(sessionId, cb)
+          pushDelta(turn, sessionId, renderCliFailure("OpenCode", code, stderr), cb)
           cb.onSessionEvent({
             type: "session.status",
             id: sessionId,
@@ -264,6 +250,7 @@ export class OpenCodeAdapter implements AgentAdapter {
             reason: "error",
           })
         }
+        finishTurn(turn, sessionId, cb)
       },
     })
 
