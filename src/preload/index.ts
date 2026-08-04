@@ -33,6 +33,7 @@ import type {
   SettingsSnapshot,
 } from "@shared/settings-types"
 import type {
+  McpGitignoreResult,
   McpListResult,
   McpMaterializeResult,
   McpServerDef,
@@ -273,6 +274,12 @@ const api = {
     ipcRenderer.invoke(IpcChannels.mcpMaterialize, cwd),
   mcpStatus: (cwd: string): Promise<McpServerStatus[]> =>
     ipcRenderer.invoke(IpcChannels.mcpStatus, cwd),
+  /** Append `.mcp.json` / `opencode.json` to project `.gitignore` (user-initiated). */
+  mcpAddGitignore: (
+    cwd: string,
+    paths: string[],
+  ): Promise<McpGitignoreResult> =>
+    ipcRenderer.invoke(IpcChannels.mcpAddGitignore, cwd, paths),
 }
 
 contextBridge.exposeInMainWorld("chatHub", api)

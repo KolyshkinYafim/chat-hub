@@ -596,6 +596,13 @@ export function installDevMock(): void {
     mcpMaterialize: async () => ({
       ok: true,
       written: [".mcp.json", ".codex/config.toml"],
+      // Demo the one-shot warning in ?mock=1 Settings → Connections.
+      unignoredNative: [".mcp.json"],
+    }),
+    mcpAddGitignore: async (_cwd, paths) => ({
+      ok: true,
+      path: "/mock/.gitignore",
+      added: paths,
     }),
     mcpStatus: async () =>
       mockMcpServers.map((s) => ({
