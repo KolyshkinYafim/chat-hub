@@ -20,8 +20,17 @@ import type {
 } from "@shared/settings-types"
 import type { McpServerDef } from "@shared/mcp"
 import { encodeToolCardMeta, type ToolCardMeta } from "@shared/tool-card"
+import {
+  BINARY_TYPE,
+  TEXT_TYPE,
+  fileTypeByExtension,
+  type FileType,
+} from "@shared/file-kind"
+import { STALE_WRITE_MESSAGE } from "@shared/surfaces"
 import type {
   Board,
+  FileStamp,
+  OpenedFile,
   SurfaceBridge,
   TerminalChunk,
   TerminalExit,
@@ -332,9 +341,45 @@ const snapshot: SessionSnapshot = wantWizard
     }
   : { sessions, messages, queued, usage, permissions, inputRequests: [], activeSessionId: "s1" }
 
+// Real bytes on disk, served by the dev server: a viewer that only ever sees
+// hand-written strings proves nothing about images, video or binary sniffing.
+const fixtureAssets = import.meta.glob("../../../fixtures/files-surface/*", {
+  query: "?url",
+  import: "default",
+  eager: true,
+}) as Record<string, string>
+
+// `?url` on a source file hands back the module Vite compiled, not the bytes on
+// disk — text fixtures have to come through `?raw` to stay themselves.
+const fixtureSources = import.meta.glob(
+  "../../../fixtures/files-surface/*.{ts,md,mmd,svg}",
+  { query: "?raw", import: "default", eager: true },
+) as Record<string, string>
+
+const FIXTURE_DIR = "fixtures"
+
+const fixtureNames = Object.keys(fixtureAssets)
+  .map((path) => path.split("/").pop() ?? path)
+  .sort()
+
+function fixtureEntry<T>(table: Record<string, T>, name: string): T | null {
+  for (const [path, value] of Object.entries(table)) {
+    if (path.endsWith(`/${name}`)) return value
+  }
+  return null
+}
+
 const mockDirs: Record<string, string[]> = {
-  "": ["assets", "notes", "src", "tests", "README.md", "huge.log", "package.json"],
-  assets: ["logo.png"],
+  "": [
+    FIXTURE_DIR,
+    "notes",
+    "src",
+    "tests",
+    "README.md",
+    "huge.log",
+    "package.json",
+  ],
+  [FIXTURE_DIR]: fixtureNames,
   notes: ["scratch.md"],
   src: ["middleware", "routes", "index.ts"],
   "src/middleware": ["auth.ts"],
@@ -358,7 +403,6 @@ const mockFiles: Record<string, MockFile> = {
     ).join("\n"),
     truncated: true,
   },
-  "assets/logo.png": { text: "", binary: true },
   "notes/scratch.md": {
     text: "- expiry check reads the wrong claim\n- webhook retries: cap at 5\n- ask about the reward curve past level 30\n",
   },
@@ -405,6 +449,82 @@ let mockBoard: Board = {
   updatedAt: 2,
 }
 
+const mockEdits: Record<string, string> = {}
+const mockStamps: Record<string, FileStamp> = {}
+
+function stampFor(path: string, size: number): FileStamp {
+  const existing = mockStamps[path]
+  if (existing) return existing
+  const fresh = { mtimeMs: now, size }
+  mockStamps[path] = fresh
+  return fresh
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(new Error("Could not read the fixture"))
+    reader.readAsDataURL(blob)
+  })
+}
+
+function emptyOpened(path: string, type: FileType, size: number): OpenedFile {
+  return {
+    path,
+    absolutePath: `/mock/${path}`,
+    kind: type.kind,
+    mime: type.mime,
+    size,
+    stamp: stampFor(path, size),
+    text: null,
+    truncated: false,
+    dataUrl: null,
+    streamUrl: null,
+    unavailable: null,
+  }
+}
+
+async function openFixture(relPath: string): Promise<OpenedFile> {
+  const name = relPath.slice(FIXTURE_DIR.length + 1)
+  const url = fixtureEntry(fixtureAssets, name)
+  const source = fixtureEntry(fixtureSources, name)
+  if (!url) throw new Error(`Cannot read ${relPath}`)
+  const type = fileTypeByExtension(relPath) ?? TEXT_TYPE
+
+  if (source !== null) {
+    const text = mockEdits[relPath] ?? source
+    const opened = emptyOpened(relPath, type, text.length)
+    opened.text = text
+    if (type.kind === "image") {
+      opened.dataUrl = `data:${type.mime};charset=utf-8,${encodeURIComponent(text)}`
+    }
+    return opened
+  }
+
+  const blob = await (await fetch(url)).blob()
+  const opened = emptyOpened(relPath, type, blob.size)
+  if (type.kind === "image") opened.dataUrl = await blobToDataUrl(blob)
+  if (type.kind === "video" || type.kind === "audio") opened.streamUrl = url
+  return opened
+}
+
+async function openMockFile(relPath: string): Promise<OpenedFile> {
+  if (relPath.startsWith(`${FIXTURE_DIR}/`)) return openFixture(relPath)
+  const file = mockFiles[relPath]
+  if (!file) throw new Error(`Cannot read ${relPath}`)
+  const type = file.binary
+    ? BINARY_TYPE
+    : (fileTypeByExtension(relPath) ?? TEXT_TYPE)
+  const text = mockEdits[relPath] ?? file.text
+  const opened = emptyOpened(relPath, type, text.length)
+  if (!file.binary) {
+    opened.text = text
+    opened.truncated = file.truncated ?? false
+  }
+  return opened
+}
+
 function makeSurfaceBridge(): SurfaceBridge {
   return {
     listDir: async (_cwd, relPath) => {
@@ -415,24 +535,38 @@ function makeSurfaceBridge(): SurfaceBridge {
         entries: names.map((name) => {
           const path = relPath === "" ? name : `${relPath}/${name}`
           if (path in mockDirs) return { name, path, kind: "dir" as const }
-          return {
-            name,
-            path,
-            kind: "file" as const,
-            size: mockFiles[path]?.text.length ?? 0,
-          }
+          const file = mockFiles[path]
+          return file
+            ? { name, path, kind: "file" as const, size: file.text.length }
+            : { name, path, kind: "file" as const }
         }),
       }
     },
     readFileText: async (_cwd, relPath) => {
       const file = mockFiles[relPath]
       if (!file) throw new Error(`Cannot read ${relPath}`)
+      const text = file.binary ? "" : (mockEdits[relPath] ?? file.text)
       return {
         path: relPath,
-        text: file.binary ? "" : file.text,
+        text,
         truncated: file.truncated ?? false,
         binary: file.binary ?? false,
+        stamp: stampFor(relPath, text.length),
       }
+    },
+    openFile: async (_cwd, relPath) => openMockFile(relPath),
+    saveFile: async (_cwd, relPath, text, stamp) => {
+      const current = mockStamps[relPath]
+      if (
+        current &&
+        (current.mtimeMs !== stamp.mtimeMs || current.size !== stamp.size)
+      ) {
+        throw new Error(`${relPath} ${STALE_WRITE_MESSAGE}`)
+      }
+      mockEdits[relPath] = text
+      const next = { mtimeMs: Date.now(), size: text.length }
+      mockStamps[relPath] = next
+      return { path: relPath, stamp: next }
     },
     termStart: async (cwd, cols, rows) => {
       const ptyId = `mock-pty-${++ptySeq}`
@@ -648,4 +782,15 @@ export function installDevMock(): void {
     ...api,
     ...makeSurfaceBridge(),
   } as ChatHubApi
+  // Stands in for `touch <file>` in a terminal, so the stale-write refusal can
+  // be driven from the browser mock the same way it happens in the real app.
+  ;(
+    window as unknown as { chatHubTouchFile: (path: string) => void }
+  ).chatHubTouchFile = (path) => {
+    const current = mockStamps[path]
+    mockStamps[path] = {
+      mtimeMs: Date.now(),
+      size: current?.size ?? 0,
+    }
+  }
 }

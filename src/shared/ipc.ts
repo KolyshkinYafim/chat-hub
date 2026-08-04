@@ -62,6 +62,8 @@ export const IpcChannels = {
   resolveInput: "input:resolve",
   listDir: "surface:list-dir",
   readFile: "surface:read-file",
+  openFile: "surface:open-file",
+  saveFile: "surface:save-file",
   termStart: "surface:term-start",
   termWrite: "surface:term-write",
   termResize: "surface:term-resize",

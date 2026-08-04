@@ -1,0 +1,10 @@
+sequenceDiagram
+  participant Tree
+  participant Viewer
+  participant Main
+  Tree->>Viewer: select pipeline.mmd
+  Viewer->>Main: openFile(cwd, path)
+  Main-->>Viewer: kind=text, mime=text/plain
+  Viewer->>Viewer: render as a diagram
+  Viewer->>Main: saveFile(text, stamp)
+  Main-->>Viewer: fresh stamp

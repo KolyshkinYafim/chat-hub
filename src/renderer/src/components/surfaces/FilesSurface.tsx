@@ -1,19 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import { formatBytes } from "../../lib/format"
 import {
   errorText,
   surfaceBridge,
   type DirEntry,
-  type FileContents,
 } from "../../lib/surface-bridge"
+import { FileViewer } from "./FileViewer"
 
 const ROOT = ""
-
-function formatSize(bytes: number | undefined): string {
-  if (bytes === undefined) return ""
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
 
 type Props = {
   cwd: string
@@ -24,9 +18,9 @@ export function FilesSurface({ cwd }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([ROOT]))
   const [pendingDirs, setPendingDirs] = useState<Set<string>>(() => new Set())
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
-  const [contents, setContents] = useState<FileContents | null>(null)
   const [treeError, setTreeError] = useState<string | null>(null)
-  const [viewerError, setViewerError] = useState<string | null>(null)
+  const [dirty, setDirty] = useState(false)
+  const dirtyRef = useRef(false)
   const liveRef = useRef(true)
 
   useEffect(() => {
@@ -64,11 +58,14 @@ export function FilesSurface({ cwd }: Props) {
     setListings({})
     setExpanded(new Set([ROOT]))
     setSelectedPath(null)
-    setContents(null)
     setTreeError(null)
-    setViewerError(null)
     void loadDir(ROOT)
   }, [loadDir])
+
+  const onDirtyChange = useCallback((next: boolean) => {
+    dirtyRef.current = next
+    setDirty(next)
+  }, [])
 
   function toggleDir(path: string) {
     setExpanded((curr) => {
@@ -80,18 +77,17 @@ export function FilesSurface({ cwd }: Props) {
     if (!listings[path]) void loadDir(path)
   }
 
-  async function preview(path: string) {
-    setSelectedPath(path)
-    setContents(null)
-    setViewerError(null)
-    try {
-      const file = await surfaceBridge().readFileText(cwd, path)
-      if (!liveRef.current) return
-      setContents(file)
-    } catch (err) {
-      if (!liveRef.current) return
-      setViewerError(errorText(err))
+  function selectFile(path: string) {
+    if (path === selectedPath) return
+    if (dirtyRef.current && selectedPath !== null) {
+      const leave = window.confirm(
+        `${selectedPath} has unsaved changes. Discard them and open ${path}?`,
+      )
+      if (!leave) return
     }
+    dirtyRef.current = false
+    setDirty(false)
+    setSelectedPath(path)
   }
 
   function renderRows(dirPath: string, depth: number): ReactNode[] {
@@ -123,15 +119,16 @@ export function FilesSurface({ cwd }: Props) {
     return entries.flatMap((entry) => {
       const isDir = entry.kind === "dir"
       const isOpen = isDir && expanded.has(entry.path)
+      const isSelected = selectedPath === entry.path
       const row = (
         <li key={entry.path}>
           <button
             type="button"
-            className={`tree-row ${selectedPath === entry.path ? "active" : ""}`}
+            className={`tree-row ${isSelected ? "active" : ""}`}
             style={{ paddingLeft: 12 + depth * 13 }}
             title={entry.path}
             onClick={() =>
-              isDir ? toggleDir(entry.path) : void preview(entry.path)
+              isDir ? toggleDir(entry.path) : selectFile(entry.path)
             }
           >
             <span className={`tree-twisty ${isDir ? "" : "leaf"}`}>
@@ -140,8 +137,9 @@ export function FilesSurface({ cwd }: Props) {
             <span className={`tree-name ${isDir ? "is-dir" : ""}`}>
               {entry.name}
             </span>
+            {isSelected && dirty ? <span className="tree-dirty">●</span> : null}
             {isDir ? null : (
-              <span className="tree-size">{formatSize(entry.size)}</span>
+              <span className="tree-size">{formatBytes(entry.size)}</span>
             )}
           </button>
         </li>
@@ -157,40 +155,18 @@ export function FilesSurface({ cwd }: Props) {
         {treeError ? <p className="surface-note error">{treeError}</p> : null}
         <ul className="tree-list">{renderRows(ROOT, 0)}</ul>
       </div>
-      <div className="surface-viewer">
-        {selectedPath === null ? (
-          <p className="surface-note">Select a file to read it.</p>
-        ) : (
-          <>
-            <div className="surface-viewer-head">
-              <span className="mono-soft" title={selectedPath}>
-                {selectedPath}
-              </span>
-              <span className="surface-readonly">read-only</span>
-            </div>
-            {viewerError ? (
-              <p className="surface-note error">{viewerError}</p>
-            ) : contents === null ? (
-              <p className="surface-note">Reading…</p>
-            ) : contents.binary ? (
-              <p className="surface-note">
-                Binary file — not shown as text.
-              </p>
-            ) : (
-              <>
-                {contents.truncated ? (
-                  <p className="surface-note truncated">
-                    Cut off at the read cap — this is not the end of the file.
-                  </p>
-                ) : null}
-                <pre className="surface-file-body">
-                  <code>{contents.text}</code>
-                </pre>
-              </>
-            )}
-          </>
-        )}
-      </div>
+      {selectedPath === null ? (
+        <div className="surface-viewer">
+          <p className="surface-note">Select a file to read or edit it.</p>
+        </div>
+      ) : (
+        <FileViewer
+          key={selectedPath}
+          cwd={cwd}
+          path={selectedPath}
+          onDirtyChange={onDirtyChange}
+        />
+      )}
     </div>
   )
 }

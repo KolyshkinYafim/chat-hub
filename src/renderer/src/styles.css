@@ -4288,6 +4288,243 @@ button {
   color: var(--text-secondary);
 }
 
+/* ——— Surfaces: file viewer and editor ——— */
+
+.tree-dirty {
+  flex: none;
+  margin-left: 6px;
+  font-size: 9px;
+  color: var(--waiting);
+}
+
+.file-toggle,
+.file-save,
+.file-action {
+  flex: none;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-elevated);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.file-toggle:hover:not(:disabled),
+.file-save:hover:not(:disabled),
+.file-action:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.file-toggle.active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.file-save:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.file-save:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.file-dirty {
+  flex: none;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--waiting);
+}
+
+.file-saved {
+  flex: none;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ok);
+}
+
+.file-conflict {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  background: rgba(240, 113, 120, 0.12);
+  font-size: 11.5px;
+  color: #ffb4b8;
+}
+
+.file-conflict span {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-rendered {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+
+.file-split {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.file-split-edit {
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.file-split-preview {
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.file-image {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.file-image-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background:
+    repeating-conic-gradient(#16171c 0% 25%, #1a1b21 0% 50%) 50% / 16px 16px;
+}
+
+.file-image-stage img {
+  max-width: 100%;
+  max-height: 46vh;
+  object-fit: contain;
+}
+
+.file-image-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.file-media {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.file-media video,
+.file-media audio {
+  width: 100%;
+  max-height: 46vh;
+  border-radius: 10px;
+  background: #000;
+}
+
+.file-refusal {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 14px;
+  overflow: auto;
+}
+
+.file-refusal-head {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.file-refusal-facts {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 3px 12px;
+  margin: 0;
+  font-size: 11px;
+}
+
+.file-refusal-facts dt {
+  color: var(--text-faint);
+}
+
+.file-refusal-facts dd {
+  margin: 0;
+  font-family: var(--mono);
+  color: var(--text-secondary);
+}
+
+.code-editor {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.code-editor .cm-editor {
+  height: 100%;
+  background: var(--code-bg);
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.code-editor .cm-editor.cm-focused {
+  outline: none;
+}
+
+.code-editor .cm-scroller {
+  font-family: var(--mono);
+  line-height: 1.55;
+}
+
+.code-editor .cm-gutters {
+  border-right: 1px solid var(--border-soft);
+  background: var(--code-bg);
+  color: var(--text-faint);
+}
+
+.code-editor .cm-activeLineGutter {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+.code-editor .cm-activeLine {
+  background: rgba(124, 140, 255, 0.06);
+}
+
+.code-editor .cm-cursor {
+  border-left-color: var(--accent);
+}
+
+.code-editor .cm-selectionBackground,
+.code-editor .cm-content ::selection {
+  background: rgba(124, 140, 255, 0.28);
+}
+
+.code-editor .cm-content {
+  caret-color: var(--accent);
+}
+
 /* ——— Surfaces: terminal ——— */
 
 .surface-terminal {
