@@ -153,9 +153,12 @@ function ItemBody({ item }: { item: AgentTurnItem }) {
 
 function TurnItems({ items }: { items: AgentTurnItem[] | undefined }) {
   if (!items?.length) return null
+  const reasoning = items.filter((item) => item.kind === "reasoning")
+  const activity = items.filter((item) => item.kind !== "reasoning")
   return (
     <div className="turn-activity">
-      {items.map((item) => (
+      {reasoning.length ? <ReasoningGroup items={reasoning} /> : null}
+      {activity.map((item) => (
         <details
           key={item.id}
           className={`activity-item activity-${item.kind}`}
@@ -171,6 +174,38 @@ function TurnItems({ items }: { items: AgentTurnItem[] | undefined }) {
       ))}
     </div>
   )
+}
+
+/** Keep a long Codex turn readable: it streams several safe reasoning summaries. */
+function ReasoningGroup({ items }: { items: Extract<AgentTurnItem, { kind: "reasoning" }>[] }) {
+  const summaries = [...new Set(items.map((item) => cleanReasoning(item.summary)).filter(Boolean))]
+  const status = items.some((item) => item.status === "running")
+    ? "running"
+    : items.some((item) => item.status === "failed" || item.status === "interrupted")
+      ? "failed"
+      : "completed"
+  return (
+    <details className="activity-item activity-reasoning" open={status === "running"}>
+      <summary>
+        <span className={`activity-status status-${status}`} aria-label={status} />
+        <span className="activity-label">Reasoning{summaries.length > 1 ? ` · ${summaries.length} updates` : ""}</span>
+        <span className="activity-state">{status}</span>
+      </summary>
+      {summaries.length ? (
+        <ol className="activity-reasoning-list">
+          {summaries.map((summary, index) => <li key={`${index}-${summary}`}>{summary}</li>)}
+        </ol>
+      ) : <div className="activity-text">Reasoning summary unavailable.</div>}
+    </details>
+  )
+}
+
+function cleanReasoning(value: string): string {
+  return value
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim()
 }
 
 function AgentInputCard({

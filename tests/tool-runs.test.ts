@@ -181,6 +181,16 @@ describe("grouping consecutive calls", () => {
       ])
     }
   })
+
+  it("breaks a run on a mermaid diagram block", () => {
+    const src =
+      toolUseBlock("Bash", { command: "one" }, "a") +
+      "\n```mermaid\nflowchart LR\n  A --> B\n```\n" +
+      toolUseBlock("Bash", { command: "two" }, "b")
+    const transcript = buildTranscript(src)
+    expect(runs(transcript.blocks).map((r) => r.length)).toEqual([1, 1])
+    expect(transcript.blocks.some((b) => b.kind === "mermaid")).toBe(true)
+  })
 })
 
 describe("card titles", () => {

@@ -5,6 +5,8 @@ export type Block =
   | { kind: "h"; level: 2 | 3; text: string }
   | { kind: "ul"; items: string[] }
   | { kind: "code"; lang: string; code: string }
+  /** Fenced ```mermaid — rendered as a diagram when the message is final. */
+  | { kind: "mermaid"; code: string }
   | { kind: "diff"; code: string }
   | { kind: "reasoning"; text: string }
   | {
@@ -54,6 +56,8 @@ export function splitBlocks(src: string): Block[] {
       i += 1
       if (lang === "diff") {
         out.push({ kind: "diff", code: buf.join("\n") })
+      } else if (lang === "mermaid") {
+        out.push({ kind: "mermaid", code: buf.join("\n") })
       } else if (lang === "thinking" || lang === "reasoning") {
         out.push({ kind: "reasoning", text: buf.join("\n") })
       } else if (lang.startsWith("tool-result:")) {
