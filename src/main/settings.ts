@@ -345,6 +345,16 @@ export class SettingsStore {
     return Object.keys(prev)
   }
 
+  /** Remove every sealed env value belonging to a deleted MCP server. */
+  async removeMcpServerEnv(serverId: string): Promise<void> {
+    const id = serverId.trim()
+    if (!id || !this.data.mcpEnv?.[id]) return
+    const all = { ...this.data.mcpEnv }
+    delete all[id]
+    this.data = { ...this.data, mcpEnv: all }
+    await this.save()
+  }
+
   private async save(): Promise<void> {
     await writeFileAtomic(this.filePath, JSON.stringify(this.data, null, 2))
   }

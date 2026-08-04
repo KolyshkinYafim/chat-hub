@@ -68,6 +68,7 @@ export const IpcChannels = {
   mcpSetEnv: "mcp:set-env",
   mcpMaterialize: "mcp:materialize",
   mcpStatus: "mcp:status",
+  mcpAddGitignore: "mcp:add-gitignore",
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]

@@ -7,8 +7,10 @@ import { promisify } from "node:util"
 import {
   assertMcpServerDef,
   emptyMcpConfig,
+  MCP_NATIVE_GITIGNORE_PATHS,
   MCP_REL_PATH,
   parseMcpConfig,
+  type McpGitignoreResult,
   type McpListResult,
   type McpMaterializeResult,
   type McpProjectConfig,
@@ -212,20 +214,30 @@ type EnvLookup = (serverId: string) => Record<string, string>
 /**
  * Write Hub MCP config into native Claude / Codex / OpenCode project files.
  * Secrets are expanded from `envFor` (decrypted settings) into those files only.
+ * Never mutates `.gitignore` — the UI may offer that after seeing `unignoredNative`.
  */
 export async function materializeMcpForProject(
   cwd: unknown,
   envFor: EnvLookup,
+  cleanupNames: Iterable<string> = [],
 ): Promise<McpMaterializeResult> {
   const root = resolveWorkspaceRoot(cwd)
   const config = await readMcpConfig(cwd)
+  const staleNames = new Set(cleanupNames)
   const written: string[] = []
   try {
-    written.push(await materializeClaude(root, config, envFor))
+    written.push(await materializeClaude(root, config, envFor, staleNames))
     written.push(await materializeCodex(root, config, envFor))
-    const oc = await materializeOpenCode(root, config, envFor)
+    const oc = await materializeOpenCode(root, config, envFor, staleNames)
     if (oc) written.push(oc)
-    return { ok: true, written: written.filter(Boolean) }
+    const kept = written.filter(Boolean)
+    const unignoredNative = await listUnignoredMcpNativeFiles(root)
+    return {
+      ok: true,
+      written: kept,
+      unignoredNative:
+        unignoredNative.length > 0 ? unignoredNative : undefined,
+    }
   } catch (err) {
     return {
       ok: false,
@@ -233,6 +245,140 @@ export async function materializeMcpForProject(
       error: err instanceof Error ? err.message : String(err),
     }
   }
+}
+
+/**
+ * Among `.mcp.json` / `opencode.json`, return those that exist on disk and are
+ * not ignored by git. Empty when the folder is not a git work tree (nothing to
+ * accidentally commit) or every candidate is already ignored.
+ */
+export async function listUnignoredMcpNativeFiles(
+  root: string,
+): Promise<string[]> {
+  const existing: string[] = []
+  for (const rel of MCP_NATIVE_GITIGNORE_PATHS) {
+    try {
+      await access(join(root, rel), fsConstants.F_OK)
+      existing.push(rel)
+    } catch {
+      /* not written this time */
+    }
+  }
+  if (existing.length === 0) return []
+  if (!(await isGitWorkTree(root))) return []
+
+  const unignored: string[] = []
+  for (const rel of existing) {
+    if (!(await isPathGitIgnored(root, rel))) unignored.push(rel)
+  }
+  return unignored
+}
+
+async function isGitWorkTree(root: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["-C", root, "rev-parse", "--is-inside-work-tree"],
+      { timeout: 3000, env: process.env },
+    )
+    return stdout.trim() === "true"
+  } catch {
+    return false
+  }
+}
+
+/** `git check-ignore` exit 0 = ignored, 1 = not ignored. */
+async function isPathGitIgnored(root: string, rel: string): Promise<boolean> {
+  try {
+    await execFileAsync("git", ["-C", root, "check-ignore", "-q", "--", rel], {
+      timeout: 3000,
+      env: process.env,
+    })
+    return true
+  } catch (err) {
+    const code = (err as { code?: number | string } | null)?.code
+    if (code === 1) return false
+    // Other failures (no git, weird path): treat as not ignored so the user
+    // still sees a warning rather than silently shipping secrets.
+    return false
+  }
+}
+
+/**
+ * Append missing paths to `<cwd>/.gitignore`. Does not run unless the UI asks.
+ * Idempotent: already-present exact lines (or leading-slash variants) are skipped.
+ */
+export async function appendMcpPathsToGitignore(
+  cwd: unknown,
+  paths: string[],
+): Promise<McpGitignoreResult> {
+  const root = resolveWorkspaceRoot(cwd)
+  const file = join(root, ".gitignore")
+  const wanted = normalizeGitignoreRequests(paths)
+  if (wanted.length === 0) {
+    return { ok: true, path: file, added: [] }
+  }
+
+  let text = ""
+  try {
+    text = await readFile(file, "utf8")
+  } catch (e) {
+    if (!isEnoent(e)) {
+      return {
+        ok: false,
+        path: file,
+        added: [],
+        error: e instanceof Error ? e.message : String(e),
+      }
+    }
+  }
+
+  const present = new Set(
+    text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("#")),
+  )
+  const added: string[] = []
+  for (const p of wanted) {
+    if (present.has(p) || present.has(`/${p}`)) continue
+    added.push(p)
+  }
+  if (added.length === 0) {
+    return { ok: true, path: file, added: [] }
+  }
+
+  const header = "# Chat Hub MCP — may contain secrets from Apply to CLIs"
+  const needsHeader = !text.includes(header)
+  const prefix =
+    text === "" ? "" : text.endsWith("\n") ? "\n" : "\n\n"
+  const block =
+    prefix +
+    (needsHeader ? `${header}\n` : "") +
+    added.map((p) => `${p}\n`).join("")
+
+  try {
+    await writeFileAtomic(file, text + block)
+    return { ok: true, path: file, added }
+  } catch (e) {
+    return {
+      ok: false,
+      path: file,
+      added: [],
+      error: e instanceof Error ? e.message : String(e),
+    }
+  }
+}
+
+/** Only allow the known native paths — never write arbitrary gitignore lines. */
+export function normalizeGitignoreRequests(paths: string[]): string[] {
+  const allow = new Set<string>(MCP_NATIVE_GITIGNORE_PATHS)
+  const out: string[] = []
+  for (const raw of paths) {
+    const p = raw.trim().replace(/^\.\//, "")
+    if (allow.has(p) && !out.includes(p)) out.push(p)
+  }
+  return out
 }
 
 function enabledServers(config: McpProjectConfig): McpServerDef[] {
@@ -264,6 +410,7 @@ export async function materializeClaude(
   root: string,
   config: McpProjectConfig,
   envFor: EnvLookup,
+  cleanupNames: Iterable<string> = [],
 ): Promise<string> {
   const file = join(root, ".mcp.json")
   let existing: Record<string, unknown> = {}
@@ -284,6 +431,7 @@ export async function materializeClaude(
       : {}
 
   const names = hubNames(config)
+  for (const name of cleanupNames) names.add(name)
   // Drop hub-managed entries that are disabled or removed from canon.
   for (const key of Object.keys(servers)) {
     if (names.has(key)) {
@@ -396,6 +544,7 @@ export async function materializeOpenCode(
   root: string,
   config: McpProjectConfig,
   envFor: EnvLookup,
+  cleanupNames: Iterable<string> = [],
 ): Promise<string | null> {
   const file = join(root, "opencode.json")
   const enabled = enabledServers(config)
@@ -422,6 +571,7 @@ export async function materializeOpenCode(
       : {}
 
   const names = hubNames(config)
+  for (const name of cleanupNames) names.add(name)
   for (const key of Object.keys(prevMcp)) {
     if (names.has(key)) {
       const def = config.servers.find((s) => s.name === key)
