@@ -25,6 +25,7 @@ const DEFAULTS: HubSettings = {
   providers: {},
   instances: [],
   general: {},
+  mcpEnv: {},
 }
 
 /** Effective config for spawning/probing one instance (default or extra). */
@@ -236,6 +237,7 @@ export class SettingsStore {
           parsed.general && typeof parsed.general === "object"
             ? (parsed.general as GeneralConfig)
             : {},
+        mcpEnv: coerceMcpEnv(parsed.mcpEnv),
       }
     } catch (err) {
       // Defaults here mean losing every sealed API key: park the file first so the
@@ -299,6 +301,60 @@ export class SettingsStore {
     return this.snapshot
   }
 
+  /** Env var names stored for an MCP server (values stay sealed). */
+  getMcpEnvKeys(serverId: string): string[] {
+    return Object.keys(this.data.mcpEnv?.[serverId] ?? {})
+  }
+
+  /** Decrypted env for materializing native CLI configs. Main-process only. */
+  getMcpEnv(serverId: string): Record<string, string> {
+    const sealed = this.data.mcpEnv?.[serverId] ?? {}
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(sealed)) {
+      const plain = openSecret(v)
+      if (plain) out[k] = plain
+    }
+    return out
+  }
+
+  /**
+   * Merge env for one MCP server. Empty string deletes the key; otherwise seal.
+   * Returns the key names now present (never values).
+   */
+  async setMcpServerEnv(
+    serverId: string,
+    envPatch: Record<string, string>,
+  ): Promise<string[]> {
+    const id = serverId.trim()
+    if (!id) throw new Error("MCP server id required")
+    const all = { ...(this.data.mcpEnv ?? {}) }
+    const prev = { ...(all[id] ?? {}) }
+    for (const [rawKey, rawVal] of Object.entries(envPatch)) {
+      const key = rawKey.trim()
+      if (!key) continue
+      if (rawVal === "" || rawVal == null) {
+        delete prev[key]
+      } else {
+        prev[key] = sealSecret(String(rawVal))
+      }
+    }
+    if (Object.keys(prev).length === 0) delete all[id]
+    else all[id] = prev
+    this.data = { ...this.data, mcpEnv: all }
+    await this.save()
+    return Object.keys(prev)
+  }
+
+  /** Remove every sealed env value belonging to a deleted MCP server. */
+  async removeMcpServerEnv(serverId: string): Promise<void> {
+    const id = serverId.trim()
+    if (!id || !this.data.mcpEnv?.[id]) return
+    const all = { ...this.data.mcpEnv }
+    delete all[id]
+    this.data = { ...this.data, mcpEnv: all }
+    await this.save()
+  }
+
   private async save(): Promise<void> {
     await writeFileAtomic(this.filePath, JSON.stringify(this.data, null, 2))
   }
@@ -310,4 +366,20 @@ export class SettingsStore {
 
 function isMode(v: unknown): v is PermissionMode {
   return v === "yolo" || v === "acceptEdits" || v === "default"
+}
+
+function coerceMcpEnv(
+  raw: unknown,
+): Record<string, Record<string, string>> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {}
+  const out: Record<string, Record<string, string>> = {}
+  for (const [sid, env] of Object.entries(raw as Record<string, unknown>)) {
+    if (!sid || !env || typeof env !== "object" || Array.isArray(env)) continue
+    const inner: Record<string, string> = {}
+    for (const [k, v] of Object.entries(env as Record<string, unknown>)) {
+      if (typeof k === "string" && typeof v === "string") inner[k] = v
+    }
+    if (Object.keys(inner).length > 0) out[sid] = inner
+  }
+  return out
 }

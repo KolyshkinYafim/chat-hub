@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type ClipboardEvent,
+  type DragEvent,
   type KeyboardEvent,
   type UIEvent,
 } from "react"
@@ -12,6 +13,7 @@ import type {
   AgentInputRequestInfo,
   ChatMessage,
   GitCheckoutInfo,
+  MessageAttachment,
   PermissionRequestInfo,
   ProviderInfo,
   QueuedMessage,
@@ -29,6 +31,8 @@ import { formatClock } from "../lib/format"
 import { formatSessionUsage, formatUsage, usageDetail } from "../lib/usage"
 import { MarkdownBody } from "./MarkdownBody"
 import { TopBar } from "./TopBar"
+import { AttachmentGallery } from "./AttachmentGallery"
+import { AttachmentLightbox } from "./AttachmentLightbox"
 
 type Effort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
 
@@ -221,48 +225,6 @@ function AgentInputCard({
   )
 }
 
-const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp)$/i
-
-/** Attachment pill: shows an inline thumbnail for images, click opens the lightbox. */
-function AttachChip({
-  path,
-  onRemove,
-  onPreview,
-}: {
-  path: string
-  onRemove: () => void
-  onPreview: (url: string) => void
-}) {
-  const [url, setUrl] = useState<string | null>(null)
-  const isImage = IMAGE_EXT.test(path)
-  useEffect(() => {
-    if (!isImage) return
-    let alive = true
-    void window.chatHub.readImageDataUrl(path).then((u) => {
-      if (alive) setUrl(u)
-    })
-    return () => {
-      alive = false
-    }
-  }, [path, isImage])
-  return (
-    <span className={`attach-chip ${url ? "has-thumb" : ""}`} title={path}>
-      {url ? (
-        <img
-          className="attach-thumb"
-          src={url}
-          alt=""
-          onClick={() => onPreview(url)}
-        />
-      ) : null}
-      <span className="attach-name">{path.split("/").pop()}</span>
-      <button type="button" title="Remove" onClick={onRemove}>
-        ×
-      </button>
-    </span>
-  )
-}
-
 export function ChatView({
   session,
   onboard,
@@ -301,8 +263,13 @@ export function ChatView({
   onToggleDock,
 }: Props) {
   const [draft, setDraft] = useState("")
-  const [attachments, setAttachments] = useState<string[]>([])
-  const [preview, setPreview] = useState<string | null>(null)
+  const [attachments, setAttachments] = useState<MessageAttachment[]>([])
+  const [preview, setPreview] = useState<{
+    attachments: MessageAttachment[]
+    path: string
+    returnFocus: HTMLElement | null
+  } | null>(null)
+  const [dragActive, setDragActive] = useState(false)
   const [atBottom, setAtBottom] = useState(true)
   const bottomRef = useRef<HTMLDivElement>(null)
   const transcriptRef = useRef<HTMLDivElement>(null)
@@ -323,6 +290,7 @@ export function ChatView({
   useEffect(() => {
     setDraft("")
     setAttachments([])
+    setPreview(null)
     setHistIndex(-1)
     atBottomRef.current = true
     setAtBottom(true)
@@ -384,7 +352,8 @@ export function ChatView({
   async function submit() {
     const text = draft.trim()
     if ((!text && attachments.length === 0) || !session || sending) return
-    const files = attachments
+    const selectedAttachments = attachments
+    const files = selectedAttachments.map((item) => item.path)
     setDraft("")
     setAttachments([])
     setHistIndex(-1)
@@ -399,7 +368,7 @@ export function ChatView({
     } catch {
       // Send failed before it reached the agent — hand the prompt back.
       setDraft(text)
-      setAttachments(files)
+      setAttachments(selectedAttachments)
     }
   }
 
@@ -465,9 +434,7 @@ export function ChatView({
       try {
         const bytes = new Uint8Array(await file.arrayBuffer())
         const path = await window.chatHub.savePastedImage(bytes, ext)
-        setAttachments((curr) =>
-          curr.includes(path) ? curr : [...curr, path],
-        )
+        await addAttachmentPaths([path])
       } catch {
         // A single failed paste should not eat the others or the draft.
       }
@@ -483,9 +450,25 @@ export function ChatView({
 
   async function attach() {
     const files = await window.chatHub.pickFiles()
-    if (files.length) {
-      setAttachments((curr) => [...curr, ...files])
-    }
+    await addAttachmentPaths(files)
+  }
+
+  async function addAttachmentPaths(paths: string[]) {
+    if (paths.length === 0) return
+    const inspected = await window.chatHub.inspectAttachments(paths)
+    setAttachments((current) => {
+      const existing = new Set(current.map((item) => item.path))
+      return [...current, ...inspected.filter((item) => !existing.has(item.path))]
+    })
+  }
+
+  async function onDrop(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    setDragActive(false)
+    const paths = Array.from(e.dataTransfer.files)
+      .map((file) => window.chatHub.getPathForDroppedFile(file))
+      .filter(Boolean)
+    await addAttachmentPaths(paths)
   }
 
   const effortCapabilities = useMemo(() => {
@@ -689,6 +672,17 @@ export function ChatView({
                     <span className="turn-time">{formatClock(m.createdAt)}</span>
                   </div>
                   <div className="user-bubble">{m.content}</div>
+                  {m.attachments?.length ? (
+                    <AttachmentGallery
+                      attachments={m.attachments}
+                      className="message-attachments"
+                      onOpen={(attachment, trigger) => setPreview({
+                        attachments: m.attachments ?? [],
+                        path: attachment.path,
+                        returnFocus: trigger,
+                      })}
+                    />
+                  ) : null}
                 </>
               ) : m.role === "system" ? (
                 <div className="system-line">{m.content}</div>
@@ -722,7 +716,21 @@ export function ChatView({
         <div ref={bottomRef} />
       </div>
 
-      <div className="composer-dock">
+      <div
+        className={`composer-dock ${dragActive ? "is-dragging" : ""}`}
+        onDragEnter={(event) => {
+          if (event.dataTransfer.types.includes("Files")) setDragActive(true)
+        }}
+        onDragOver={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) return
+          event.preventDefault()
+          event.dataTransfer.dropEffect = "copy"
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragActive(false)
+        }}
+        onDrop={(event) => void onDrop(event)}
+      >
         {!atBottom ? (
           <button type="button" className="jump-latest" onClick={jumpToLatest}>
             ↓ Jump to latest
@@ -746,18 +754,17 @@ export function ChatView({
           </div>
         ) : null}
         {attachments.length > 0 ? (
-          <div className="attach-row">
-            {attachments.map((f) => (
-              <AttachChip
-                key={f}
-                path={f}
-                onRemove={() =>
-                  setAttachments((curr) => curr.filter((x) => x !== f))
-                }
-                onPreview={setPreview}
-              />
-            ))}
-          </div>
+          <AttachmentGallery
+            attachments={attachments}
+            removable
+            className="composer-attachments"
+            onRemove={(path) => setAttachments((current) => current.filter((item) => item.path !== path))}
+            onOpen={(attachment, trigger) => setPreview({
+              attachments,
+              path: attachment.path,
+              returnFocus: trigger,
+            })}
+          />
         ) : null}
         <div className="composer-shell">
           <textarea
@@ -945,21 +952,12 @@ export function ChatView({
         </div>
       </div>
       {preview ? (
-        <div
-          className="lightbox"
-          role="presentation"
-          onClick={() => setPreview(null)}
-        >
-          <img src={preview} alt="attachment preview" />
-          <button
-            type="button"
-            className="lightbox-close"
-            title="Close (click anywhere)"
-            onClick={() => setPreview(null)}
-          >
-            ×
-          </button>
-        </div>
+        <AttachmentLightbox
+          attachments={preview.attachments}
+          initialPath={preview.path}
+          returnFocus={preview.returnFocus}
+          onClose={() => setPreview(null)}
+        />
       ) : null}
     </main>
   )

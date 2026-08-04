@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron"
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron"
 import { IpcChannels } from "@shared/ipc"
 import type {
   CreateSessionInput,
@@ -6,6 +6,7 @@ import type {
   GitCheckoutInfo,
   GitWorkingCopy,
   HubEvent,
+  MessageAttachment,
   PermissionRequestInfo,
   Project,
   ProviderId,
@@ -32,6 +33,13 @@ import type {
   ProviderStatus,
   SettingsSnapshot,
 } from "@shared/settings-types"
+import type {
+  McpGitignoreResult,
+  McpListResult,
+  McpMaterializeResult,
+  McpServerDef,
+  McpServerStatus,
+} from "@shared/mcp"
 
 const api = {
   getSnapshot: (): Promise<SessionSnapshot> =>
@@ -164,13 +172,19 @@ const api = {
     ipcRenderer.invoke(IpcChannels.setSessionTitle, sessionId, title),
   pickFiles: (): Promise<string[]> =>
     ipcRenderer.invoke(IpcChannels.pickFiles),
+  inspectAttachments: (paths: string[]): Promise<MessageAttachment[]> =>
+    ipcRenderer.invoke(IpcChannels.inspectAttachments, paths),
+  /** Resolve a dropped browser File without exposing Node APIs to the renderer. */
+  getPathForDroppedFile: (
+    file: Parameters<typeof webUtils.getPathForFile>[0],
+  ): string => webUtils.getPathForFile(file),
   /** Persist a pasted/dropped image blob to disk; returns its absolute path so
    *  the composer can attach it exactly like a file the picker returned. */
   savePastedImage: (bytes: Uint8Array, ext: string): Promise<string> =>
     ipcRenderer.invoke(IpcChannels.savePastedImage, bytes, ext),
   /** Read a local image as a data: URL for inline preview. null if unreadable. */
-  readImageDataUrl: (path: string): Promise<string | null> =>
-    ipcRenderer.invoke(IpcChannels.readImageDataUrl, path),
+  readImageDataUrl: (path: string, maxDimension?: number): Promise<string | null> =>
+    ipcRenderer.invoke(IpcChannels.readImageDataUrl, path, maxDimension),
   /** Project board (.chathub/board.json) — todos + agent notes. */
   boardRead: (cwd: string): Promise<Board> =>
     ipcRenderer.invoke(IpcChannels.boardRead, cwd),
@@ -246,6 +260,33 @@ const api = {
       ipcRenderer.removeListener(IpcChannels.termExit, handler)
     }
   },
+  mcpList: (cwd: string): Promise<McpListResult> =>
+    ipcRenderer.invoke(IpcChannels.mcpList, cwd),
+  mcpUpsert: (cwd: string, server: McpServerDef): Promise<McpListResult> =>
+    ipcRenderer.invoke(IpcChannels.mcpUpsert, cwd, server),
+  mcpRemove: (cwd: string, id: string): Promise<McpListResult> =>
+    ipcRenderer.invoke(IpcChannels.mcpRemove, cwd, id),
+  mcpSetEnabled: (
+    cwd: string,
+    id: string,
+    enabled: boolean,
+  ): Promise<McpListResult> =>
+    ipcRenderer.invoke(IpcChannels.mcpSetEnabled, cwd, id, enabled),
+  mcpSetEnv: (
+    serverId: string,
+    envPatch: Record<string, string>,
+  ): Promise<string[]> =>
+    ipcRenderer.invoke(IpcChannels.mcpSetEnv, serverId, envPatch),
+  mcpMaterialize: (cwd: string): Promise<McpMaterializeResult> =>
+    ipcRenderer.invoke(IpcChannels.mcpMaterialize, cwd),
+  mcpStatus: (cwd: string): Promise<McpServerStatus[]> =>
+    ipcRenderer.invoke(IpcChannels.mcpStatus, cwd),
+  /** Append `.mcp.json` / `opencode.json` to project `.gitignore` (user-initiated). */
+  mcpAddGitignore: (
+    cwd: string,
+    paths: string[],
+  ): Promise<McpGitignoreResult> =>
+    ipcRenderer.invoke(IpcChannels.mcpAddGitignore, cwd, paths),
 }
 
 contextBridge.exposeInMainWorld("chatHub", api)

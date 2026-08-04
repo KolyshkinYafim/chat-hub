@@ -1,4 +1,5 @@
 import type { PermissionMode } from "./permission"
+import type { HookRun } from "./hooks"
 
 export type SessionStatus =
   | "idle"
@@ -173,6 +174,17 @@ export type AgentTurnItem =
       message: string
     }
 
+/** Persisted reference to a user-supplied file. File bytes never enter state.json. */
+export type MessageAttachment = {
+  /** Absolute local path passed to the provider. */
+  path: string
+  /** Display metadata is derived in main after validating the path. */
+  name: string
+  sizeBytes: number
+  kind: "image" | "file"
+  mime?: string
+}
+
 export type ChatMessage = {
   id: string
   sessionId: string
@@ -190,6 +202,8 @@ export type ChatMessage = {
   touchedFiles?: string[]
   /** Structured agent activity for this assistant turn. */
   items?: AgentTurnItem[]
+  /** Structured local-file references for user messages. */
+  attachments?: MessageAttachment[]
 }
 
 /**
@@ -324,6 +338,8 @@ export type HubEvent =
     }
   | { type: "input.request"; request: AgentInputRequestInfo }
   | { type: "input.resolved"; requestId: string; sessionId: string }
+  /** One project-local hook finished (shell or prompt). See `src/main/hooks.ts`. */
+  | { type: "hook.ran"; run: HookRun }
 
 export type CreateSessionInput = {
   provider: ProviderId

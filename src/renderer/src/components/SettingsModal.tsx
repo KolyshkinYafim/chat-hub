@@ -12,6 +12,16 @@ import type {
   SettingsSnapshot,
 } from "@shared/settings-types"
 import { DEFAULT_MODES } from "@shared/settings-types"
+import type {
+  McpServerDef,
+  McpServerStatus,
+  McpTransport,
+} from "@shared/mcp"
+import {
+  formatMcpArgs,
+  parseMcpArgs,
+  slugifyMcpId,
+} from "@shared/mcp"
 
 function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -40,6 +50,48 @@ type Props = {
   onPermissionChange: (mode: PermissionMode) => void
   autoOpenDock: boolean
   onAutoOpenDockChange: (enabled: boolean) => void
+  /** Active session cwd (or first pinned project) — scopes MCP config. */
+  projectCwd?: string | null
+}
+
+type McpFormState = {
+  id: string
+  name: string
+  transport: McpTransport
+  command: string
+  argsText: string
+  url: string
+  envKey: string
+  envValue: string
+  /** False while adding a new server (id still editable). */
+  idLocked: boolean
+}
+
+function emptyMcpForm(): McpFormState {
+  return {
+    id: "",
+    name: "",
+    transport: "stdio",
+    command: "",
+    argsText: "",
+    url: "",
+    envKey: "",
+    envValue: "",
+    idLocked: false,
+  }
+}
+
+function statusPill(state: McpServerStatus["state"]): { text: string; cls: string } {
+  switch (state) {
+    case "ok":
+      return { text: "ok", cls: "ok" }
+    case "error":
+      return { text: "error", cls: "err" }
+    case "disabled":
+      return { text: "off", cls: "muted" }
+    default:
+      return { text: "unknown", cls: "warn" }
+  }
 }
 
 function authBadge(auth: ProviderStatus["auth"]): { text: string; cls: string } {
@@ -137,6 +189,7 @@ export function SettingsModal({
   onPermissionChange,
   autoOpenDock,
   onAutoOpenDockChange,
+  projectCwd = null,
 }: Props) {
   const [tab, setTab] = useState<Tab>("providers")
   const [statuses, setStatuses] = useState<ProviderStatus[]>([])
@@ -155,6 +208,33 @@ export function SettingsModal({
   const [tests, setTests] = useState<
     Record<string, { ok: boolean; detail: string; ms: number } | "running">
   >({})
+  const [mcpServers, setMcpServers] = useState<McpServerDef[]>([])
+  const [mcpStatuses, setMcpStatuses] = useState<McpServerStatus[]>([])
+  const [mcpEnvKeys, setMcpEnvKeys] = useState<Record<string, string[]>>({})
+  const [mcpBusy, setMcpBusy] = useState(false)
+  const [mcpNotice, setMcpNotice] = useState<string | null>(null)
+  /** One-shot after materialize: native files exist but are not gitignored. */
+  const [mcpGitignoreWarn, setMcpGitignoreWarn] = useState<string[] | null>(
+    null,
+  )
+  const [mcpForm, setMcpForm] = useState<McpFormState | null>(null)
+
+  const refreshMcp = useCallback(async () => {
+    if (!projectCwd) {
+      setMcpServers([])
+      setMcpStatuses([])
+      setMcpEnvKeys({})
+      return
+    }
+    try {
+      const res = await window.chatHub.mcpList(projectCwd)
+      setMcpServers(res.config.servers)
+      setMcpStatuses(res.statuses)
+      setMcpEnvKeys(res.envKeysByServer)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }, [projectCwd])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -168,12 +248,22 @@ export function SettingsModal({
       setProvidersCfg(snap.providers)
       setGeneral(snap.general)
       setDataPaths(paths)
+      if (projectCwd) {
+        const res = await window.chatHub.mcpList(projectCwd)
+        setMcpServers(res.config.servers)
+        setMcpStatuses(res.statuses)
+        setMcpEnvKeys(res.envKeysByServer)
+      } else {
+        setMcpServers([])
+        setMcpStatuses([])
+        setMcpEnvKeys({})
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [projectCwd])
 
   useEffect(() => {
     if (!open) return
@@ -277,6 +367,168 @@ export function SettingsModal({
   async function browseInstanceHome(id: string) {
     const picked = await window.chatHub.pickFolder()
     if (picked) await patchInstance(id, { homeDir: picked })
+  }
+
+  function openMcpAdd() {
+    setMcpForm(emptyMcpForm())
+    setMcpNotice(null)
+  }
+
+  function openMcpEdit(server: McpServerDef) {
+    setMcpForm({
+      id: server.id,
+      name: server.name,
+      transport: server.transport,
+      command: server.command ?? "",
+      argsText: formatMcpArgs(server.args),
+      url: server.url ?? "",
+      envKey: server.envKeys[0] ?? "",
+      envValue: "",
+      idLocked: true,
+    })
+    setMcpNotice(null)
+  }
+
+  async function saveMcpForm() {
+    if (!projectCwd || !mcpForm) return
+    setMcpBusy(true)
+    setMcpNotice(null)
+    setError(null)
+    try {
+      const name = mcpForm.name.trim() || mcpForm.id.trim()
+      const id = mcpForm.idLocked
+        ? mcpForm.id
+        : slugifyMcpId(mcpForm.id.trim() || name)
+      const def: McpServerDef = {
+        id,
+        name: name || id,
+        enabled: true,
+        transport: mcpForm.transport,
+        args:
+          mcpForm.transport === "stdio" ? parseMcpArgs(mcpForm.argsText) : [],
+        envKeys: mcpForm.envKey.trim() ? [mcpForm.envKey.trim()] : [],
+      }
+      if (mcpForm.transport === "stdio") {
+        def.command = mcpForm.command.trim()
+      } else {
+        def.url = mcpForm.url.trim()
+      }
+      // Preserve enabled flag when editing.
+      if (mcpForm.idLocked) {
+        const prev = mcpServers.find((s) => s.id === id)
+        if (prev) def.enabled = prev.enabled
+        // Keep extra env key names already present.
+        const known = new Set([
+          ...def.envKeys,
+          ...(prev?.envKeys ?? []),
+          ...(mcpEnvKeys[id] ?? []),
+        ])
+        def.envKeys = [...known]
+      }
+      let res = await window.chatHub.mcpUpsert(projectCwd, def)
+      if (mcpForm.envKey.trim() && mcpForm.envValue.trim()) {
+        const keys = await window.chatHub.mcpSetEnv(id, {
+          [mcpForm.envKey.trim()]: mcpForm.envValue.trim(),
+        })
+        setMcpEnvKeys((curr) => ({ ...curr, [id]: keys }))
+        // Re-list so envKeys on the def stay in sync after materialize.
+        res = await window.chatHub.mcpList(projectCwd)
+      }
+      setMcpServers(res.config.servers)
+      setMcpStatuses(res.statuses)
+      setMcpEnvKeys(res.envKeysByServer)
+      setMcpForm(null)
+      setMcpNotice("Server saved · CLI configs updated")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setMcpBusy(false)
+    }
+  }
+
+  async function toggleMcpEnabled(server: McpServerDef) {
+    if (!projectCwd) return
+    setMcpBusy(true)
+    setError(null)
+    try {
+      const res = await window.chatHub.mcpSetEnabled(
+        projectCwd,
+        server.id,
+        !server.enabled,
+      )
+      setMcpServers(res.config.servers)
+      setMcpStatuses(res.statuses)
+      setMcpEnvKeys(res.envKeysByServer)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setMcpBusy(false)
+    }
+  }
+
+  async function removeMcp(server: McpServerDef) {
+    if (!projectCwd) return
+    if (!window.confirm(`Remove MCP server "${server.name}"?`)) return
+    setMcpBusy(true)
+    setError(null)
+    try {
+      const res = await window.chatHub.mcpRemove(projectCwd, server.id)
+      setMcpServers(res.config.servers)
+      setMcpStatuses(res.statuses)
+      setMcpEnvKeys(res.envKeysByServer)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setMcpBusy(false)
+    }
+  }
+
+  async function applyMcp() {
+    if (!projectCwd) return
+    setMcpBusy(true)
+    setMcpNotice(null)
+    setMcpGitignoreWarn(null)
+    setError(null)
+    try {
+      const res = await window.chatHub.mcpMaterialize(projectCwd)
+      if (!res.ok) throw new Error(res.error || "materialize failed")
+      setMcpNotice(
+        res.written.length
+          ? `Applied to CLIs · ${res.written.map((p) => p.split("/").pop()).join(", ")}`
+          : "Nothing to write",
+      )
+      if (res.unignoredNative && res.unignoredNative.length > 0) {
+        setMcpGitignoreWarn(res.unignoredNative)
+      }
+      await refreshMcp()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setMcpBusy(false)
+    }
+  }
+
+  async function addMcpToGitignore() {
+    if (!projectCwd || !mcpGitignoreWarn?.length) return
+    setMcpBusy(true)
+    setError(null)
+    try {
+      const res = await window.chatHub.mcpAddGitignore(
+        projectCwd,
+        mcpGitignoreWarn,
+      )
+      if (!res.ok) throw new Error(res.error || "gitignore update failed")
+      setMcpGitignoreWarn(null)
+      setMcpNotice(
+        res.added.length
+          ? `Added to .gitignore · ${res.added.join(", ")}`
+          : "Already listed in .gitignore",
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setMcpBusy(false)
+    }
   }
 
   async function patchGeneral(patch: GeneralConfig) {
@@ -1024,6 +1276,320 @@ export function SettingsModal({
                     </div>
                   ) : null}
                 </div>
+              </div>
+
+              <h2 className="section-label" style={{ marginTop: 20 }}>
+                MCP servers
+              </h2>
+              <div className="settings-group">
+                <div className="settings-row col">
+                  <div className="row-desc">
+                    Project config at <code>.chathub/mcp.json</code> (no secrets).
+                    Apply writes Claude <code>.mcp.json</code>, Codex{" "}
+                    <code>.codex/config.toml</code>, and OpenCode{" "}
+                    <code>opencode.json</code>. Secrets are sealed in Hub settings
+                    and expanded into those local CLI files — keep them out of git
+                    if they contain tokens.
+                  </div>
+                  {projectCwd ? (
+                    <code className="path-code">{projectCwd}</code>
+                  ) : (
+                    <p className="row-desc">
+                      Open a session or pin a project to manage MCP for a folder.
+                    </p>
+                  )}
+                  <div className="provider-card-actions">
+                    <button
+                      type="button"
+                      className="tb-btn primary"
+                      disabled={!projectCwd || mcpBusy}
+                      onClick={() => openMcpAdd()}
+                    >
+                      Add server
+                    </button>
+                    <button
+                      type="button"
+                      className="tb-btn"
+                      disabled={!projectCwd || mcpBusy}
+                      onClick={() => void applyMcp()}
+                    >
+                      Apply to CLIs
+                    </button>
+                    <button
+                      type="button"
+                      className="tb-btn"
+                      disabled={!projectCwd || mcpBusy}
+                      onClick={() => void refreshMcp()}
+                    >
+                      Refresh status
+                    </button>
+                  </div>
+                  {mcpNotice ? (
+                    <div className="path-status">
+                      <span className="auth-dot ok" />
+                      {mcpNotice}
+                    </div>
+                  ) : null}
+                  {mcpGitignoreWarn && mcpGitignoreWarn.length > 0 ? (
+                    <div className="mcp-gitignore-warn" role="status">
+                      <div className="row-desc">
+                        <strong>{mcpGitignoreWarn.join(", ")}</strong> may
+                        contain secrets and is not in this project&apos;s{" "}
+                        <code>.gitignore</code>. Chat Hub will not change git
+                        ignore rules unless you ask.
+                      </div>
+                      <div className="provider-card-actions">
+                        <button
+                          type="button"
+                          className="tb-btn primary"
+                          disabled={mcpBusy}
+                          onClick={() => void addMcpToGitignore()}
+                        >
+                          Add to .gitignore
+                        </button>
+                        <button
+                          type="button"
+                          className="tb-btn"
+                          disabled={mcpBusy}
+                          onClick={() => setMcpGitignoreWarn(null)}
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                {!projectCwd ? null : mcpServers.length === 0 && !mcpForm ? (
+                  <p className="row-desc">No MCP servers configured yet.</p>
+                ) : (
+                  mcpServers.map((server) => {
+                    const st =
+                      mcpStatuses.find((s) => s.id === server.id) ?? null
+                    const pill = statusPill(st?.state ?? "unknown")
+                    const line =
+                      server.transport === "stdio"
+                        ? `${server.command ?? ""} ${(server.args ?? []).join(" ")}`.trim()
+                        : server.url ?? ""
+                    const keys = mcpEnvKeys[server.id] ?? server.envKeys
+                    return (
+                      <div key={server.id} className="settings-row col mcp-card">
+                        <div className="mcp-card-head">
+                          <span className="row-title">{server.name}</span>
+                          <span className="mono-soft dim">
+                            {server.transport}
+                          </span>
+                          <span className={`auth-badge ${pill.cls}`}>
+                            {pill.text}
+                          </span>
+                          <label className="mcp-toggle">
+                            <input
+                              type="checkbox"
+                              checked={server.enabled}
+                              disabled={mcpBusy}
+                              onChange={() => void toggleMcpEnabled(server)}
+                            />
+                            enabled
+                          </label>
+                        </div>
+                        <code className="path-code">{line || "—"}</code>
+                        {st?.detail ? (
+                          <div className="row-desc">{st.detail}</div>
+                        ) : null}
+                        {keys.length > 0 ? (
+                          <div className="row-desc">
+                            env: {keys.map((k) => `${k} 🔒`).join(", ")}
+                          </div>
+                        ) : null}
+                        <div className="provider-card-actions">
+                          <button
+                            type="button"
+                            className="tb-btn"
+                            disabled={mcpBusy}
+                            onClick={() => openMcpEdit(server)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="tb-btn danger"
+                            disabled={mcpBusy}
+                            onClick={() => void removeMcp(server)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+
+                {mcpForm ? (
+                  <div className="settings-row col mcp-form">
+                    <div className="row-title">
+                      {mcpForm.idLocked ? "Edit server" : "New server"}
+                    </div>
+                    <label className="field-label">
+                      Name
+                      <input
+                        className="text-input"
+                        value={mcpForm.name}
+                        disabled={mcpBusy}
+                        onChange={(e) => {
+                          const name = e.target.value
+                          setMcpForm((f) =>
+                            f
+                              ? {
+                                  ...f,
+                                  name,
+                                  id: f.idLocked
+                                    ? f.id
+                                    : slugifyMcpId(name || f.id),
+                                }
+                              : f,
+                          )
+                        }}
+                      />
+                    </label>
+                    <label className="field-label">
+                      Id
+                      <input
+                        className="text-input mono-soft"
+                        value={mcpForm.id}
+                        disabled={mcpBusy || mcpForm.idLocked}
+                        onChange={(e) =>
+                          setMcpForm((f) =>
+                            f
+                              ? {
+                                  ...f,
+                                  id: slugifyMcpId(e.target.value),
+                                }
+                              : f,
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="field-label">
+                      Transport
+                      <select
+                        className="text-input"
+                        value={mcpForm.transport}
+                        disabled={mcpBusy}
+                        onChange={(e) =>
+                          setMcpForm((f) =>
+                            f
+                              ? {
+                                  ...f,
+                                  transport: e.target.value as McpTransport,
+                                }
+                              : f,
+                          )
+                        }
+                      >
+                        <option value="stdio">stdio</option>
+                        <option value="http">http</option>
+                      </select>
+                    </label>
+                    {mcpForm.transport === "stdio" ? (
+                      <>
+                        <label className="field-label">
+                          Command
+                          <input
+                            className="text-input"
+                            value={mcpForm.command}
+                            placeholder="npx"
+                            disabled={mcpBusy}
+                            onChange={(e) =>
+                              setMcpForm((f) =>
+                                f ? { ...f, command: e.target.value } : f,
+                              )
+                            }
+                          />
+                        </label>
+                        <label className="field-label">
+                          Args{" "}
+                          <span className="field-hint">
+                            space/comma-separated, or a JSON string array
+                          </span>
+                          <input
+                            className="text-input"
+                            value={mcpForm.argsText}
+                            placeholder="-y @modelcontextprotocol/server-memory"
+                            disabled={mcpBusy}
+                            onChange={(e) =>
+                              setMcpForm((f) =>
+                                f ? { ...f, argsText: e.target.value } : f,
+                              )
+                            }
+                          />
+                        </label>
+                      </>
+                    ) : (
+                      <label className="field-label">
+                        URL
+                        <input
+                          className="text-input"
+                          value={mcpForm.url}
+                          placeholder="https://…"
+                          disabled={mcpBusy}
+                          onChange={(e) =>
+                            setMcpForm((f) =>
+                              f ? { ...f, url: e.target.value } : f,
+                            )
+                          }
+                        />
+                      </label>
+                    )}
+                    <label className="field-label">
+                      Env key (optional)
+                      <input
+                        className="text-input"
+                        value={mcpForm.envKey}
+                        placeholder="GITHUB_PERSONAL_ACCESS_TOKEN"
+                        disabled={mcpBusy}
+                        onChange={(e) =>
+                          setMcpForm((f) =>
+                            f ? { ...f, envKey: e.target.value } : f,
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="field-label">
+                      Env value (write-only)
+                      <input
+                        type="password"
+                        className="text-input"
+                        value={mcpForm.envValue}
+                        placeholder="Paste secret to store"
+                        autoComplete="off"
+                        disabled={mcpBusy}
+                        onChange={(e) =>
+                          setMcpForm((f) =>
+                            f ? { ...f, envValue: e.target.value } : f,
+                          )
+                        }
+                      />
+                    </label>
+                    <div className="provider-card-actions">
+                      <button
+                        type="button"
+                        className="tb-btn primary"
+                        disabled={mcpBusy}
+                        onClick={() => void saveMcpForm()}
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        className="tb-btn"
+                        disabled={mcpBusy}
+                        onClick={() => setMcpForm(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}

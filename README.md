@@ -92,9 +92,9 @@ Daily driver default is **full bypass** so agents don't stop on every tool:
 
 | Mode (composer chip) | Claude | Grok | OpenCode |
 |----------------------|--------|------|----------|
-| **YOLO** (default) | `--permission-mode bypassPermissions` + `--dangerously-skip-permissions` | `bypassPermissions` + `--always-approve` | `--auto` |
-| **Edits** | `acceptEdits` | `acceptEdits` | `--auto` |
-| **Ask** | `default` | `default` | no `--auto` |
+| **YOLO** (default) | `--permission-mode bypassPermissions` + `--dangerously-skip-permissions` | `bypassPermissions` + `--always-approve` | `--dangerously-skip-permissions` |
+| **Edits** | `acceptEdits` | `acceptEdits` | CLI prompts (OpenCode has no edits-only CLI mode) |
+| **Ask** | `default` | `default` | CLI prompts |
 
 Persisted in `userData/data/settings.json`. Override bootstrap with `CHAT_HUB_PERMISSION=yolo|acceptEdits|default`.
 
@@ -104,7 +104,6 @@ Persisted in `userData/data/settings.json`. Override bootstrap with `CHAT_HUB_PE
 |-----|--------|
 | `CHAT_HUB_DEMO=1` | Seed multi-project demo data on empty store |
 | `CHAT_HUB_PERMISSION` | Default permission mode if settings missing |
-| `CHAT_HUB_OPENCODE_AUTO=1` | Force OpenCode `--auto` |
 
 ## Provider next steps
 
