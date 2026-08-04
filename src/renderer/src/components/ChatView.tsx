@@ -209,7 +209,11 @@ function TurnItems({
   return (
     <div className="turn-activity">
       {reasoning.length ? <ReasoningGroup items={reasoning} /> : null}
-      {activity.length ? <ActivityOverview items={activity} /> : streaming ? <LiveActivityPlaceholder /> : null}
+      {activity.length ? (
+        <ActivityOverview items={activity} streaming={streaming} />
+      ) : streaming ? (
+        <LiveActivityPlaceholder />
+      ) : null}
       {activity.map((item) => (
         <details
           key={item.id}
@@ -228,19 +232,25 @@ function TurnItems({
   )
 }
 
-function LiveActivityPlaceholder() {
+function LiveActivityPlaceholder({ label = "Preparing the next step" }: { label?: string }) {
   return (
     <div className="activity-live" aria-live="polite">
       <span className="activity-status status-running" aria-label="running" />
       <span className="activity-live-kicker">Working now</span>
-      <strong className="activity-live-label">Preparing the next step</strong>
+      <strong className="activity-live-label">{label}</strong>
       <span className="activity-state">live</span>
     </div>
   )
 }
 
 /** A readable outcome before the detailed, chronological tool cards. */
-function ActivityOverview({ items }: { items: Exclude<AgentTurnItem, { kind: "reasoning" }>[] }) {
+function ActivityOverview({
+  items,
+  streaming,
+}: {
+  items: Exclude<AgentTurnItem, { kind: "reasoning" }>[]
+  streaming: boolean
+}) {
   const commands = items.filter((item) => item.kind === "command").length
   const files = items
     .filter((item): item is Extract<AgentTurnItem, { kind: "file_change" }> => item.kind === "file_change")
@@ -259,13 +269,9 @@ function ActivityOverview({ items }: { items: Exclude<AgentTurnItem, { kind: "re
   const live = [...items].reverse().find((item) => item.status === "running" || item.status === "pending")
   return (
     <>
-      {live ? (
-        <div className="activity-live" aria-live="polite">
-          <span className="activity-status status-running" aria-label="running" />
-          <span className="activity-live-kicker">Working now</span>
-          <strong className="activity-live-label">{liveActionLabel(live)}</strong>
-          <span className="activity-state">live</span>
-        </div>
+      {live ? <LiveActivityPlaceholder label={liveActionLabel(live)} /> : null}
+      {streaming && !live ? (
+        <LiveActivityPlaceholder label="Preparing the next step after the last action" />
       ) : null}
       <div className="activity-overview">
         <span className={`activity-status status-${status}`} aria-label={status} />
