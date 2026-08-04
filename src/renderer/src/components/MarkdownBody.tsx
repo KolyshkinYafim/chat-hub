@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import { buildTranscript, type TranscriptBlock } from "../lib/tool-runs"
 import { ChangedFiles } from "./ChangedFiles"
 import { DiffBody } from "./DiffBody"
+import { MermaidDiagram } from "./MermaidDiagram"
 import { PlanSteps } from "./PlanSteps"
 import { ToolRun } from "./ToolRun"
 
@@ -74,6 +75,18 @@ function Block({ block, live }: { block: TranscriptBlock; live: boolean }) {
         <code>{block.code}</code>
       </pre>
     )
+  }
+  if (block.kind === "mermaid") {
+    // Partial stream chunks are invalid mermaid — show raw code until final.
+    if (live) {
+      return (
+        <pre className="md-code">
+          <span className="md-code-lang">mermaid</span>
+          <code>{block.code}</code>
+        </pre>
+      )
+    }
+    return <MermaidDiagram code={block.code} />
   }
   if (block.kind === "diff") {
     return <DiffBody code={block.code} />
