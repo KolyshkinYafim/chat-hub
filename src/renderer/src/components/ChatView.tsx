@@ -92,6 +92,11 @@ type Props = {
   onToggleDock: () => void
 }
 
+type ComposerDraft = {
+  text: string
+  attachments: MessageAttachment[]
+}
+
 /** Per-turn cost, folded into the agent turn's meta row. */
 function TurnCost({ usage }: { usage: TurnUsage }) {
   const label = formatUsage(usage)
@@ -162,11 +167,12 @@ function TurnItems({ items }: { items: AgentTurnItem[] | undefined }) {
   return (
     <div className="turn-activity">
       {reasoning.length ? <ReasoningGroup items={reasoning} /> : null}
+      {activity.length ? <ActivityOverview items={activity} /> : null}
       {activity.map((item) => (
         <details
           key={item.id}
           className={`activity-item activity-${item.kind}`}
-          open={item.kind === "error" || item.kind === "plan"}
+          open={item.kind === "error" || item.status === "running"}
         >
           <summary>
             <span className={`activity-status status-${item.status}`} aria-label={item.status} />
@@ -176,6 +182,33 @@ function TurnItems({ items }: { items: AgentTurnItem[] | undefined }) {
           <ItemBody item={item} />
         </details>
       ))}
+    </div>
+  )
+}
+
+/** A readable outcome before the detailed, chronological tool cards. */
+function ActivityOverview({ items }: { items: Exclude<AgentTurnItem, { kind: "reasoning" }>[] }) {
+  const commands = items.filter((item) => item.kind === "command").length
+  const files = items
+    .filter((item): item is Extract<AgentTurnItem, { kind: "file_change" }> => item.kind === "file_change")
+    .reduce((total, item) => total + item.changes.length, 0)
+  const tools = items.filter((item) => item.kind === "tool" || item.kind === "web_search" || item.kind === "image").length
+  const plans = items.filter((item) => item.kind === "plan" || item.kind === "review").length
+  const failed = items.filter((item) => item.status === "failed" || item.status === "declined" || item.status === "interrupted").length
+  const running = items.some((item) => item.status === "running" || item.status === "pending")
+  const parts = [
+    commands ? `${commands} ${commands === 1 ? "command" : "commands"}` : "",
+    files ? `${files} ${files === 1 ? "file" : "files"}` : "",
+    tools ? `${tools} ${tools === 1 ? "tool" : "tools"}` : "",
+    plans ? `${plans} ${plans === 1 ? "plan update" : "plan updates"}` : "",
+  ].filter(Boolean)
+  const status = failed ? "failed" : running ? "running" : "completed"
+  return (
+    <div className="activity-overview">
+      <span className={`activity-status status-${status}`} aria-label={status} />
+      <span className="activity-label">Technical activity</span>
+      <span className="activity-overview-summary">{parts.join(" · ") || `${items.length} updates`}</span>
+      <span className="activity-state">{failed ? `${failed} failed` : status}</span>
     </div>
   )
 }
@@ -322,6 +355,12 @@ export function ChatView({
   const flashedRef = useRef<string | null>(null)
   /** After prepending archive pages, restore viewport over the same content. */
   const scrollRestoreRef = useRef<{ height: number; top: number } | null>(null)
+  // Composer state is local for fast typing, but belongs to a session rather
+  // than to the currently mounted view. Switching chats must not eat a prompt.
+  const draftsBySessionRef = useRef(new Map<string, ComposerDraft>())
+  const activeDraftSessionRef = useRef<string | null>(null)
+  const draftRef = useRef(draft)
+  const attachmentsRef = useRef(attachments)
   // -1 means the live draft; anything else indexes into `promptHistory`.
   const [histIndex, setHistIndex] = useState(-1)
   const liveDraftRef = useRef("")
@@ -334,8 +373,25 @@ export function ChatView({
   )
 
   useEffect(() => {
-    setDraft("")
-    setAttachments([])
+    draftRef.current = draft
+  }, [draft])
+
+  useEffect(() => {
+    attachmentsRef.current = attachments
+  }, [attachments])
+
+  useEffect(() => {
+    const previousId = activeDraftSessionRef.current
+    if (previousId) {
+      draftsBySessionRef.current.set(previousId, {
+        text: draftRef.current,
+        attachments: attachmentsRef.current,
+      })
+    }
+    activeDraftSessionRef.current = session?.id ?? null
+    const restored = session ? draftsBySessionRef.current.get(session.id) : undefined
+    setDraft(restored?.text ?? "")
+    setAttachments(restored?.attachments ?? [])
     setPreview(null)
     setHistIndex(-1)
     atBottomRef.current = true
@@ -791,13 +847,20 @@ export function ChatView({
                     {m.usage ? <TurnCost usage={m.usage} /> : null}
                   </div>
                   <TurnItems items={m.items} />
-                  <MarkdownBody
-                    text={m.content}
-                    messageId={m.id}
-                    streaming={m.streaming}
-                    cwd={session.cwd}
-                    onOpenDiff={onOpenDiff}
-                  />
+                  {m.content.trim() ? (
+                    <section className="turn-result">
+                      <div className="turn-result-label">
+                        {m.streaming ? "Response" : "Result"}
+                      </div>
+                      <MarkdownBody
+                        text={m.content}
+                        messageId={m.id}
+                        streaming={m.streaming}
+                        cwd={session.cwd}
+                        onOpenDiff={onOpenDiff}
+                      />
+                    </section>
+                  ) : null}
                 </>
               )}
             </article>
