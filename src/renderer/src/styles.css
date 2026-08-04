@@ -4516,9 +4516,22 @@ button {
   border-left-color: var(--accent);
 }
 
+/* CodeMirror's own theme ships `.cm-focused .cm-selectionBackground` with a
+   near-white lavender, and that selector outranks a plain `.cm-selectionBackground`
+   — so the selection only looked right while the editor was NOT focused. */
 .code-editor .cm-selectionBackground,
+.code-editor .cm-editor.cm-focused .cm-selectionBackground,
 .code-editor .cm-content ::selection {
-  background: rgba(124, 140, 255, 0.28);
+  background: rgba(92, 110, 190, 0.32);
+}
+
+.code-editor .cm-activeLine {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.code-editor .cm-activeLineGutter {
+  background: transparent;
+  color: var(--text-secondary);
 }
 
 .code-editor .cm-content {
