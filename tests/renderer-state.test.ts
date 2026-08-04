@@ -137,6 +137,22 @@ describe("transcript blocks", () => {
     expect(onlyCall(blocks[0]).diff).toBeNull()
     expect(blocks[1]).toMatchObject({ kind: "diff" })
   })
+
+  it("classifies a mermaid fence as kind mermaid, not code", () => {
+    const src =
+      "Here is the flow:\n\n```mermaid\nflowchart LR\n  A --> B\n```\n\nDone."
+    const { blocks } = buildTranscript(src)
+    expect(blocks).toEqual([
+      { kind: "p", text: "Here is the flow:" },
+      { kind: "mermaid", code: "flowchart LR\n  A --> B" },
+      { kind: "p", text: "Done." },
+    ])
+  })
+
+  it("keeps non-mermaid fences as code", () => {
+    const { blocks } = buildTranscript("```ts\nconst x = 1\n```")
+    expect(blocks).toEqual([{ kind: "code", lang: "ts", code: "const x = 1" }])
+  })
 })
 
 describe("agent audit trail", () => {
@@ -174,6 +190,20 @@ describe("agent audit trail", () => {
     expect(actions.length).toBeGreaterThanOrEqual(2)
     expect(actions.some((a) => a.name === "Read")).toBe(true)
     expect(actions.some((a) => a.name === "Bash")).toBe(true)
+  })
+
+  it("collects structured Codex activity even when its prose has no tool fence", () => {
+    const actions = collectAgentActions([{
+      ...msg("m1", "Finished."),
+      items: [
+        { id: "cmd-1", kind: "command", status: "completed", command: "pnpm test", exitCode: 0 },
+        { id: "edit-1", kind: "file_change", status: "completed", changes: [{ path: "src/a.ts", kind: "edit" }] },
+      ],
+    }])
+    expect(actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "Command", summary: "$ pnpm test", exitCode: 0 }),
+      expect.objectContaining({ name: "File change", paths: ["src/a.ts"] }),
+    ]))
   })
 
   it("links a path only when the trail already knows it", () => {

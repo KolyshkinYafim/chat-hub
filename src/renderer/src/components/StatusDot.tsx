@@ -9,7 +9,11 @@ export function StatusDot({
   showLabel?: boolean
 }) {
   return (
-    <span className={`status-live status-${status}`}>
+    <span
+      className={`status-live status-${status}`}
+      title={statusLabel[status]}
+      aria-label={statusLabel[status]}
+    >
       <span className={`status-dot ${status}`} aria-hidden />
       {showLabel ? (
         <span className="status-live-label">{statusLabel[status]}</span>

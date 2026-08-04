@@ -1,4 +1,4 @@
-import type { ChatMessage } from "@shared/types"
+import type { AgentTurnItem, ChatMessage } from "@shared/types"
 import {
   buildTranscript,
   isFailed,
@@ -31,17 +31,76 @@ export function collectAgentActions(
   const out: AgentAction[] = []
   for (const m of messages) {
     if (m.role !== "assistant") continue
-    if (!m.content) continue
-    const { blocks } = buildTranscript(m.content, m.id)
-    for (const block of blocks) {
-      if (block.kind !== "tools") continue
-      for (const call of block.calls) {
-        out.push(toAction(call, m.id))
+    if (m.content) {
+      const { blocks } = buildTranscript(m.content, m.id)
+      for (const block of blocks) {
+        if (block.kind !== "tools") continue
+        for (const call of block.calls) {
+          out.push(toAction(call, m.id))
+        }
       }
+    }
+    // Codex (and newer adapters) report real-time activity as structured items
+    // rather than synthetic Markdown. The audit trail must not make those turns
+    // look idle simply because there is no ```tool fence in the prose.
+    for (const item of m.items ?? []) {
+      const action = actionFromItem(item, m.id)
+      if (action) out.push(action)
     }
   }
   if (out.length <= limit) return out
   return out.slice(out.length - limit)
+}
+
+function actionFromItem(item: AgentTurnItem, messageId: string): AgentAction | null {
+  const base = {
+    key: `${messageId}/item-${item.id}`,
+    status: actionStatus(item.status),
+    messageId,
+  } as const
+  switch (item.kind) {
+    case "command":
+      return {
+        ...base,
+        name: "Command",
+        summary: `$ ${firstLine(item.command)}`,
+        exitCode: item.exitCode,
+      }
+    case "file_change": {
+      const paths = item.changes.map((change) => change.path).filter(Boolean)
+      return {
+        ...base,
+        name: "File change",
+        summary: paths.length === 1 ? `Changed ${baseName(paths[0]!)}` : `Changed ${paths.length} files`,
+        paths,
+      }
+    }
+    case "tool":
+      return {
+        ...base,
+        name: item.name,
+        summary: item.server ? `${item.server} · ${item.name}` : item.name,
+      }
+    case "web_search":
+      return { ...base, name: "Web search", summary: `Search ${item.query}` }
+    case "image":
+      return { ...base, name: "Image view", summary: `Viewed ${baseName(item.path)}`, paths: [item.path] }
+    case "plan":
+      return { ...base, name: "Plan", summary: item.text || "Updated plan" }
+    case "review":
+      return { ...base, name: "Review", summary: item.text || "Review" }
+    case "error":
+      return { ...base, name: "Error", summary: item.message, status: "error" }
+    case "reasoning":
+    case "compaction":
+      return null
+  }
+}
+
+function actionStatus(status: AgentTurnItem["status"]): AgentAction["status"] {
+  if (status === "failed" || status === "declined" || status === "interrupted") return "error"
+  if (status === "pending" || status === "running") return "running"
+  return "ok"
 }
 
 function toAction(call: ToolCall, messageId: string): AgentAction {
@@ -81,4 +140,14 @@ function pathsMatch(a: string, b: string): boolean {
   if (a === b) return true
   // Repo-relative vs absolute: match on suffix.
   return a.endsWith(`/${b}`) || b.endsWith(`/${a}`)
+}
+
+function firstLine(value: string): string {
+  return value.split("\n")[0]?.trim() ?? ""
+}
+
+function baseName(path: string): string {
+  const clean = path.split(" · ")[0]!.trim()
+  const parts = clean.split("/")
+  return parts[parts.length - 1] || clean
 }

@@ -11,14 +11,13 @@ import {
   pushDelta,
   safeJson,
   snapshotDelta,
-  toolUseBlock,
   touchedFileFromTool,
   type StreamTurn,
 } from "./stream-parse"
 import { readUsage } from "./usage"
 import { renderCliFailure } from "./failure-message"
 import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
-import type { TurnUsage } from "@shared/types"
+import type { AgentTurnItem, TurnUsage } from "@shared/types"
 import type {
   AdapterCallbacks,
   AdapterSendOpts,
@@ -128,6 +127,7 @@ export class GrokAdapter implements AgentAdapter {
     let usage: TurnUsage | null = null
     const snapshot = newSnapshot()
     const stderr: string[] = []
+    let sawThought = false
 
     const proc = runProcess({
       command: bin,
@@ -157,6 +157,31 @@ export class GrokAdapter implements AgentAdapter {
         usage = readUsage(ev) ?? usage
 
         const type = String(ev.type ?? ev.event ?? "")
+
+        // Grok exposes raw thought chunks, not a user-safe reasoning summary.
+        // Record only lifecycle state; never copy chain-of-thought into the UI.
+        if (type === "thought") {
+          sawThought = true
+          if (!turn) turn = beginAssistant(sessionId, cb)
+          cb.onTurnItem(sessionId, turn.messageId, {
+            id: "grok-reasoning",
+            kind: "reasoning",
+            status: "running",
+            summary: "Grok is reasoning…",
+          })
+          return
+        }
+
+        const action = extractGrokAction(ev, type)
+        if (action) {
+          if (!turn) turn = beginAssistant(sessionId, cb)
+          cb.onTurnItem(sessionId, turn.messageId, action)
+          if (action.kind === "tool") {
+            const file = touchedFileFromTool(action.name, action.arguments)
+            if (file) cb.onTouchedFiles?.(sessionId, turn.messageId, [file])
+          }
+          return
+        }
 
         // text deltas
         const delta = extractGrokText(ev, type)
@@ -199,15 +224,6 @@ export class GrokAdapter implements AgentAdapter {
           }
         }
 
-        if (type === "tool" || type === "tool_use") {
-          const name = String(ev.name ?? "tool")
-          if (!turn) turn = beginAssistant(sessionId, cb)
-          // A bare tool name says nothing about what the agent did to the repo.
-          const input = ev.input ?? ev.arguments
-          pushDelta(turn, sessionId, toolUseBlock(name, input), cb)
-          const file = touchedFileFromTool(name, input)
-          if (file) cb.onTouchedFiles?.(sessionId, turn.messageId, [file])
-        }
       },
       onStderrLine: (line) => {
         stderr.push(line)
@@ -219,6 +235,14 @@ export class GrokAdapter implements AgentAdapter {
       },
       onExit: (code) => {
         const messageId = turn?.messageId
+        if (sawThought && turn) {
+          cb.onTurnItem(sessionId, turn.messageId, {
+            id: "grok-reasoning",
+            kind: "reasoning",
+            status: code === 0 ? "completed" : "interrupted",
+            summary: "Grok reasoning complete",
+          })
+        }
         if (usage) cb.onUsage?.(sessionId, usage, messageId)
         // A newer turn may already own this session (Stop then immediate
         // resend): a dead process must not overwrite the live turn's status.
@@ -281,6 +305,52 @@ export class GrokAdapter implements AgentAdapter {
     await this.abort(sessionId)
     this.sessions.delete(sessionId)
   }
+}
+
+/** Normalize documented and forward-compatible Grok action envelopes. */
+export function extractGrokAction(
+  ev: Record<string, unknown>,
+  type = String(ev.type ?? ev.event ?? ""),
+): Extract<AgentTurnItem, { kind: "tool" | "command" }> | null {
+  const lower = type.toLowerCase()
+  const isTool = ["tool", "tool_use", "tool_call", "tool_result", "function_call", "function_result"].includes(lower)
+  const isCommand = ["command", "command_execution", "command_start", "command_end"].includes(lower)
+  if (!isTool && !isCommand) return null
+
+  const nested = objectValue(ev.tool) ?? objectValue(ev.call) ?? objectValue(ev.function) ?? {}
+  const id = stringValue(ev.tool_call_id) ?? stringValue(ev.call_id) ?? stringValue(ev.id) ?? `${lower}-${stringValue(ev.sequence) ?? "event"}`
+  const status: AgentTurnItem["status"] = lower.endsWith("result") || lower.endsWith("end") || stringValue(ev.status) === "completed"
+    ? "completed"
+    : stringValue(ev.status) === "failed" ? "failed" : "running"
+  const command = stringValue(ev.command) ?? stringValue(nested.command)
+  if (isCommand || command) {
+    return {
+      id: `grok-${id}`,
+      kind: "command",
+      status,
+      command: command ?? "Command",
+      output: stringValue(ev.output) ?? stringValue(ev.result) ?? undefined,
+    }
+  }
+  const name = stringValue(ev.name) ?? stringValue(ev.tool_name) ?? stringValue(nested.name) ?? "Tool"
+  return {
+    id: `grok-${id}`,
+    kind: "tool",
+    status,
+    name,
+    arguments: ev.input ?? ev.arguments ?? nested.input ?? nested.arguments,
+    result: ev.result ?? ev.output,
+  }
+}
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value ? value : null
 }
 
 /** Parse both legacy and Grok Build 0.2.x streaming-json text events. */
