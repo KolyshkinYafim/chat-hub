@@ -489,6 +489,12 @@ export function installDevMock(): void {
     getSnapshot: async () => snapshot,
     listSessions: async () => sessions,
     getMessages: async (id: string) => messages[id] ?? [],
+    loadArchivedMessages: async () => ({
+      messages: [],
+      hasMore: false,
+      hasArchive: false,
+    }),
+    hasArchivedMessages: async () => false,
     listProviders: async () => [
       { id: "claude", label: "Claude Code", available: true, description: "Real CLI" },
       { id: "codex", label: "Codex CLI", available: true, description: "Real CLI" },

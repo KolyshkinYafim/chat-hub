@@ -67,6 +67,11 @@ export default function App() {
   const [messagesBySession, setMessagesBySession] = useState<
     Record<string, ChatMessage[]>
   >({})
+  /** Transcript overflow: more pages available in archive.jsonl for this id. */
+  const [overflowHasMore, setOverflowHasMore] = useState<
+    Record<string, boolean>
+  >({})
+  const [loadingOlder, setLoadingOlder] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -687,8 +692,41 @@ export default function App() {
         const msgs = await window.chatHub.getMessages(id)
         setMessagesBySession((curr) => ({ ...curr, [id]: msgs }))
       }
+      const hasOverflow = await window.chatHub.hasArchivedMessages(id)
+      setOverflowHasMore((curr) => ({ ...curr, [id]: hasOverflow }))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function loadOlderMessages() {
+    if (!activeId || loadingOlder) return
+    if (overflowHasMore[activeId] === false) return
+    const list = messagesBySession[activeId] ?? []
+    const beforeId = list[0]?.id ?? null
+    setLoadingOlder(true)
+    try {
+      const page = await window.chatHub.loadArchivedMessages(
+        activeId,
+        beforeId,
+        50,
+      )
+      if (page.messages.length > 0) {
+        setMessagesBySession((curr) => {
+          const existing = curr[activeId] ?? []
+          const seen = new Set(existing.map((m) => m.id))
+          const older = page.messages.filter((m) => !seen.has(m.id))
+          return { ...curr, [activeId]: [...older, ...existing] }
+        })
+      }
+      setOverflowHasMore((curr) => ({
+        ...curr,
+        [activeId]: page.hasArchive && page.hasMore,
+      }))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoadingOlder(false)
     }
   }
 
@@ -1005,6 +1043,11 @@ export default function App() {
           }
           onResolveInput={(id, answers) => void resolveAgentInput(id, answers)}
           messages={messages}
+          hasOlderMessages={
+            activeId ? overflowHasMore[activeId] === true : false
+          }
+          loadingOlder={loadingOlder}
+          onLoadOlder={() => void loadOlderMessages()}
           providers={providers}
           models={sessionModels}
           modes={modes}

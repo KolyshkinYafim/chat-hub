@@ -245,6 +245,34 @@ function registerIpc(
     }
     return sm.getMessages(sessionId)
   })
+  ipcMain.handle(
+    IpcChannels.loadArchivedMessages,
+    async (
+      _e,
+      sessionId: unknown,
+      beforeMessageId: unknown,
+      limit: unknown,
+    ) => {
+      if (typeof sessionId !== "string" || !sessionId) {
+        throw new Error("Invalid sessionId")
+      }
+      const before =
+        beforeMessageId === null || beforeMessageId === undefined
+          ? null
+          : typeof beforeMessageId === "string"
+            ? beforeMessageId
+            : null
+      const lim =
+        typeof limit === "number" && Number.isFinite(limit) ? limit : 50
+      return sm.loadArchivedMessages(sessionId, before, lim)
+    },
+  )
+  ipcMain.handle(IpcChannels.hasArchivedMessages, (_e, sessionId: unknown) => {
+    if (typeof sessionId !== "string" || !sessionId) {
+      throw new Error("Invalid sessionId")
+    }
+    return sm.hasArchivedMessages(sessionId)
+  })
   ipcMain.handle(IpcChannels.createSession, async (_e, input: unknown) => {
     if (!input || typeof input !== "object") {
       throw new Error("Invalid createSession payload")

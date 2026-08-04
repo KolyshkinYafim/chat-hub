@@ -57,6 +57,10 @@ type Props = {
   pendingInputRequests: AgentInputRequestInfo[]
   onResolveInput: (requestId: string, answers: Record<string, string[]>) => void
   messages: ChatMessage[]
+  /** True when the session has older turns in the on-disk overflow archive. */
+  hasOlderMessages?: boolean
+  loadingOlder?: boolean
+  onLoadOlder?: () => void
   providers: ProviderInfo[]
   models: ModelInfo[]
   modes: Mode[]
@@ -273,6 +277,9 @@ export function ChatView({
   pendingInputRequests,
   onResolveInput,
   messages,
+  hasOlderMessages = false,
+  loadingOlder = false,
+  onLoadOlder,
   providers,
   models,
   modes,
@@ -313,6 +320,8 @@ export function ChatView({
   const taRef = useRef<HTMLTextAreaElement>(null)
   const atBottomRef = useRef(true)
   const flashedRef = useRef<string | null>(null)
+  /** After prepending archive pages, restore viewport over the same content. */
+  const scrollRestoreRef = useRef<{ height: number; top: number } | null>(null)
   // -1 means the live draft; anything else indexes into `promptHistory`.
   const [histIndex, setHistIndex] = useState(-1)
   const liveDraftRef = useRef("")
@@ -373,11 +382,32 @@ export function ChatView({
     return () => window.clearTimeout(timer)
   }, [highlightMessageId, messages, onHighlightShown])
 
+  useEffect(() => {
+    const pending = scrollRestoreRef.current
+    const node = transcriptRef.current
+    if (!pending || !node) return
+    node.scrollTop = node.scrollHeight - pending.height + pending.top
+    scrollRestoreRef.current = null
+  }, [messages])
+
   function onTranscriptScroll(e: UIEvent<HTMLDivElement>) {
     const el = e.currentTarget
     const near = el.scrollHeight - el.scrollTop - el.clientHeight < 64
     atBottomRef.current = near
     setAtBottom((curr) => (curr === near ? curr : near))
+    // Lazy-load overflow archive when the user scrolls to the top.
+    if (
+      hasOlderMessages &&
+      !loadingOlder &&
+      onLoadOlder &&
+      el.scrollTop < 48
+    ) {
+      scrollRestoreRef.current = {
+        height: el.scrollHeight,
+        top: el.scrollTop,
+      }
+      onLoadOlder()
+    }
   }
 
   function jumpToLatest() {
@@ -696,7 +726,23 @@ export function ChatView({
             </span>
           </div>
         ) : (
-          messages.map((m) => (
+          <>
+          {hasOlderMessages || loadingOlder ? (
+            <div className="transcript-load-older">
+              {loadingOlder ? (
+                <span className="dim">Loading earlier messages…</span>
+              ) : (
+                <button
+                  type="button"
+                  className="link-btn"
+                  onClick={() => onLoadOlder?.()}
+                >
+                  Load earlier messages
+                </button>
+              )}
+            </div>
+          ) : null}
+          {messages.map((m) => (
             <article
               key={m.id}
               data-mid={m.id}
@@ -748,7 +794,8 @@ export function ChatView({
                 </>
               )}
             </article>
-          ))
+          ))}
+          </>
         )}
         <div ref={bottomRef} />
       </div>

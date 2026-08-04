@@ -2,6 +2,8 @@ export const IpcChannels = {
   createSession: "session:create",
   listSessions: "session:list",
   getMessages: "session:messages",
+  loadArchivedMessages: "session:archive-messages",
+  hasArchivedMessages: "session:has-archive",
   sendMessage: "session:send",
   cancelQueued: "queue:cancel",
   abortSession: "session:abort",

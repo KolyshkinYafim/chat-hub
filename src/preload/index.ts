@@ -48,6 +48,23 @@ const api = {
     ipcRenderer.invoke(IpcChannels.listSessions),
   getMessages: (sessionId: string): Promise<ChatMessage[]> =>
     ipcRenderer.invoke(IpcChannels.getMessages, sessionId),
+  loadArchivedMessages: (
+    sessionId: string,
+    beforeMessageId: string | null,
+    limit?: number,
+  ): Promise<{
+    messages: ChatMessage[]
+    hasMore: boolean
+    hasArchive: boolean
+  }> =>
+    ipcRenderer.invoke(
+      IpcChannels.loadArchivedMessages,
+      sessionId,
+      beforeMessageId,
+      limit ?? 50,
+    ),
+  hasArchivedMessages: (sessionId: string): Promise<boolean> =>
+    ipcRenderer.invoke(IpcChannels.hasArchivedMessages, sessionId),
   createSession: (input: CreateSessionInput): Promise<SessionMeta> =>
     ipcRenderer.invoke(IpcChannels.createSession, input),
   sendMessage: (

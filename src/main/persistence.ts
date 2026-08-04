@@ -20,7 +20,7 @@ const EMPTY: PersistedState = {
 }
 
 export class Persistence {
-  constructor(private readonly filePath: string) {}
+  constructor(readonly filePath: string) {}
 
   async load(): Promise<PersistedState> {
     let raw: string
