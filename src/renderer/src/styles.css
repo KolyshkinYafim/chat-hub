@@ -660,6 +660,56 @@ button {
   font-weight: 560;
 }
 
+.checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 4px 0 14px;
+  color: var(--text, #eee);
+  cursor: pointer;
+}
+
+.checkbox-row input {
+  margin-top: 3px;
+  accent-color: var(--accent, #7aa2ff);
+}
+
+.checkbox-row span {
+  display: grid;
+  gap: 3px;
+}
+
+.checkbox-row small {
+  color: var(--muted, #999);
+  font-size: 12px;
+}
+
+.scm-pr-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.scm-pr-row input:not([type="checkbox"]) {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid var(--line, #333);
+  border-radius: 6px;
+  background: var(--panel, #202020);
+  color: inherit;
+  padding: 7px 8px;
+}
+
+.scm-pr-row label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted, #999);
+}
+
 .turn {
   margin-bottom: 22px;
   content-visibility: auto;

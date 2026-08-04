@@ -15,6 +15,7 @@ export type NewSessionDraft = {
   model?: string
   title?: string
   permissionMode: PermissionMode
+  worktree: boolean
 }
 
 type Props = {
@@ -47,6 +48,7 @@ export function NewSessionDialog({
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(
     DEFAULT_PERMISSION_MODE,
   )
+  const [worktree, setWorktree] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -75,6 +77,9 @@ export function NewSessionDialog({
     setInstanceId(initialProvider)
     setTitle(projectHint ? `New · ${projectHint}` : "")
     setPermissionMode(DEFAULT_PERMISSION_MODE)
+    // Keep non-Git folders working as before; users can opt into isolation
+    // when the selected project is a repository.
+    setWorktree(false)
     setError(null)
   }, [open, hintCwd, initialProvider, projectHint])
 
@@ -115,6 +120,7 @@ export function NewSessionDialog({
         model: model || undefined,
         title: title.trim() || undefined,
         permissionMode,
+        worktree,
       })
       onClose()
     } catch (err) {
@@ -168,6 +174,18 @@ export function NewSessionDialog({
               </button>
             </div>
             <span className="field-hint">Project name: {project}</span>
+          </label>
+
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={worktree}
+              onChange={(event) => setWorktree(event.currentTarget.checked)}
+            />
+            <span>
+              <strong>Isolated Git worktree</strong>
+              <small>Recommended for parallel agents; starts from the current HEAD.</small>
+            </span>
           </label>
 
           <label className="form-field">
