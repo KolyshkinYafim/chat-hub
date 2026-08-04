@@ -6,11 +6,7 @@ import {
 } from "@shared/permission"
 import type { EffortLevel } from "./types"
 
-/**
- * Pure argv builders, one per CLI.
- * Kept out of the adapters so the part that silently breaks between CLI
- * versions is unit-testable without spawning anything.
- */
+
 export type ArgvOpts = {
   message: string
   cwd: string
