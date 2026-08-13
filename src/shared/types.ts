@@ -429,6 +429,16 @@ export type GitWorkingCopy = {
   files: GitFileChange[]
 }
 
+/**
+ * Per-path hunk counts of the two textual diffs (index vs HEAD, worktree vs
+ * index). Paths with no textual hunks — binary, untracked, renames without
+ * edits — simply do not appear.
+ */
+export type GitHunkSummary = Record<
+  string,
+  { staged: number; unstaged: number }
+>
+
 export type GitBranchList = {
   current: string
   branches: string[]
