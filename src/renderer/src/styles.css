@@ -3722,6 +3722,32 @@ button {
   line-height: 1.35;
 }
 
+/* Publish-gate confession: hunks the review is leaving out of the push. */
+.scm-review-gate .scm-gate-warn {
+  display: block;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(240, 180, 41, 0.25);
+  color: #f0c14b;
+  font-size: 11px;
+}
+
+.scm-hunk-count {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+/* Sits on the @@ line inside the <pre>; keep it a quiet inline chip. */
+.scm-hunk-act {
+  margin-left: 10px;
+  font-size: 10px;
+  padding: 0 6px;
+  vertical-align: middle;
+}
+
 .scm-empty {
   display: flex;
   flex-direction: column;

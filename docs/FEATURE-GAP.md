@@ -53,7 +53,7 @@
 | Worktree cleanup | ✅ | Clean remove + stale prune |
 | Commit / Push / Create PR | ✅ | Source Control + `gh` |
 | Review before publish | ✅ | Whole-snapshot gate + agent trail |
-| Per-hunk approval | ❌ | Backlog |
+| Per-hunk approval | ✅ | Stage/Unstage hunk в диффе, счётчики в publish gate |
 | Amend / stacked PR / base selection | ❌ | Backlog |
 | MCP manager | ✅ | Project scope + sealed env |
 | Hooks | ✅ | `.chathub/hooks` |
@@ -77,7 +77,6 @@
 
 - Amend последнего commit с confirmation после push.
 - Выбор PR base branch и stacked PR между session branches.
-- Per-hunk review decisions поверх текущего publish gate.
 - Опциональный AI-generated PR title/body; deterministic fallback оставить.
 - Guided export/backup dirty worktree перед ручным удалением.
 

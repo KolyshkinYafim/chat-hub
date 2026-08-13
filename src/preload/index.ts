@@ -4,6 +4,7 @@ import type {
   CreateSessionInput,
   GitBranchList,
   GitCheckoutInfo,
+  GitHunkSummary,
   GitWorkingCopy,
   GitRepository,
   GitWorktreeInfo,
@@ -151,6 +152,22 @@ const api = {
     ipcRenderer.invoke(IpcChannels.gitStage, cwd, paths),
   gitUnstage: (cwd: string, paths: string[]): Promise<GitWorkingCopy> =>
     ipcRenderer.invoke(IpcChannels.gitUnstage, cwd, paths),
+  gitStageHunk: (
+    cwd: string,
+    path: string,
+    hunkIndex: number,
+    header: string,
+  ): Promise<{ ok: boolean; output: string }> =>
+    ipcRenderer.invoke(IpcChannels.gitStageHunk, cwd, path, hunkIndex, header),
+  gitUnstageHunk: (
+    cwd: string,
+    path: string,
+    hunkIndex: number,
+    header: string,
+  ): Promise<{ ok: boolean; output: string }> =>
+    ipcRenderer.invoke(IpcChannels.gitUnstageHunk, cwd, path, hunkIndex, header),
+  gitHunkSummary: (cwd: string): Promise<GitHunkSummary> =>
+    ipcRenderer.invoke(IpcChannels.gitHunkSummary, cwd),
   gitBranches: (cwd: string): Promise<GitBranchList> =>
     ipcRenderer.invoke(IpcChannels.gitBranches, cwd),
   gitCheckout: (
