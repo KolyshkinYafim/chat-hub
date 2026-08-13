@@ -13,3 +13,10 @@ coverage/
 release/
 sessions-data/
 electron.vite.config.*.mjs
+
+# Chat Hub's own browser-MCP registration writes these into the project cwd
+# when a session runs inside this repo. Runtime artifacts, not project config.
+/.mcp.json
+/.codex/
+/.grok/
+/opencode.json
