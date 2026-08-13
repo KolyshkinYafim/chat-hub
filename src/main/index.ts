@@ -28,6 +28,8 @@ import {
   gitInit,
   findGitRepositories,
   listBranches,
+  listCommits,
+  getCommitDetail,
   stagePaths,
   unstagePaths,
 } from "./git"
@@ -563,6 +565,15 @@ function registerIpc(
   ipcMain.handle(IpcChannels.gitBranches, (_e, cwd: unknown) =>
     listBranches(gitCwd(cwd)),
   )
+
+  ipcMain.handle(IpcChannels.gitLog, (_e, cwd: unknown) =>
+    listCommits(gitCwd(cwd)),
+  )
+
+  ipcMain.handle(IpcChannels.gitShow, (_e, cwd: unknown, sha: unknown) => {
+    if (typeof sha !== "string" || !sha) throw new Error("Invalid commit")
+    return getCommitDetail(gitCwd(cwd), sha)
+  })
 
   ipcMain.handle(
     IpcChannels.gitCheckout,

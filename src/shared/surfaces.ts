@@ -1,6 +1,12 @@
 import type { MediaKind } from "./file-kind"
 
-export type SurfaceKind = "browser" | "terminal" | "files" | "diff" | "board"
+export type SurfaceKind =
+  | "browser"
+  | "terminal"
+  | "files"
+  | "diff"
+  | "history"
+  | "board"
 
 /**
  * One task on the project board. `done` toggles from the UI or the agent.

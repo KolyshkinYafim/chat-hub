@@ -7,6 +7,7 @@ export const SURFACE_LABEL: Record<SurfaceKind, string> = {
   terminal: "Terminal",
   files: "Files",
   diff: "Diff",
+  history: "History",
 }
 
 const SURFACE_HINT: Record<SurfaceKind, string> = {
@@ -15,6 +16,7 @@ const SURFACE_HINT: Record<SurfaceKind, string> = {
   terminal: "Start a shell in this workspace.",
   files: "Browse and read workspace files.",
   diff: "Review changes in this thread.",
+  history: "Walk recent commits and their diffs.",
 }
 
 const TILE_ORDER: SurfaceKind[] = [
@@ -23,6 +25,7 @@ const TILE_ORDER: SurfaceKind[] = [
   "terminal",
   "files",
   "diff",
+  "history",
 ]
 
 type Props = {

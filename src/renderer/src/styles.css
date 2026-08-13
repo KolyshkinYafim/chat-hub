@@ -4821,6 +4821,116 @@ button {
   display: none;
 }
 
+/* ——— History surface: commits → per-commit diff ——— */
+
+.history {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.history-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-sidebar);
+  font-size: 12px;
+}
+
+.history-branch {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-head .scm-act {
+  margin-left: auto;
+}
+
+.history-commits {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0 16px;
+}
+
+.history-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.history-row:hover,
+.history-commits li.active > .history-row {
+  background: var(--bg-hover);
+}
+
+.history-subject {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.history-meta code {
+  font-family: var(--mono);
+}
+
+.history-refs {
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-detail {
+  padding: 6px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.history-detail-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.history-binary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--code-bg);
+}
+
 /* ——— Diff: agent audit trail ——— */
 
 .scm-audit {

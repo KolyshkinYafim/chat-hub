@@ -5,7 +5,10 @@ import { basename, dirname, join, sep } from "node:path"
 import { homedir } from "node:os"
 import type {
   GitBranchList,
+  GitCommitDetail,
+  GitCommitFileStat,
   GitFileChange,
+  GitLogEntry,
   GitWorkingCopy,
   GitWorktreeInfo,
   GitRepository,
@@ -361,6 +364,90 @@ export async function listBranches(cwd: string): Promise<GitBranchList> {
     }
   } catch {
     return { current: "no-git", branches: [] }
+  }
+}
+
+/**
+ * Unit separator between fields: a subject can hold anything printable, but
+ * `%s` never spans lines, so one line per commit with `\x1f` fences is exact.
+ */
+const LOG_FORMAT = "%H%x1f%h%x1f%an%x1f%aI%x1f%D%x1f%s"
+
+export function parseCommitLog(out: string): GitLogEntry[] {
+  const entries: GitLogEntry[] = []
+  for (const line of out.split("\n")) {
+    const fields = line.split("\x1f")
+    if (fields.length !== 6) continue
+    const [sha, shortSha, author, date, decorations, subject] = fields
+    if (!sha) continue
+    entries.push({
+      sha,
+      shortSha: shortSha || sha.slice(0, 7),
+      author,
+      date,
+      refs: decorations.split(", ").filter(Boolean),
+      subject,
+    })
+  }
+  return entries
+}
+
+export async function listCommits(cwd: string, limit = 50): Promise<GitLogEntry[]> {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["log", `-${limit}`, `--pretty=format:${LOG_FORMAT}`, "--no-color"],
+      { cwd, timeout: 15_000, maxBuffer: BUFFER },
+    )
+    return parseCommitLog(stdout)
+  } catch {
+    // Not a repo, or a repo with no commits yet — both are an empty history.
+    return []
+  }
+}
+
+/** `--numstat` rows: `added TAB removed TAB path`, `-` on both for binary. */
+export function parseNumstat(out: string): GitCommitFileStat[] {
+  const files: GitCommitFileStat[] = []
+  for (const line of out.split("\n")) {
+    const [added, removed, path] = line.split("\t")
+    if (path === undefined || !path) continue
+    const binary = added === "-" || removed === "-"
+    files.push({
+      path,
+      added: binary ? 0 : Number(added) || 0,
+      removed: binary ? 0 : Number(removed) || 0,
+      binary,
+    })
+  }
+  return files
+}
+
+/** Abbreviated or full hex only — a sha never needs pathspec-style escaping. */
+function assertSha(sha: string): string {
+  if (!/^[0-9a-f]{4,40}$/i.test(sha)) throw new Error(`Invalid commit: ${sha}`)
+  return sha
+}
+
+export async function getCommitDetail(
+  cwd: string,
+  sha: string,
+): Promise<GitCommitDetail> {
+  assertSha(sha)
+  const show = (args: string[]) =>
+    execFileAsync(
+      "git",
+      ["show", sha, "--no-color", "--format=", ...args],
+      { cwd, timeout: 15_000, maxBuffer: BUFFER },
+    )
+  try {
+    const [stat, patch] = await Promise.all([
+      show(["--numstat"]),
+      show(["--patch"]),
+    ])
+    return { sha, files: parseNumstat(stat.stdout), diff: patch.stdout }
+  } catch {
+    return { sha, files: [], diff: "" }
   }
 }
 
