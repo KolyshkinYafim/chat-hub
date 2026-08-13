@@ -15,6 +15,15 @@ export type Board = {
   updatedAt?: number
 }
 
+export type BrowserActivity = {
+  sessionId: string
+  op: string
+  summary: string
+  url: string
+  at: number
+  ok: boolean
+}
+
 export type DirEntry = {
   name: string
   path: string
@@ -59,6 +68,8 @@ export type TerminalChunk = { ptyId: string; data: string }
 
 export type TerminalExit = { ptyId: string; exitCode: number }
 
+export type GrokTrustStatus = { trusted: boolean; path: string }
+
 export type SurfaceBridge = {
   listDir: (cwd: string, relPath: string) => Promise<DirListing>
   readFileText: (cwd: string, relPath: string) => Promise<FileContents>
@@ -83,6 +94,12 @@ export type SurfaceBridge = {
   onTerminalExit: (cb: (exit: TerminalExit) => void) => () => void
   boardRead: (cwd: string) => Promise<Board>
   boardWrite: (cwd: string, board: Board) => Promise<Board>
+  browserAttach: (sessionId: string, webContentsId: number) => Promise<boolean>
+  browserDetach: (sessionId: string) => Promise<boolean>
+  onBrowserActivity: (cb: (event: BrowserActivity) => void) => () => void
+  onBrowserOpen: (cb: (sessionId: string) => void) => () => void
+  grokTrustStatus: (cwd: string) => Promise<GrokTrustStatus>
+  grokTrustFolder: (cwd: string) => Promise<boolean>
 }
 
 export function surfaceBridge(): SurfaceBridge {

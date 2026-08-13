@@ -44,6 +44,14 @@ export type SendOpts = {
   attachments?: string[]
 }
 
+export type BrowserMcpTarget = {
+  id: string
+  provider: string
+  cwd: string
+}
+
+export type BrowserMcpRegistrar = (session: BrowserMcpTarget) => Promise<unknown>
+
 /** Watchdog cadence and how long a turn may stay silent before we call it dead. */
 export type WatchdogConfig = { intervalMs: number; silenceMs: number }
 
@@ -69,6 +77,7 @@ export class SessionManager {
   private watchdogTimer: ReturnType<typeof setInterval> | null = null
   private usage = new Map<string, SessionUsage>()
   private permissions: PermissionBroker | null = null
+  private registerBrowserMcp: BrowserMcpRegistrar | null = null
   private readonly hooks: HookRunner
   private readonly archive: MessageArchive
   /** Live-window cap; overridable in tests so overflow is cheap to exercise. */
@@ -98,6 +107,24 @@ export class SessionManager {
     this.archive =
       opts?.archive ?? MessageArchive.fromStatePath(this.persistence.filePath)
     this.maxMessages = opts?.maxMessages ?? MAX_MESSAGES_PER_SESSION
+  }
+
+  /**
+   * Writes the built-in browser MCP server into the session's project config.
+   * A CLI reads that config at process start, so every call site must await
+   * this before `adapter.start`, and a failure must never block the spawn.
+   */
+  setBrowserMcpRegistrar(register: BrowserMcpRegistrar): void {
+    this.registerBrowserMcp = register
+  }
+
+  private async prepareBrowserTools(session: BrowserMcpTarget): Promise<void> {
+    if (!this.registerBrowserMcp) return
+    try {
+      await this.registerBrowserMcp(session)
+    } catch (err) {
+      console.warn("[session-manager] browser mcp registration failed", err)
+    }
   }
 
   /**
@@ -391,6 +418,7 @@ export class SessionManager {
       const resolved = this.settings.resolveInstance(
         session.instanceId ?? session.provider,
       )
+      await this.prepareBrowserTools(session)
       await adapter.start(
         {
           sessionId: session.id,
@@ -526,6 +554,7 @@ export class SessionManager {
 
     const cb = this.callbacks()
     try {
+      await this.prepareBrowserTools(session)
       await adapter.start(
         {
           sessionId: id,

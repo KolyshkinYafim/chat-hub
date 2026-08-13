@@ -582,6 +582,9 @@ function mockNameOf(relPath: string): string {
   return relPath.slice(relPath.lastIndexOf("/") + 1)
 }
 
+// Starts untrusted so ?mock=1 shows the Grok folder-trust banner.
+let mockGrokTrusted = false
+
 function makeSurfaceBridge(): SurfaceBridge {
   return {
     listDir: async (_cwd, relPath) => {
@@ -695,6 +698,18 @@ function makeSurfaceBridge(): SurfaceBridge {
     boardWrite: async (_cwd, board) => {
       mockBoard = { ...board, updatedAt: Date.now() }
       return mockBoard
+    },
+    browserAttach: async () => false,
+    browserDetach: async () => false,
+    onBrowserActivity: () => () => {},
+    onBrowserOpen: () => () => {},
+    grokTrustStatus: async () => ({
+      trusted: mockGrokTrusted,
+      path: "/Users/mock/.grok/trusted_folders.toml",
+    }),
+    grokTrustFolder: async () => {
+      mockGrokTrusted = true
+      return true
     },
   }
 }

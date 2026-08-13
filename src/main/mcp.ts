@@ -485,9 +485,51 @@ export async function materializeCodex(
   return file
 }
 
+/**
+ * Grok: same `[mcp_servers.*]` TOML as Codex in `<cwd>/.grok/config.toml`.
+ * Grok's own `grok mcp add` writes an `enabled` flag per server, so the block
+ * carries it too — a server without it still loads, but `grok mcp list` and the
+ * CLI's enable/disable pair expect the key to be there.
+ */
+export async function materializeGrok(
+  root: string,
+  config: McpProjectConfig,
+  envFor: EnvLookup,
+): Promise<string> {
+  const dir = join(root, ".grok")
+  const file = join(dir, "config.toml")
+  let text = ""
+  try {
+    text = await readFile(file, "utf8")
+  } catch (e) {
+    if (!isEnoent(e)) throw e
+  }
+
+  const block = buildGrokBlock(enabledServers(config), envFor)
+  const next = replaceMarkerBlock(text, block)
+  await mkdir(dir, { recursive: true })
+  await writeFileAtomic(file, next)
+  return file
+}
+
 export function buildCodexBlock(
   servers: McpServerDef[],
   envFor: EnvLookup,
+): string {
+  return buildServerTomlBlock(servers, envFor, false)
+}
+
+export function buildGrokBlock(
+  servers: McpServerDef[],
+  envFor: EnvLookup,
+): string {
+  return buildServerTomlBlock(servers, envFor, true)
+}
+
+function buildServerTomlBlock(
+  servers: McpServerDef[],
+  envFor: EnvLookup,
+  withEnabledFlag: boolean,
 ): string {
   const lines: string[] = [CODEX_BEGIN, "# Managed by Chat Hub — do not edit by hand"]
   for (const s of servers) {
@@ -496,6 +538,9 @@ export function buildCodexBlock(
     lines.push(`command = ${tomlString(s.command)}`)
     if (s.args.length > 0) {
       lines.push(`args = [${s.args.map(tomlString).join(", ")}]`)
+    }
+    if (withEnabledFlag) {
+      lines.push("enabled = true")
     }
     const env = envForServer(s, envFor)
     if (env) {

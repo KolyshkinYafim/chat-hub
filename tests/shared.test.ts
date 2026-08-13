@@ -12,6 +12,7 @@ import {
   agentDesktopEventsPath,
 } from "../src/shared/bridge-path"
 import { normalizeProject, projectFromCwd } from "../src/shared/project"
+import { splitToolName } from "../src/shared/tool-card"
 
 describe("permission modes", () => {
   it("defaults to YOLO — the whole point of the Hub", () => {
@@ -109,5 +110,33 @@ describe("project naming", () => {
     expect(normalizeProject("Mary API", "/Users/me/code/mary")).toBe("Mary API")
     expect(normalizeProject("   ", "/Users/me/code/mary")).toBe("mary")
     expect(normalizeProject(undefined, "/Users/me/code/mary")).toBe("mary")
+  })
+})
+
+describe("splitToolName", () => {
+  it("leaves a native tool name untouched", () => {
+    expect(splitToolName("Edit")).toEqual({ label: "Edit", server: null })
+    expect(splitToolName("shell")).toEqual({ label: "shell", server: null })
+  })
+
+  it("splits an MCP tool into its server and its tool", () => {
+    expect(splitToolName("mcp__chathub-browser__browser_click")).toEqual({
+      label: "browser_click",
+      server: "chathub-browser",
+    })
+  })
+
+  it("keeps underscores inside the tool name", () => {
+    expect(splitToolName("mcp__linear__create_issue_comment")).toEqual({
+      label: "create_issue_comment",
+      server: "linear",
+    })
+  })
+
+  it("does not treat a bare mcp-prefixed word as a server call", () => {
+    expect(splitToolName("mcp__only")).toEqual({
+      label: "mcp__only",
+      server: null,
+    })
   })
 })

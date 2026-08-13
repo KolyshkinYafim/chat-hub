@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react"
+import { splitToolName } from "@shared/tool-card"
 import {
   collapseOutput,
   isFailed,
@@ -66,8 +67,18 @@ function CallHead({
         {call.title}
       </span>
       <StatusChip call={call} live={live} />
-      <span className="tool-kind">{call.name}</span>
+      <ToolKind name={call.name} />
     </button>
+  )
+}
+
+function ToolKind({ name }: { name: string }) {
+  const { label, server } = splitToolName(name)
+  return (
+    <span className="tool-kind" title={name}>
+      {server ? <span className="tool-server">{server}</span> : null}
+      {label}
+    </span>
   )
 }
 

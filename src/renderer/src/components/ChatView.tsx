@@ -35,6 +35,7 @@ import { MarkdownBody } from "./MarkdownBody"
 import { TopBar } from "./TopBar"
 import { AttachmentGallery } from "./AttachmentGallery"
 import { AttachmentLightbox } from "./AttachmentLightbox"
+import { GrokTrustBanner } from "./GrokTrustBanner"
 
 type Effort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
 
@@ -820,6 +821,8 @@ export function ChatView({
           answered. YOLO keeps turns moving without prompts.
         </div>
       ) : null}
+
+      <GrokTrustBanner cwd={session.cwd} provider={session.provider} />
 
       {error ? <div className="error-banner">{error}</div> : null}
 

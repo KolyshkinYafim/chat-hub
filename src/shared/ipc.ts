@@ -76,6 +76,10 @@ export const IpcChannels = {
   termExit: "surface:term-exit",
   boardRead: "surface:board-read",
   boardWrite: "surface:board-write",
+  browserAttach: "surface:browser-attach",
+  browserDetach: "surface:browser-detach",
+  browserActivity: "surface:browser-activity",
+  browserOpen: "surface:browser-open",
   mcpList: "mcp:list",
   mcpUpsert: "mcp:upsert",
   mcpRemove: "mcp:remove",
@@ -84,6 +88,8 @@ export const IpcChannels = {
   mcpMaterialize: "mcp:materialize",
   mcpStatus: "mcp:status",
   mcpAddGitignore: "mcp:add-gitignore",
+  grokTrustStatus: "grok:trust-status",
+  grokTrustFolder: "grok:trust-folder",
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]

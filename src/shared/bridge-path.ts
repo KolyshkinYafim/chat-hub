@@ -1,5 +1,6 @@
 import { homedir } from "node:os"
 import { join } from "node:path"
+import { BROWSER_SOCKET_BASENAME, BROWSER_SOCKET_ENV } from "./browser"
 
 /**
  * Shared SessionEvent JSONL path (Chat Hub producer, Session Monitor consumer).
@@ -44,6 +45,14 @@ export function chatHubSocketPath(): string {
     return process.env.CHAT_HUB_SOCKET
   }
   return join(agentDesktopDir(), "hub.sock")
+}
+
+/** Where the built-in browser MCP server reaches the Hub's Browser surface. */
+export function chatHubBrowserSocketPath(): string {
+  if (process.env[BROWSER_SOCKET_ENV]) {
+    return process.env[BROWSER_SOCKET_ENV]
+  }
+  return join(agentDesktopDir(), BROWSER_SOCKET_BASENAME)
 }
 
 /** Session Monitor → Chat Hub reverse channel. */

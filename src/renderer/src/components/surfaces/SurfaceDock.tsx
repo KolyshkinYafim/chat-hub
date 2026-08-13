@@ -127,7 +127,9 @@ export function SurfaceDock({
       <div className="surface-body">
         {kind === null ? <SurfaceChooser onPick={onSelectKind} /> : null}
         {kind === "board" ? <BoardSurface key={session.id} cwd={session.cwd} /> : null}
-        {kind === "browser" ? <BrowserSurface key={session.id} /> : null}
+        {kind === "browser" ? (
+          <BrowserSurface key={session.id} sessionId={session.id} />
+        ) : null}
         {kind === "terminal" ? (
           <TerminalSurface
             key={session.id}
