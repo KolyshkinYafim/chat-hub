@@ -464,6 +464,19 @@ export default function App() {
   }, [activeId, messages])
 
   useEffect(() => {
+    return window.chatHub.onBrowserOpen((sessionId) => {
+      setSurfaceBySession((curr) => {
+        if (curr[sessionId] === "browser") return curr
+        const next = { ...curr, [sessionId]: "browser" as const }
+        saveSurfaceBySession(next)
+        return next
+      })
+      setDockOpen(true)
+      saveDockOpen(true)
+    })
+  }, [])
+
+  useEffect(() => {
     // Sessions deleted elsewhere (or wiped) would otherwise leave their ids in
     // the archive forever. Never prune against an empty list — that is the
     // pre-snapshot state, not an empty app.

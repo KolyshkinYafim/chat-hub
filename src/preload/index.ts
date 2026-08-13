@@ -47,6 +47,7 @@ import type {
   McpServerDef,
   McpServerStatus,
 } from "@shared/mcp"
+import type { BrowserActivity } from "@shared/browser"
 
 const api = {
   getSnapshot: (): Promise<SessionSnapshot> =>
@@ -343,6 +344,29 @@ const api = {
       ipcRenderer.removeListener(IpcChannels.termExit, handler)
     }
   },
+  /**
+   * Hands main the guest's WebContents id so an agent's MCP call can drive the
+   * very webview the user is looking at, rather than a headless second browser.
+   */
+  browserAttach: (sessionId: string, webContentsId: number): Promise<boolean> =>
+    ipcRenderer.invoke(IpcChannels.browserAttach, sessionId, webContentsId),
+  browserDetach: (sessionId: string): Promise<boolean> =>
+    ipcRenderer.invoke(IpcChannels.browserDetach, sessionId),
+  onBrowserActivity: (cb: (event: BrowserActivity) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, event: BrowserActivity) => cb(event)
+    ipcRenderer.on(IpcChannels.browserActivity, handler)
+    return () => {
+      ipcRenderer.removeListener(IpcChannels.browserActivity, handler)
+    }
+  },
+  /** Main asking for the panel, because an agent called a browser tool. */
+  onBrowserOpen: (cb: (sessionId: string) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, sessionId: string) => cb(sessionId)
+    ipcRenderer.on(IpcChannels.browserOpen, handler)
+    return () => {
+      ipcRenderer.removeListener(IpcChannels.browserOpen, handler)
+    }
+  },
   mcpList: (cwd: string): Promise<McpListResult> =>
     ipcRenderer.invoke(IpcChannels.mcpList, cwd),
   mcpUpsert: (cwd: string, server: McpServerDef): Promise<McpListResult> =>
@@ -370,6 +394,10 @@ const api = {
     paths: string[],
   ): Promise<McpGitignoreResult> =>
     ipcRenderer.invoke(IpcChannels.mcpAddGitignore, cwd, paths),
+  grokTrustStatus: (cwd: string): Promise<{ trusted: boolean; path: string }> =>
+    ipcRenderer.invoke(IpcChannels.grokTrustStatus, cwd),
+  grokTrustFolder: (cwd: string): Promise<boolean> =>
+    ipcRenderer.invoke(IpcChannels.grokTrustFolder, cwd),
 }
 
 contextBridge.exposeInMainWorld("chatHub", api)

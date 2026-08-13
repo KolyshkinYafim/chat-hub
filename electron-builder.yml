@@ -14,6 +14,14 @@ files:
 
 asar: true
 
+# The browser MCP server is spawned as a separate Node process, which cannot
+# read a path inside the asar — it has to ship as a plain file next to it.
+extraResources:
+  - from: resources/mcp
+    to: mcp
+    filter:
+      - "**/*"
+
 mac:
   target:
     - dir

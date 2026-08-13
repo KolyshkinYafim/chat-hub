@@ -68,7 +68,16 @@ import {
   upsertMcpServer,
 } from "./mcp"
 import type { McpServerDef } from "@shared/mcp"
+import {
+  defaultGrokTrustPath,
+  grokFolderTrusted,
+  trustGrokFolder,
+} from "./grok-trust"
 import { inspectAttachmentPaths } from "./attachments"
+import { chatHubBrowserSocketPath } from "@shared/bridge-path"
+import { BrowserControl } from "./surfaces/browser-control"
+import { BrowserService } from "./browser-service"
+import { browserMcpServerPath, registerBrowserMcp } from "./browser-mcp"
 
 const REAL_PROVIDER_IDS: ProviderId[] = [
   "claude",
@@ -131,6 +140,33 @@ const terminals = new TerminalSessions({
   data: (chunk) => sendToRenderer(IpcChannels.termData, chunk),
   exit: (event) => sendToRenderer(IpcChannels.termExit, event),
 })
+
+const browserControl = new BrowserControl({
+  onActivity: (activity) =>
+    sendToRenderer(IpcChannels.browserActivity, activity),
+})
+
+const browserService = new BrowserService(
+  chatHubBrowserSocketPath(),
+  browserControl,
+  {
+    requestOpen: (sessionId) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
+      sendToRenderer(IpcChannels.browserOpen, sessionId)
+    },
+  },
+)
+
+function registerBrowserIpc(): void {
+  ipcMain.handle(
+    IpcChannels.browserAttach,
+    (_e, sessionId: string, webContentsId: number) =>
+      browserService.attach(sessionId, webContentsId),
+  )
+  ipcMain.handle(IpcChannels.browserDetach, (_e, sessionId: string) =>
+    browserService.detach(sessionId),
+  )
+}
 
 function isSafeExternalUrl(url: string): boolean {
   try {
@@ -1126,6 +1162,16 @@ function registerIpc(
       return appendMcpPathsToGitignore(cwd, paths as string[])
     },
   )
+
+  ipcMain.handle(IpcChannels.grokTrustStatus, async (_e, cwd: unknown) => {
+    if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
+    return { trusted: await grokFolderTrusted(cwd), path: defaultGrokTrustPath() }
+  })
+
+  ipcMain.handle(IpcChannels.grokTrustFolder, async (_e, cwd: unknown) => {
+    if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
+    return trustGrokFolder(cwd)
+  })
 }
 
 /**
@@ -1245,8 +1291,27 @@ async function bootstrap(): Promise<void> {
     }
   })
 
+  const store = settings
+  manager.setBrowserMcpRegistrar((session) =>
+    registerBrowserMcp({
+      provider: session.provider,
+      root: session.cwd,
+      execPath: process.execPath,
+      scriptPath: browserMcpServerPath({
+        packaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+        appPath: app.getAppPath(),
+      }),
+      socketPath: browserService.socketPath,
+      sessionId: session.id,
+      envFor: (serverId) => store.getMcpEnv(serverId),
+    }),
+  )
+  await browserService.start()
+
   registerIpc(manager, bridge, settings, projects, userData)
   registerSurfaceIpc(terminals)
+  registerBrowserIpc()
   registerMediaProtocol()
   createWindow()
 
@@ -1297,6 +1362,8 @@ function onBeforeQuit(e: { preventDefault: () => void }): void {
   // decision that can no longer arrive.
   void permissions?.stop()
   permissions = null
+  browserControl.detachAll()
+  void browserService.stop()
   if (!manager || quitting) return
   quitting = true
   e.preventDefault()

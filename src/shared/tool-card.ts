@@ -159,6 +159,21 @@ export function isPlanToolName(name: string): boolean {
   )
 }
 
+const MCP_TOOL_NAME = /^mcp__(.+?)__(.+)$/
+
+/**
+ * MCP tool calls arrive as `mcp__<server>__<tool>`, which reads as noise in a
+ * transcript. The server keeps its own chip so the origin is never lost.
+ */
+export function splitToolName(name: string): {
+  label: string
+  server: string | null
+} {
+  const match = MCP_TOOL_NAME.exec(name)
+  if (!match) return { label: name, server: null }
+  return { label: match[2], server: match[1] }
+}
+
 export function fenceFor(body: string): string {
   const runs = body.match(/`{3,}/g)
   const longest = runs
