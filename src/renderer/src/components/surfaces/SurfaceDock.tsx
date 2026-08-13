@@ -14,6 +14,7 @@ import { BoardSurface } from "./BoardSurface"
 import { BrowserSurface } from "./BrowserSurface"
 import { DiffSurface } from "./DiffSurface"
 import { FilesSurface } from "./FilesSurface"
+import { HistorySurface } from "./HistorySurface"
 import { TerminalSurface } from "./TerminalSurface"
 
 type Props = {
@@ -139,6 +140,9 @@ export function SurfaceDock({
         ) : null}
         {kind === "files" ? (
           <FilesSurface key={session.id} cwd={session.cwd} />
+        ) : null}
+        {kind === "history" ? (
+          <HistorySurface key={session.id} cwd={session.cwd} />
         ) : null}
         {kind === "diff" ? (
           <DiffSurface

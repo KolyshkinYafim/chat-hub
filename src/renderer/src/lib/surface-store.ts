@@ -11,6 +11,7 @@ export const SURFACE_KINDS: readonly SurfaceKind[] = [
   "terminal",
   "files",
   "diff",
+  "history",
 ]
 
 export const MIN_DOCK_WIDTH = 320

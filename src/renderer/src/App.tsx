@@ -637,6 +637,14 @@ export default function App() {
     openSurface("diff")
   }, [dockOpen, activeSurface, openSurface, setDock])
 
+  const toggleHistorySurface = useCallback(() => {
+    if (dockOpen && activeSurface === "history") {
+      setDock(false)
+      return
+    }
+    openSurface("history")
+  }, [dockOpen, activeSurface, openSurface, setDock])
+
   // A path clicked in a turn's changed-files row: open the Diff panel already
   // showing that file, rather than the working copy the reader has to hunt in.
   const openDiffForPath = useCallback(
@@ -968,6 +976,11 @@ export default function App() {
         if (activeSession) toggleDiffSurface()
         return
       }
+      if (meta && e.key.toLowerCase() === "y") {
+        e.preventDefault()
+        if (activeSession) toggleHistorySurface()
+        return
+      }
       if (meta && e.key.toLowerCase() === "b") {
         e.preventDefault()
         if (activeSession) setDock(!dockOpen)
@@ -990,6 +1003,7 @@ export default function App() {
     dockOpen,
     setDock,
     toggleDiffSurface,
+    toggleHistorySurface,
   ])
 
   async function openFolder() {

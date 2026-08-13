@@ -27,6 +27,8 @@ export const IpcChannels = {
   gitStage: "git:stage",
   gitUnstage: "git:unstage",
   gitBranches: "git:branches",
+  gitLog: "git:log",
+  gitShow: "git:show",
   gitCheckout: "git:checkout",
   gitCommitStaged: "git:commit-staged",
   gitPush: "git:push",

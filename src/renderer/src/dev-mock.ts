@@ -853,6 +853,39 @@ export function installDevMock(): void {
       current: "main",
       branches: ["main", "v2-multiuser", "hotfix/expiry"],
     }),
+    gitRepositories: async (cwd: string) => [
+      { root: cwd, name: "chat-hub", branch: "main", dirty: true },
+    ],
+    gitLog: async () =>
+      [
+        "feat: verify tokens through the shared helper",
+        "fix: session route dropped the refresh cookie",
+        "chore: pin vitest to the workspace version",
+        "feat: first cut of the auth middleware",
+      ].map((subject, i) => ({
+        sha: `${i}`.repeat(40),
+        shortSha: `${i}`.repeat(7),
+        subject,
+        author: "Mock Dev",
+        date: new Date(Date.now() - (i + 1) * 5_400_000).toISOString(),
+        refs: i === 0 ? ["HEAD -> main", "origin/main"] : [],
+      })),
+    gitShow: async (_cwd: string, sha: string) => ({
+      sha,
+      files: [{ path: "src/lib/jwt.ts", added: 2, removed: 2, binary: false }],
+      diff: [
+        "diff --git a/src/lib/jwt.ts b/src/lib/jwt.ts",
+        "index 111..222 100644",
+        "--- a/src/lib/jwt.ts",
+        "+++ b/src/lib/jwt.ts",
+        "@@ -12,3 +12,3 @@",
+        "-const decoded = jwt.verify(token, process.env.JWT_SECRET)",
+        "-if (!decoded) throw new Error('bad token')",
+        "+const decoded = verifyJwt(token)",
+        "+if (!decoded) return unauthorized()",
+        "",
+      ].join("\n"),
+    }),
     gitDiff: async () =>
       [
         "@@ -12,3 +12,3 @@",

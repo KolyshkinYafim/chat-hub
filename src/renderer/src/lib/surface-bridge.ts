@@ -1,4 +1,10 @@
-export type SurfaceKind = "browser" | "terminal" | "files" | "diff" | "board"
+export type SurfaceKind =
+  | "browser"
+  | "terminal"
+  | "files"
+  | "diff"
+  | "history"
+  | "board"
 
 export type BoardTodo = {
   id: string
