@@ -1,6 +1,7 @@
 # Chat Hub vs Kiro, T3 Code и Panes — актуальная карта
 
 **Проверено:** 2026-08-04, `origin/main` `73c5bd9`.
+**Дополнено:** 2026-08-14, `main` `1dae812` — агентное управление браузером (см. ниже).
 
 Это reference-документ: галочка означает, что возможность уже есть в текущем коде и не должна
 попадать в backlog повторно. Локальная проверка текущего `main`: typecheck ✅, полный Vitest ✅
@@ -22,6 +23,10 @@
 
 - Sidebar проектов/сессий, archive, transcript search, ⌘K switcher, first-run wizard.
 - Browser, Terminal, Files, Diff и Board surfaces.
+- Агент водит Browser surface через MCP: 13 инструментов (navigate/snapshot/click/type/…),
+  один механизм для всех четырёх CLI, ref-дерево вместо DOM-дампа, клики доверенным
+  `sendInputEvent`, маскирование паролей. Детали в [browser-control.md](./browser-control.md).
+  Живой клик в реальной сессии ещё не проверялся.
 - Paste/drag-drop attachments, карточная gallery, lightbox, loading/error states и previews
   внутри user messages.
 - In-app Allow/Deny с зеркалированием в Session Monitor island.
@@ -53,6 +58,7 @@
 | Worktree cleanup | ✅ | Clean remove + stale prune |
 | Commit / Push / Create PR | ✅ | Source Control + `gh` |
 | Review before publish | ✅ | Whole-snapshot gate + agent trail |
+| Agent browser control | ✅ | 13 MCP-инструментов, все провайдеры; live-клик не проверен |
 | Per-hunk approval | ❌ | Backlog |
 | Amend / stacked PR / base selection | ❌ | Backlog |
 | MCP manager | ✅ | Project scope + sealed env |
