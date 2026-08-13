@@ -398,6 +398,14 @@ const api = {
     ipcRenderer.invoke(IpcChannels.grokTrustStatus, cwd),
   grokTrustFolder: (cwd: string): Promise<boolean> =>
     ipcRenderer.invoke(IpcChannels.grokTrustFolder, cwd),
+  /** True when Handy (the local dictation app) is installed on this machine. */
+  voiceAvailable: (): Promise<boolean> =>
+    ipcRenderer.invoke(IpcChannels.voiceAvailable),
+  /** Start/stop Handy dictation; false when Handy is missing or refused. */
+  voiceToggle: (): Promise<boolean> =>
+    ipcRenderer.invoke(IpcChannels.voiceToggle),
+  voiceCancel: (): Promise<boolean> =>
+    ipcRenderer.invoke(IpcChannels.voiceCancel),
 }
 
 contextBridge.exposeInMainWorld("chatHub", api)
