@@ -9,6 +9,7 @@ import {
   countHunksByFile,
   getFileDiff,
   getHunkSummary,
+  hunkText,
   parseFilePatch,
   stageFileHunk,
   unstageFileHunk,
@@ -285,7 +286,7 @@ describe("per-hunk staging against a real repository", () => {
     const patch = parseFilePatch(await getFileDiff(repo, "notes.txt", false))
     expect(patch.hunks).toHaveLength(2)
 
-    const res = await stageFileHunk(repo, "notes.txt", 0, patch.hunks[0]!.header)
+    const res = await stageFileHunk(repo, "notes.txt", 0, hunkText(patch.hunks[0]!))
     expect(res).toMatchObject({ ok: true })
 
     expect(await getHunkSummary(repo)).toEqual({
@@ -322,15 +323,15 @@ describe("per-hunk staging against a real repository", () => {
     const staleSecond = before.hunks[1]!
 
     expect(
-      await stageFileHunk(repo, "notes.txt", 0, before.hunks[0]!.header),
+      await stageFileHunk(repo, "notes.txt", 0, hunkText(before.hunks[0]!)),
     ).toMatchObject({ ok: true })
 
     // Old index: that hunk no longer exists in the fresh diff.
-    const byIndex = await stageFileHunk(repo, "notes.txt", 1, staleSecond.header)
+    const byIndex = await stageFileHunk(repo, "notes.txt", 1, hunkText(staleSecond))
     expect(byIndex.ok).toBe(false)
     expect(byIndex.output).toMatch(/changed since/i)
     // Old header on the surviving hunk: offsets shifted, must not apply.
-    const byHeader = await stageFileHunk(repo, "notes.txt", 0, staleSecond.header)
+    const byHeader = await stageFileHunk(repo, "notes.txt", 0, hunkText(staleSecond))
     expect(byHeader.ok).toBe(false)
 
     // The honest path: re-read the diff, then the second hunk stages cleanly.
@@ -338,7 +339,7 @@ describe("per-hunk staging against a real repository", () => {
     expect(fresh.hunks).toHaveLength(1)
     expect(fresh.hunks[0]!.header).not.toBe(staleSecond.header)
     expect(
-      await stageFileHunk(repo, "notes.txt", 0, fresh.hunks[0]!.header),
+      await stageFileHunk(repo, "notes.txt", 0, hunkText(fresh.hunks[0]!)),
     ).toMatchObject({ ok: true })
     const { stdout: unstagedLeft } = await exec("git", ["diff"], { cwd: repo })
     expect(unstagedLeft).toBe("")
@@ -360,7 +361,7 @@ describe("per-hunk staging against a real repository", () => {
       repo,
       "notes.txt",
       0,
-      staged.hunks[0]!.header,
+      hunkText(staged.hunks[0]!),
     )
     expect(res).toMatchObject({ ok: true })
 
@@ -382,12 +383,72 @@ describe("per-hunk staging against a real repository", () => {
     expect(patch.hunks).toHaveLength(1)
     expect(patch.hunks[0]!.lines).toContain("\\ No newline at end of file")
 
-    const res = await stageFileHunk(repo, "no-eol.txt", 0, patch.hunks[0]!.header)
+    const res = await stageFileHunk(repo, "no-eol.txt", 0, hunkText(patch.hunks[0]!))
     expect(res).toMatchObject({ ok: true })
     const { stdout: indexed } = await exec("git", ["show", ":no-eol.txt"], {
       cwd: repo,
     })
     expect(indexed).toBe("alpha\nomega!")
+  })
+
+  it("rejects a hunk whose content changed on disk under an unchanged header", async () => {
+    const repo = await initRepo()
+    await commitFile(repo, "notes.txt", BASE, "base")
+    await writeFile(join(repo, "notes.txt"), BASE.replace("line02", "line02 REVIEWED"))
+    const reviewed = parseFilePatch(await getFileDiff(repo, "notes.txt", false))
+    expect(reviewed.hunks).toHaveLength(1)
+
+    // An agent overwrites the file between render and click. Same position,
+    // same line counts — the `@@` header alone cannot tell the difference,
+    // and nothing the user never saw may pass the review gate.
+    await writeFile(join(repo, "notes.txt"), BASE.replace("line02", "line02 MALICIOUS"))
+    const fresh = parseFilePatch(await getFileDiff(repo, "notes.txt", false))
+    expect(fresh.hunks[0]!.header).toBe(reviewed.hunks[0]!.header)
+
+    const res = await stageFileHunk(
+      repo,
+      "notes.txt",
+      0,
+      hunkText(reviewed.hunks[0]!),
+    )
+    expect(res.ok).toBe(false)
+    expect(res.output).toMatch(/changed since/i)
+    const { stdout: staged } = await exec("git", ["diff", "--cached"], {
+      cwd: repo,
+    })
+    expect(staged).toBe("")
+  })
+
+  it("stages and counts hunks despite hostile user diff.* config", async () => {
+    const repo = await initRepo()
+    await commitFile(repo, "notes.txt", BASE, "base")
+    // Each of these breaks a naive `git diff | git apply` round-trip: an
+    // external tool emits no hunks at all, prefix changes break `-p1` and
+    // path keys, and zero context makes `apply --cached` refuse the patch.
+    await exec("git", ["config", "diff.external", "false"], { cwd: repo })
+    await exec("git", ["config", "diff.noprefix", "true"], { cwd: repo })
+    await exec("git", ["config", "diff.mnemonicPrefix", "true"], { cwd: repo })
+    await exec("git", ["config", "diff.context", "0"], { cwd: repo })
+    const edited = BASE.replace("line02", "line02 changed").replace(
+      "line11",
+      "line11 changed",
+    )
+    await writeFile(join(repo, "notes.txt"), edited)
+
+    const patch = parseFilePatch(await getFileDiff(repo, "notes.txt", false))
+    expect(patch.headerLines).toContain("--- a/notes.txt")
+    expect(patch.hunks).toHaveLength(2)
+
+    const res = await stageFileHunk(
+      repo,
+      "notes.txt",
+      0,
+      hunkText(patch.hunks[0]!),
+    )
+    expect(res).toMatchObject({ ok: true })
+    expect(await getHunkSummary(repo)).toEqual({
+      "notes.txt": { staged: 1, unstaged: 1 },
+    })
   })
 
   it("stages a hunk of CRLF content byte-for-byte", async () => {
@@ -399,11 +460,20 @@ describe("per-hunk staging against a real repository", () => {
     expect(patch.hunks).toHaveLength(1)
     expect(patch.hunks[0]!.lines).toContain("+TWO\r")
 
-    const res = await stageFileHunk(repo, "crlf.txt", 0, patch.hunks[0]!.header)
+    const res = await stageFileHunk(repo, "crlf.txt", 0, hunkText(patch.hunks[0]!))
     expect(res).toMatchObject({ ok: true })
     const { stdout: indexed } = await exec("git", ["show", ":crlf.txt"], {
       cwd: repo,
     })
     expect(indexed).toBe("one\r\nTWO\r\nthree\r\n")
+  })
+})
+
+describe("getHunkSummary", () => {
+  it("rejects when the diff cannot be read, never resolving empty", async () => {
+    // The counts back the publish-gate warning; a failure that resolved to {}
+    // would be indistinguishable from "everything is staged".
+    const dir = await mkdtemp(join(tmpdir(), "chat-hub-no-repo-"))
+    await expect(getHunkSummary(dir)).rejects.toThrow()
   })
 })

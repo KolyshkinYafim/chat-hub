@@ -271,6 +271,20 @@ export async function getWorkingCopy(cwd: string): Promise<GitWorkingCopy> {
 }
 
 /**
+ * Diffs feed a parse-and-reapply pipeline, so they must arrive in git's
+ * canonical shape whatever the user's diff.* config says: an external diff
+ * tool yields no hunks at all, `noprefix`/`mnemonicPrefix` break `apply -p1`
+ * and path attribution, and zero context makes `apply --cached` refuse.
+ */
+const DIFF_SHAPE = [
+  "-c",
+  "diff.noprefix=false",
+  "-c",
+  "diff.mnemonicPrefix=false",
+] as const
+const DIFF_FLAGS = ["--no-color", "--no-ext-diff", "-U3"] as const
+
+/**
  * The diff of one path. Untracked files have no blob to diff against, so they
  * go through `--no-index` from /dev/null — which exits 1 by design, hence the
  * stdout-off-the-error read.
@@ -283,10 +297,11 @@ export async function getFileDiff(
 ): Promise<string> {
   assertPathspec(path)
   const args = untracked
-    ? ["diff", "--no-color", "--no-index", "--", "/dev/null", path]
+    ? [...DIFF_SHAPE, "diff", ...DIFF_FLAGS, "--no-index", "--", "/dev/null", path]
     : [
+        ...DIFF_SHAPE,
         "diff",
-        "--no-color",
+        ...DIFF_FLAGS,
         ...(staged ? ["--cached"] : []),
         "--",
         path,
@@ -328,6 +343,11 @@ export type FilePatch = {
 }
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
+
+/** The one serialization of a hunk: header plus verbatim body, as displayed. */
+export function hunkText(hunk: FileHunk): string {
+  return [hunk.header, ...hunk.lines].join("\n")
+}
 
 /**
  * Split one file's `git diff` output into its header and verbatim hunks.
@@ -376,7 +396,7 @@ export function buildHunkPatch(
 ): string | null {
   const hunk = patch.hunks[index]
   if (!hunk || patch.headerLines.length === 0) return null
-  return [...patch.headerLines, hunk.header, ...hunk.lines].join("\n") + "\n"
+  return [...patch.headerLines, hunkText(hunk)].join("\n") + "\n"
 }
 
 /**
@@ -426,17 +446,19 @@ export function countHunksByFile(diffText: string): Map<string, number> {
   return counts
 }
 
-/** Staged and unstaged hunk counts for every path with a textual diff. */
+/**
+ * Staged and unstaged hunk counts for every path with a textual diff.
+ * A diff that cannot be read (repo too big for the buffer, timeout) rejects
+ * instead of resolving empty: these counts back a safety warning, and its
+ * failure must look different from "everything is staged".
+ */
 export async function getHunkSummary(cwd: string): Promise<GitHunkSummary> {
   const diffOut = (args: string[]): Promise<string> =>
     execFileAsync(
       "git",
-      ["-c", "core.quotepath=false", "diff", "--no-color", ...args],
+      ["-c", "core.quotepath=false", ...DIFF_SHAPE, "diff", ...DIFF_FLAGS, ...args],
       { cwd, timeout: 15_000, maxBuffer: BUFFER },
-    ).then(
-      (res) => res.stdout,
-      () => "",
-    )
+    ).then((res) => res.stdout)
   const [worktree, index] = await Promise.all([diffOut([]), diffOut(["--cached"])])
   const summary: GitHunkSummary = {}
   for (const [path, count] of countHunksByFile(worktree)) {
@@ -453,9 +475,9 @@ export function stageFileHunk(
   cwd: string,
   path: string,
   hunkIndex: number,
-  expectedHeader: string,
+  expectedHunk: string,
 ): Promise<{ ok: boolean; output: string }> {
-  return applyFileHunk(cwd, path, hunkIndex, expectedHeader, false)
+  return applyFileHunk(cwd, path, hunkIndex, expectedHunk, false)
 }
 
 /** Take exactly one staged hunk back out of the index; the file keeps it. */
@@ -463,21 +485,23 @@ export function unstageFileHunk(
   cwd: string,
   path: string,
   hunkIndex: number,
-  expectedHeader: string,
+  expectedHunk: string,
 ): Promise<{ ok: boolean; output: string }> {
-  return applyFileHunk(cwd, path, hunkIndex, expectedHeader, true)
+  return applyFileHunk(cwd, path, hunkIndex, expectedHunk, true)
 }
 
 /**
- * The hunk is re-read from a fresh diff and matched against the header the
- * renderer saw: staging an earlier hunk shifts every later offset, so a stale
- * index+header pair must fail loudly instead of staging the wrong lines.
+ * The hunk is re-read from a fresh diff and matched byte-for-byte against the
+ * one the renderer displayed — header and body. Staging an earlier hunk shifts
+ * every later header, and an agent writing to the worktree mid-review can
+ * change a hunk's content without moving it at all; either way, what is no
+ * longer what the user reviewed must fail loudly, not get staged.
  */
 async function applyFileHunk(
   cwd: string,
   path: string,
   hunkIndex: number,
-  expectedHeader: string,
+  expectedHunk: string,
   reverse: boolean,
 ): Promise<{ ok: boolean; output: string }> {
   assertPathspec(path)
@@ -491,7 +515,7 @@ async function applyFileHunk(
     if (!root) return { ok: false, output: "Not a git repository" }
     const patch = parseFilePatch(await getFileDiff(root, path, reverse))
     const hunk = patch.hunks[hunkIndex]
-    if (!hunk || hunk.header !== expectedHeader) {
+    if (!hunk || hunkText(hunk) !== expectedHunk) {
       return {
         ok: false,
         output: "The diff changed since it was shown — hunks were refreshed, pick again",

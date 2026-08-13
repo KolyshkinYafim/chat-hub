@@ -152,20 +152,22 @@ const api = {
     ipcRenderer.invoke(IpcChannels.gitStage, cwd, paths),
   gitUnstage: (cwd: string, paths: string[]): Promise<GitWorkingCopy> =>
     ipcRenderer.invoke(IpcChannels.gitUnstage, cwd, paths),
+  // `hunk` is the full hunk as displayed — header line plus verbatim body —
+  // so the main process can refuse anything the user did not actually review.
   gitStageHunk: (
     cwd: string,
     path: string,
     hunkIndex: number,
-    header: string,
+    hunk: string,
   ): Promise<{ ok: boolean; output: string }> =>
-    ipcRenderer.invoke(IpcChannels.gitStageHunk, cwd, path, hunkIndex, header),
+    ipcRenderer.invoke(IpcChannels.gitStageHunk, cwd, path, hunkIndex, hunk),
   gitUnstageHunk: (
     cwd: string,
     path: string,
     hunkIndex: number,
-    header: string,
+    hunk: string,
   ): Promise<{ ok: boolean; output: string }> =>
-    ipcRenderer.invoke(IpcChannels.gitUnstageHunk, cwd, path, hunkIndex, header),
+    ipcRenderer.invoke(IpcChannels.gitUnstageHunk, cwd, path, hunkIndex, hunk),
   gitHunkSummary: (cwd: string): Promise<GitHunkSummary> =>
     ipcRenderer.invoke(IpcChannels.gitHunkSummary, cwd),
   gitBranches: (cwd: string): Promise<GitBranchList> =>
