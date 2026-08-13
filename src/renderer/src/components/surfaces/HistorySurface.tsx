@@ -5,14 +5,14 @@ import { splitCommitDiff } from "../../lib/commit-diff"
 import { formatRelative } from "../../lib/format"
 import { errorText } from "../../lib/surface-bridge"
 
-type Props = { cwd: string }
+type Props = { cwd: string; refreshKey: number }
 
 /**
  * Read-only walk through the repo's recent commits: pick one, read its diff.
  * Deliberately no reset/revert/checkout — rewriting history stays in the
  * terminal, where git can argue back.
  */
-export function HistorySurface({ cwd }: Props) {
+export function HistorySurface({ cwd, refreshKey }: Props) {
   const [repoCwd, setRepoCwd] = useState(cwd)
   const [branch, setBranch] = useState("")
   const [commits, setCommits] = useState<GitLogEntry[]>([])
@@ -58,8 +58,13 @@ export function HistorySurface({ cwd }: Props) {
 
   useEffect(() => {
     setSelected(null)
+  }, [repoCwd])
+
+  // refreshKey bumps when a turn finishes — the moment the agent may have
+  // just committed — so the list follows without a manual refresh.
+  useEffect(() => {
     void reload()
-  }, [reload])
+  }, [reload, refreshKey])
 
   useEffect(() => {
     if (!selected) {
@@ -67,6 +72,7 @@ export function HistorySurface({ cwd }: Props) {
       return
     }
     let alive = true
+    setErr(null)
     void window.chatHub
       .gitShow(repoCwd, selected)
       .then((d) => alive && setDetail(d))
@@ -130,8 +136,31 @@ export function HistorySurface({ cwd }: Props) {
   )
 }
 
+/**
+ * Whole-commit ceiling: files are capped individually in splitCommitDiff,
+ * but a thousand small files would still flood the DOM in one React commit.
+ */
+const MAX_DETAIL_LINES = 2000
+
+function countLines(text: string): number {
+  let n = 1
+  for (let i = 0; i < text.length; i += 1) if (text[i] === "\n") n += 1
+  return n
+}
+
 function CommitDetail({ detail }: { detail: GitCommitDetail }) {
   const files = useMemo(() => splitCommitDiff(detail.diff), [detail.diff])
+  const shown = useMemo(() => {
+    let budget = MAX_DETAIL_LINES
+    let count = 0
+    for (const file of files) {
+      const cost = file.diff === "" ? 1 : countLines(file.diff)
+      if (count > 0 && cost > budget) break
+      budget -= cost
+      count += 1
+    }
+    return count
+  }, [files])
   const added = detail.files.reduce((n, f) => n + f.added, 0)
   const removed = detail.files.reduce((n, f) => n + f.removed, 0)
   return (
@@ -146,7 +175,7 @@ function CommitDetail({ detail }: { detail: GitCommitDetail }) {
       {files.length === 0 ? (
         <div className="scm-empty">Empty commit — nothing changed.</div>
       ) : (
-        files.map((file) =>
+        files.slice(0, shown).map((file) =>
           file.diff ? (
             <DiffCard
               key={file.path}
@@ -164,6 +193,12 @@ function CommitDetail({ detail }: { detail: GitCommitDetail }) {
           ),
         )
       )}
+      {shown < files.length ? (
+        <div className="scm-empty">
+          … {files.length - shown} more files — the commit is too large to
+          render in full.
+        </div>
+      ) : null}
     </div>
   )
 }

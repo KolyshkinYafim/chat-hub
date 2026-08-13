@@ -142,7 +142,11 @@ export function SurfaceDock({
           <FilesSurface key={session.id} cwd={session.cwd} />
         ) : null}
         {kind === "history" ? (
-          <HistorySurface key={session.id} cwd={session.cwd} />
+          <HistorySurface
+            key={session.id}
+            cwd={session.cwd}
+            refreshKey={gitRefreshKey}
+          />
         ) : null}
         {kind === "diff" ? (
           <DiffSurface

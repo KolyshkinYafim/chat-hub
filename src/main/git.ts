@@ -423,9 +423,12 @@ export function parseNumstat(out: string): GitCommitFileStat[] {
   return files
 }
 
-/** Abbreviated or full hex only — a sha never needs pathspec-style escaping. */
+/**
+ * Abbreviated or full hex only — a sha never needs pathspec-style escaping.
+ * 64 covers sha256-object-format repos, whose every commit id is that long.
+ */
 function assertSha(sha: string): string {
-  if (!/^[0-9a-f]{4,40}$/i.test(sha)) throw new Error(`Invalid commit: ${sha}`)
+  if (!/^[0-9a-f]{4,64}$/i.test(sha)) throw new Error(`Invalid commit: ${sha}`)
   return sha
 }
 
@@ -434,10 +437,24 @@ export async function getCommitDetail(
   sha: string,
 ): Promise<GitCommitDetail> {
   assertSha(sha)
+  // first-parent: git's default for merges is the dense combined format,
+  // which is empty for a clean merge — the stat would count files while the
+  // patch shows nothing. Diffing against the first parent keeps both halves
+  // telling the same story, in the plain `diff --git` blocks the renderer
+  // splits. quotepath=false for the same reason as getWorkingCopy above.
   const show = (args: string[]) =>
     execFileAsync(
       "git",
-      ["show", sha, "--no-color", "--format=", ...args],
+      [
+        "-c",
+        "core.quotepath=false",
+        "show",
+        sha,
+        "--no-color",
+        "--format=",
+        "--diff-merges=first-parent",
+        ...args,
+      ],
       { cwd, timeout: 15_000, maxBuffer: BUFFER },
     )
   try {
@@ -446,8 +463,14 @@ export async function getCommitDetail(
       show(["--patch"]),
     ])
     return { sha, files: parseNumstat(stat.stdout), diff: patch.stdout }
-  } catch {
-    return { sha, files: [], diff: "" }
+  } catch (err) {
+    // Outside a repo an empty detail is the truth (mirrors listCommits).
+    // Every other failure — a patch past maxBuffer, a timeout — must reach
+    // the pane as an error, or it would claim "nothing changed" about a
+    // commit that changed plenty.
+    const stderr = (err as { stderr?: string }).stderr ?? ""
+    if (/not a git repository/i.test(stderr)) return { sha, files: [], diff: "" }
+    throw err
   }
 }
 

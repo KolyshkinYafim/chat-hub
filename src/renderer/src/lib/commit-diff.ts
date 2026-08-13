@@ -34,6 +34,14 @@ export function splitCommitDiff(text: string): CommitFileDiff[] {
 }
 
 /**
+ * Per-file ceiling, matching the edit-diff adapter's MAX_BODY_LINES: a
+ * lockfile or vendored-dependency commit runs to tens of thousands of lines,
+ * and DiffCard renders every row it is given. The sentinel is the one
+ * parseDiff already turns into its `truncated` flag.
+ */
+const MAX_FILE_LINES = 400
+
+/**
  * parseDiff reads the transcript's `marker SPACE content` lines, while git
  * emits a bare one-char prefix — re-space the body so DiffCard doesn't eat the
  * first character of every line. `\ No newline at end of file` is dropped: it
@@ -41,11 +49,17 @@ export function splitCommitDiff(text: string): CommitFileDiff[] {
  */
 function toRendererFormat(lines: string[]): string {
   const out: string[] = []
+  let dropped = 0
   for (const line of lines) {
+    if (line.startsWith("\\")) continue
+    if (out.length >= MAX_FILE_LINES) {
+      dropped += 1
+      continue
+    }
     if (line.startsWith("@@")) out.push(line)
-    else if (line.startsWith("\\")) continue
     else out.push(`${line[0] ?? " "} ${line.slice(1)}`)
   }
+  if (dropped > 0) out.push(`… (${dropped} more lines)`)
   return out.join("\n")
 }
 
