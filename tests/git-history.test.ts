@@ -14,12 +14,17 @@ import { splitCommitDiff } from "@renderer/lib/commit-diff"
 
 const exec = promisify(execFile)
 
-async function scratchRepo(): Promise<string> {
+async function scratchRepo(...init: string[]): Promise<string> {
   const repo = await mkdtemp(join(tmpdir(), "chat-hub-history-repo-"))
-  await exec("git", ["init", "-q", "-b", "main"], { cwd: repo })
+  await exec("git", ["init", "-q", "-b", "main", ...init], { cwd: repo })
   await exec("git", ["config", "user.email", "test@example.com"], { cwd: repo })
   await exec("git", ["config", "user.name", "Chat Hub Test"], { cwd: repo })
   return repo
+}
+
+async function commitAll(repo: string, message: string): Promise<void> {
+  await exec("git", ["add", "-A"], { cwd: repo })
+  await exec("git", ["commit", "-qm", message], { cwd: repo })
 }
 
 const US = "\x1f"
@@ -111,6 +116,64 @@ describe("listCommits / getCommitDetail", () => {
     expect(files[0].diff).not.toContain("+++")
   })
 
+  it("shows a merge commit against its first parent, stat and patch agreeing", async () => {
+    const repo = await scratchRepo()
+    await writeFile(join(repo, "base.txt"), "base\n")
+    await commitAll(repo, "base")
+    await exec("git", ["checkout", "-qb", "side"], { cwd: repo })
+    await writeFile(join(repo, "side.txt"), "from the side\n")
+    await commitAll(repo, "side work")
+    await exec("git", ["checkout", "-q", "main"], { cwd: repo })
+    await exec("git", ["merge", "-q", "--no-ff", "-m", "merge side", "side"], {
+      cwd: repo,
+    })
+
+    const [merge] = await listCommits(repo)
+    expect(merge.subject).toBe("merge side")
+    const detail = await getCommitDetail(repo, merge.sha)
+    expect(detail.files).toEqual([
+      { path: "side.txt", added: 1, removed: 0, binary: false },
+    ])
+    const files = splitCommitDiff(detail.diff)
+    expect(files.map((f) => f.path)).toEqual(["side.txt"])
+    expect(files[0].diff).toContain("+ from the side")
+  })
+
+  it("keeps non-ASCII paths readable instead of octal-escaped", async () => {
+    const repo = await scratchRepo()
+    await writeFile(join(repo, "тест.txt"), "привет\n")
+    await commitAll(repo, "cyrillic path")
+
+    const [commit] = await listCommits(repo)
+    const detail = await getCommitDetail(repo, commit.sha)
+    expect(detail.files).toEqual([
+      { path: "тест.txt", added: 1, removed: 0, binary: false },
+    ])
+    expect(splitCommitDiff(detail.diff).map((f) => f.path)).toEqual(["тест.txt"])
+  })
+
+  it("accepts the 64-character shas of a sha256 object-format repo", async () => {
+    const repo = await scratchRepo("--object-format=sha256")
+    await writeFile(join(repo, "a.txt"), "one\n")
+    await commitAll(repo, "first")
+
+    const [commit] = await listCommits(repo)
+    expect(commit.sha).toMatch(/^[0-9a-f]{64}$/)
+    const detail = await getCommitDetail(repo, commit.sha)
+    expect(detail.files).toEqual([
+      { path: "a.txt", added: 1, removed: 0, binary: false },
+    ])
+  })
+
+  it("surfaces a patch past the buffer limit instead of faking an empty commit", async () => {
+    const repo = await scratchRepo()
+    await writeFile(join(repo, "big.txt"), `${"x".repeat(120)}\n`.repeat(80_000))
+    await commitAll(repo, "huge")
+
+    const [commit] = await listCommits(repo)
+    await expect(getCommitDetail(repo, commit.sha)).rejects.toThrow(/maxBuffer/i)
+  })
+
   it("treats a non-repo cwd as an empty history, not an error", async () => {
     const dir = await mkdtemp(join(tmpdir(), "chat-hub-history-plain-"))
     expect(await listCommits(dir)).toEqual([])
@@ -176,6 +239,22 @@ describe("splitCommitDiff", () => {
     expect(splitCommitDiff(text)).toEqual([
       { path: "logo.png", diff: "", binary: true },
     ])
+  })
+
+  it("caps a runaway file at the truncation sentinel parseDiff reads", () => {
+    const body = Array.from({ length: 1000 }, (_, i) => `+line ${i}`)
+    const text = [
+      "diff --git a/lock.json b/lock.json",
+      "--- a/lock.json",
+      "+++ b/lock.json",
+      "@@ -0,0 +1,1000 @@",
+      ...body,
+      "",
+    ].join("\n")
+    const [file] = splitCommitDiff(text)
+    const lines = file.diff.split("\n")
+    expect(lines).toHaveLength(401)
+    expect(lines[400]).toBe("… (601 more lines)")
   })
 
   it("returns nothing for empty or non-diff text", () => {
