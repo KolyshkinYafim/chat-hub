@@ -5,6 +5,7 @@ import {
   type AgentAction,
 } from "../lib/agent-actions"
 import { matchPath } from "../lib/path-match"
+import { leftBehindWarning } from "../lib/publish-gate"
 
 type Props = {
   cwd: string
@@ -60,13 +61,28 @@ function rowKey(row: Row): string {
 type HunkAction = {
   label: string
   disabled: boolean
-  onApply: (index: number, header: string) => void
+  /** `hunk` is the full displayed hunk — `@@` line plus verbatim body. */
+  onApply: (index: number, hunk: string) => void
+}
+
+/**
+ * Each hunk exactly as it is on screen: from its `@@` line to the next one.
+ * This is what an apply sends along, so the main process can refuse to stage
+ * anything that no longer matches what the user reviewed.
+ */
+function displayedHunks(lines: string[]): string[] {
+  const body = lines[lines.length - 1] === "" ? lines.slice(0, -1) : lines
+  const starts = body.flatMap((l, i) => (l.startsWith("@@") ? [i] : []))
+  return starts.map((start, i) =>
+    body.slice(start, starts[i + 1] ?? body.length).join("\n"),
+  )
 }
 
 function DiffPane({ text, hunkAction }: { text: string; hunkAction?: HunkAction }) {
   const lines = text.split("\n")
   const added = lines.filter((l) => l.startsWith("+") && l[1] !== "+").length
   const removed = lines.filter((l) => l.startsWith("-") && l[1] !== "-").length
+  const hunks = hunkAction ? displayedHunks(lines) : []
   let hunkIndex = -1
   return (
     <div className="scm-diff">
@@ -96,7 +112,7 @@ function DiffPane({ text, hunkAction }: { text: string; hunkAction?: HunkAction 
                     type="button"
                     className="scm-act scm-hunk-act"
                     disabled={hunkAction.disabled}
-                    onClick={() => hunkAction.onApply(index, l)}
+                    onClick={() => hunkAction.onApply(index, hunks[index] ?? l)}
                   >
                     {hunkAction.label}
                   </button>
@@ -125,7 +141,9 @@ export function SourceControl({
   const [branches, setBranches] = useState<string[]>([])
   const [selected, setSelected] = useState<Row | null>(null)
   const [diff, setDiff] = useState<string | null>(null)
-  const [hunkSummary, setHunkSummary] = useState<GitHunkSummary>({})
+  // null: the summary could not be read; the gate says so instead of implying
+  // that everything is staged.
+  const [hunkSummary, setHunkSummary] = useState<GitHunkSummary | null>({})
   // Bumped after a hunk apply: the shown diff is stale even when the row stays.
   const [diffEpoch, setDiffEpoch] = useState(0)
   const [message, setMessage] = useState("")
@@ -149,7 +167,7 @@ export function SourceControl({
       window.chatHub.gitStatus(repoCwd),
       window.chatHub.gitBranches(repoCwd),
       window.chatHub.gitWorktrees(repoCwd).catch(() => [] as GitWorktreeInfo[]),
-      window.chatHub.gitHunkSummary(repoCwd).catch(() => ({}) as GitHunkSummary),
+      window.chatHub.gitHunkSummary(repoCwd).catch(() => null),
     ])
     if (!liveRef.current) return
     setCopy(next)
@@ -174,18 +192,11 @@ export function SourceControl({
   const staged = useMemo(() => stagedRows(copy.files), [copy.files])
   const unstaged = useMemo(() => unstagedRows(copy.files), [copy.files])
 
-  // What the publish gate must own up to: hunks the review left unstaged.
-  const leftBehind = useMemo(() => {
-    let hunks = 0
-    let files = 0
-    for (const counts of Object.values(hunkSummary)) {
-      if (counts.unstaged > 0) {
-        hunks += counts.unstaged
-        files += 1
-      }
-    }
-    return { hunks, files }
-  }, [hunkSummary])
+  // What the publish gate must own up to: whatever a push would leave behind.
+  const gateWarning = useMemo(
+    () => leftBehindWarning(hunkSummary, copy.files),
+    [hunkSummary, copy.files],
+  )
 
   // A path clicked in the transcript picks its row here; unstaged first, since
   // that is where an edit the agent just made shows up.
@@ -275,13 +286,13 @@ export function SourceControl({
     void run(() => window.chatHub.gitUnstage(cwd, paths))
   }
 
-  async function applyHunk(row: Row, index: number, header: string) {
+  async function applyHunk(row: Row, index: number, hunk: string) {
     setBusy(true)
     setNotice(null)
     try {
       const res = row.staged
-        ? await window.chatHub.gitUnstageHunk(cwd, row.file.path, index, header)
-        : await window.chatHub.gitStageHunk(cwd, row.file.path, index, header)
+        ? await window.chatHub.gitUnstageHunk(cwd, row.file.path, index, hunk)
+        : await window.chatHub.gitStageHunk(cwd, row.file.path, index, hunk)
       if (!liveRef.current) return
       if (!res.ok) setNotice(res.output)
       // Success or not, later hunks' offsets may have shifted: re-fetch the
@@ -356,7 +367,7 @@ export function SourceControl({
     const active = selected ? rowKey(selected) === key : false
     // Only show when the trail already links this path to a tool call.
     const why = actionForPath(actions, row.file.path)
-    const counts = hunkSummary[row.file.path]
+    const counts = hunkSummary?.[row.file.path]
     const hunkCount = (row.staged ? counts?.staged : counts?.unstaged) ?? 0
     return (
       <li key={key} className={`scm-row ${active ? "active" : ""}`}>
@@ -495,13 +506,8 @@ export function SourceControl({
                 <small>Inspect the changed files and diff below before Push or Create PR.</small>
               </span>
             </label>
-            {leftBehind.hunks > 0 ? (
-              <small className="scm-gate-warn">
-                {leftBehind.hunks} hunk{leftBehind.hunks === 1 ? "" : "s"} in{" "}
-                {leftBehind.files} file{leftBehind.files === 1 ? "" : "s"}{" "}
-                {leftBehind.hunks === 1 ? "is" : "are"} not staged and will not
-                be pushed.
-              </small>
+            {gateWarning ? (
+              <small className="scm-gate-warn">{gateWarning}</small>
             ) : null}
           </div>
 
@@ -599,8 +605,8 @@ export function SourceControl({
                       ? {
                           label: selected.staged ? "Unstage hunk" : "Stage hunk",
                           disabled: busy,
-                          onApply: (index, header) =>
-                            void applyHunk(selected, index, header),
+                          onApply: (index, hunk) =>
+                            void applyHunk(selected, index, hunk),
                         }
                       : undefined
                   }

@@ -566,7 +566,7 @@ function registerIpc(
   const gitHunkArgs = (
     path: unknown,
     hunkIndex: unknown,
-    header: unknown,
+    hunk: unknown,
   ): [string, number, string] => {
     if (typeof path !== "string" || !path) throw new Error("Invalid path")
     if (
@@ -576,22 +576,22 @@ function registerIpc(
     ) {
       throw new Error("Invalid hunk index")
     }
-    if (typeof header !== "string" || !header.startsWith("@@")) {
-      throw new Error("Invalid hunk header")
+    if (typeof hunk !== "string" || !hunk.startsWith("@@")) {
+      throw new Error("Invalid hunk")
     }
-    return [path, hunkIndex, header]
+    return [path, hunkIndex, hunk]
   }
 
   ipcMain.handle(
     IpcChannels.gitStageHunk,
-    (_e, cwd: unknown, path: unknown, hunkIndex: unknown, header: unknown) =>
-      stageFileHunk(gitCwd(cwd), ...gitHunkArgs(path, hunkIndex, header)),
+    (_e, cwd: unknown, path: unknown, hunkIndex: unknown, hunk: unknown) =>
+      stageFileHunk(gitCwd(cwd), ...gitHunkArgs(path, hunkIndex, hunk)),
   )
 
   ipcMain.handle(
     IpcChannels.gitUnstageHunk,
-    (_e, cwd: unknown, path: unknown, hunkIndex: unknown, header: unknown) =>
-      unstageFileHunk(gitCwd(cwd), ...gitHunkArgs(path, hunkIndex, header)),
+    (_e, cwd: unknown, path: unknown, hunkIndex: unknown, hunk: unknown) =>
+      unstageFileHunk(gitCwd(cwd), ...gitHunkArgs(path, hunkIndex, hunk)),
   )
 
   ipcMain.handle(IpcChannels.gitHunkSummary, (_e, cwd: unknown) =>
