@@ -29,6 +29,12 @@ import {
 } from "@shared/permission"
 import type { Mode, ModelInfo } from "@shared/settings-types"
 import { formatClock } from "../lib/format"
+import {
+  nextVoicePhase,
+  VOICE_WAIT_TIMEOUT_MS,
+  type VoiceEvent,
+  type VoicePhase,
+} from "../lib/voice-state"
 import { PlanSteps, toPlanSteps } from "./PlanSteps"
 import { formatSessionUsage, formatUsage, usageDetail } from "../lib/usage"
 import { MarkdownBody } from "./MarkdownBody"
@@ -441,6 +447,9 @@ export function ChatView({
   // -1 means the live draft; anything else indexes into `promptHistory`.
   const [histIndex, setHistIndex] = useState(-1)
   const liveDraftRef = useRef("")
+  // Dictation via Handy. The button only exists when Handy is installed.
+  const [voiceAvailable, setVoiceAvailable] = useState(false)
+  const [voicePhase, setVoicePhase] = useState<VoicePhase>("idle")
 
   // Oldest→newest list of what you actually sent this session — the shell-style
   // ↑/↓ recall reads from it so you can re-run a prompt without retyping.
@@ -713,6 +722,79 @@ export function ChatView({
         : effortCapabilities.available[0] ?? "medium",
     )
   }, [effort, effortCapabilities, onEffortChange, session])
+
+  function dispatchVoice(event: VoiceEvent) {
+    setVoicePhase((phase) => nextVoicePhase(phase, event))
+  }
+
+  // Cheap existence probe, refreshed on window focus so installing (or
+  // trashing) Handy shows up without a restart.
+  useEffect(() => {
+    let alive = true
+    const probe = () => {
+      void window.chatHub
+        .voiceAvailable()
+        .then((installed) => {
+          if (alive) setVoiceAvailable(installed)
+        })
+        .catch(() => undefined)
+    }
+    probe()
+    window.addEventListener("focus", probe)
+    return () => {
+      alive = false
+      window.removeEventListener("focus", probe)
+    }
+  }, [])
+
+  async function voiceClick() {
+    // Waiting means Handy is already transcribing — another toggle would start
+    // a fresh recording under a button that claims to be finishing one.
+    if (voicePhase === "waiting") return
+    // Handy pastes into whatever field has focus; make sure it's ours.
+    if (voicePhase === "idle") taRef.current?.focus()
+    const wanted: VoiceEvent =
+      voicePhase === "idle"
+        ? { type: "toggle-accepted" }
+        : { type: "stop-requested" }
+    try {
+      const ok = await window.chatHub.voiceToggle()
+      dispatchVoice(ok ? wanted : { type: "toggle-failed" })
+    } catch {
+      dispatchVoice({ type: "toggle-failed" })
+    }
+  }
+
+  // Esc aborts a recording. Attached only while recording, on capture, so the
+  // app's own Escape (stop the agent's turn) keeps working the rest of the time.
+  useEffect(() => {
+    if (voicePhase !== "recording") return
+    const onEsc = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Escape") return
+      e.preventDefault()
+      e.stopPropagation()
+      void window.chatHub.voiceCancel().catch(() => undefined)
+      dispatchVoice({ type: "cancelled" })
+    }
+    window.addEventListener("keydown", onEsc, true)
+    return () => window.removeEventListener("keydown", onEsc, true)
+  }, [voicePhase])
+
+  // A transcription that never lands (Handy died, focus stolen) must not leave
+  // the button spinning; likewise blur — the paste follows focus, not us.
+  useEffect(() => {
+    if (voicePhase !== "waiting") return
+    const timer = window.setTimeout(
+      () => dispatchVoice({ type: "timed-out" }),
+      VOICE_WAIT_TIMEOUT_MS,
+    )
+    const onBlur = () => dispatchVoice({ type: "window-blurred" })
+    window.addEventListener("blur", onBlur)
+    return () => {
+      window.clearTimeout(timer)
+      window.removeEventListener("blur", onBlur)
+    }
+  }, [voicePhase])
 
   if (!session) {
     return (
@@ -1029,10 +1111,17 @@ export function ChatView({
             onChange={(e) => {
               // Typing over a recalled prompt drops you back to a live draft.
               if (histIndex !== -1) setHistIndex(-1)
+              // Both of Handy's delivery modes end here — ctrl_v as a paste,
+              // direct typing as plain input — and both go through setDraft,
+              // so the transcription behaves exactly like typed text.
+              if (voicePhase === "waiting") dispatchVoice({ type: "text-arrived" })
               setDraft(e.target.value)
             }}
             onKeyDown={onKeyDown}
-            onPaste={(e) => void onPaste(e)}
+            onPaste={(e) => {
+              if (voicePhase === "waiting") dispatchVoice({ type: "text-arrived" })
+              void onPaste(e)
+            }}
           />
           <div className="composer-toolbar">
             <div className="composer-chips">
@@ -1138,6 +1227,30 @@ export function ChatView({
             {/* Chips above are session state; everything here performs an
                 action, so they do not share a weight. */}
             <div className="composer-actions">
+              {voiceAvailable ? (
+                <button
+                  type="button"
+                  className={`composer-action voice-btn is-${voicePhase}`}
+                  aria-pressed={voicePhase === "recording"}
+                  title={
+                    voicePhase === "recording"
+                      ? "Stop — Handy transcribes and pastes into the composer (Esc cancels)"
+                      : voicePhase === "waiting"
+                        ? "Waiting for Handy's transcription…"
+                        : "Dictate with Handy — keep this window focused so the text lands in the composer"
+                  }
+                  onClick={() => void voiceClick()}
+                >
+                  <span aria-hidden>
+                    {voicePhase === "recording" ? "●" : "◉"}
+                  </span>{" "}
+                  {voicePhase === "recording"
+                    ? "Rec"
+                    : voicePhase === "waiting"
+                      ? "…"
+                      : "Voice"}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="composer-action"

@@ -3314,6 +3314,35 @@ button {
   background: rgba(240, 113, 120, 0.18);
 }
 
+/* Handy dictation — recording pulses red, waiting dims until the paste lands. */
+.composer-action.voice-btn.is-recording {
+  color: var(--danger);
+  background: rgba(240, 113, 120, 0.12);
+  animation: voice-pulse 1.4s ease-out infinite;
+}
+
+.composer-action.voice-btn.is-recording:hover {
+  background: rgba(240, 113, 120, 0.2);
+  color: var(--danger);
+}
+
+.composer-action.voice-btn.is-waiting {
+  color: var(--text-faint);
+  cursor: progress;
+}
+
+@keyframes voice-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(240, 113, 120, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(240, 113, 120, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(240, 113, 120, 0);
+  }
+}
+
 /* ——— Cost & tokens ——— */
 
 .turn-cost {
