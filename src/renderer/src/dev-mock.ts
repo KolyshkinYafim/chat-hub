@@ -926,6 +926,11 @@ export function installDevMock(): void {
         state: s.enabled ? ("ok" as const) : ("disabled" as const),
         checkedAt: Date.now(),
       })),
+    // No Handy in a browser; pretend it is installed so the Voice button can
+    // be driven. Toggles "succeed" — typing into the composer plays the paste.
+    voiceAvailable: async () => true,
+    voiceToggle: async () => true,
+    voiceCancel: async () => true,
   }
   ;(window as unknown as { chatHub: ChatHubApi }).chatHub = {
     ...api,

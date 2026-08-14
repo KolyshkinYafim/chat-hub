@@ -9,6 +9,7 @@ import {
 } from "../src/main/voice-handy"
 import {
   nextVoicePhase,
+  voiceToggleIntent,
   VOICE_WAIT_TIMEOUT_MS,
   type VoiceEvent,
   type VoicePhase,
@@ -59,13 +60,15 @@ describe("ensureHandyRunning", () => {
     expect(spawns).toEqual(["pgrep -x handy"])
   })
 
-  it("launches a dead-but-installed Handy and waits for it to appear", async () => {
+  it("launches a dead-but-installed Handy in the background and waits for it to appear", async () => {
     const { deps, spawns } = machine({ alive: [false, false, true] })
 
     expect(await ensureHandyRunning(deps)).toBe(true)
+    // -g: launching without activating, or Handy's window steals focus and
+    // the transcription pastes wherever focus went instead of the composer.
     expect(spawns).toEqual([
       "pgrep -x handy",
-      "open -a Handy",
+      "open -g -a Handy",
       "pgrep -x handy",
       "pgrep -x handy",
     ])
@@ -83,7 +86,7 @@ describe("ensureHandyRunning", () => {
     const { deps, spawns } = machine({ alive: [false], launchOk: false })
 
     expect(await ensureHandyRunning(deps)).toBe(false)
-    expect(spawns).toEqual(["pgrep -x handy", "open -a Handy"])
+    expect(spawns).toEqual(["pgrep -x handy", "open -g -a Handy"])
   })
 
   it("touches nothing when Handy is not installed", async () => {
@@ -98,15 +101,15 @@ describe("toggleHandyTranscription", () => {
   it("forwards the toggle flag to the running instance", async () => {
     const { deps, spawns } = machine({ alive: [true] })
 
-    expect(await toggleHandyTranscription(deps)).toBe(true)
+    expect(await toggleHandyTranscription("start", deps)).toBe(true)
     expect(spawns).toContain(`${HANDY_BINARY} --toggle-transcription`)
   })
 
-  it("boots Handy first when installed but dead", async () => {
+  it("boots Handy first when a start finds it installed but dead", async () => {
     const { deps, spawns } = machine({ alive: [false, true] })
 
-    expect(await toggleHandyTranscription(deps)).toBe(true)
-    expect(spawns.indexOf("open -a Handy")).toBeLessThan(
+    expect(await toggleHandyTranscription("start", deps)).toBe(true)
+    expect(spawns.indexOf("open -g -a Handy")).toBeLessThan(
       spawns.indexOf(`${HANDY_BINARY} --toggle-transcription`),
     )
   })
@@ -114,14 +117,38 @@ describe("toggleHandyTranscription", () => {
   it("refuses when Handy is missing, spawning nothing", async () => {
     const { deps, spawns } = machine({ installed: false })
 
-    expect(await toggleHandyTranscription(deps)).toBe(false)
+    expect(await toggleHandyTranscription("start", deps)).toBe(false)
     expect(spawns).toEqual([])
   })
 
   it("surfaces a failed spawn as false", async () => {
     const { deps } = machine({ alive: [true], runOk: false })
 
-    expect(await toggleHandyTranscription(deps)).toBe(false)
+    expect(await toggleHandyTranscription("start", deps)).toBe(false)
+  })
+
+  it("forwards a stop to the running instance", async () => {
+    const { deps, spawns } = machine({ alive: [true] })
+
+    expect(await toggleHandyTranscription("stop", deps)).toBe(true)
+    expect(spawns).toEqual([
+      "pgrep -x handy",
+      `${HANDY_BINARY} --toggle-transcription`,
+    ])
+  })
+
+  it("never relaunches a dead Handy on a stop — the fresh instance would treat the toggle as a start", async () => {
+    const { deps, spawns } = machine({ alive: [false] })
+
+    expect(await toggleHandyTranscription("stop", deps)).toBe(false)
+    expect(spawns).toEqual(["pgrep -x handy"])
+  })
+
+  it("reports a stop with no Handy installed as a failure, spawning nothing", async () => {
+    const { deps, spawns } = machine({ installed: false })
+
+    expect(await toggleHandyTranscription("stop", deps)).toBe(false)
+    expect(spawns).toEqual([])
   })
 })
 
@@ -145,6 +172,17 @@ describe("cancelHandyTranscription", () => {
 
     expect(await cancelHandyTranscription(deps)).toBe(true)
     expect(spawns).toEqual([])
+  })
+})
+
+describe("voiceToggleIntent", () => {
+  it("starts from idle, stops from recording", () => {
+    expect(voiceToggleIntent("idle")).toBe("start")
+    expect(voiceToggleIntent("recording")).toBe("stop")
+  })
+
+  it("means nothing while waiting — a toggle would begin a fresh recording", () => {
+    expect(voiceToggleIntent("waiting")).toBe(null)
   })
 })
 

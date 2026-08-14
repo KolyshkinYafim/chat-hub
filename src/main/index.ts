@@ -1180,7 +1180,12 @@ function registerIpc(
 
   ipcMain.handle(IpcChannels.voiceAvailable, () => handyInstalled())
 
-  ipcMain.handle(IpcChannels.voiceToggle, () => toggleHandyTranscription())
+  ipcMain.handle(IpcChannels.voiceToggle, (_e, intent: unknown) => {
+    if (intent !== "start" && intent !== "stop") {
+      throw new Error("Invalid intent")
+    }
+    return toggleHandyTranscription(intent)
+  })
 
   ipcMain.handle(IpcChannels.voiceCancel, () => cancelHandyTranscription())
 }

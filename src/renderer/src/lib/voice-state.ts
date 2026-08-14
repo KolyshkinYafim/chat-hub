@@ -18,6 +18,16 @@ export type VoiceEvent =
 /** A transcription that never pastes must not wedge the button in "waiting". */
 export const VOICE_WAIT_TIMEOUT_MS = 15_000
 
+/**
+ * What a click on the button asks Handy for. Waiting means a transcription is
+ * already in flight — another toggle would start a fresh recording under a
+ * button that claims to be finishing one, so the click means nothing.
+ */
+export function voiceToggleIntent(phase: VoicePhase): "start" | "stop" | null {
+  if (phase === "waiting") return null
+  return phase === "idle" ? "start" : "stop"
+}
+
 export function nextVoicePhase(
   phase: VoicePhase,
   event: VoiceEvent,

@@ -401,9 +401,12 @@ const api = {
   /** True when Handy (the local dictation app) is installed on this machine. */
   voiceAvailable: (): Promise<boolean> =>
     ipcRenderer.invoke(IpcChannels.voiceAvailable),
-  /** Start/stop Handy dictation; false when Handy is missing or refused. */
-  voiceToggle: (): Promise<boolean> =>
-    ipcRenderer.invoke(IpcChannels.voiceToggle),
+  /**
+   * Start/stop Handy dictation; false when Handy is missing or refused. The
+   * intent keeps a "stop" from relaunching a dead Handy into a fresh take.
+   */
+  voiceToggle: (intent: "start" | "stop"): Promise<boolean> =>
+    ipcRenderer.invoke(IpcChannels.voiceToggle, intent),
   voiceCancel: (): Promise<boolean> =>
     ipcRenderer.invoke(IpcChannels.voiceCancel),
 }
