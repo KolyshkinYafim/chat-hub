@@ -13,8 +13,16 @@ export const HANDY_BINARY = "/Applications/Handy.app/Contents/MacOS/handy"
 export const HANDY_TOGGLE_ARGS = ["--toggle-transcription"] as const
 export const HANDY_CANCEL_ARGS = ["--cancel"] as const
 
-/** `open -a` instead of spawning the binary: launches the real app bundle. */
-export const HANDY_LAUNCH = { command: "open", args: ["-a", "Handy"] } as const
+/**
+ * `open -a` instead of spawning the binary: launches the real app bundle.
+ * `-g` keeps Handy in the background — without it macOS activates Handy's
+ * window, Chat Hub blurs, and the eventual paste follows focus out of the
+ * composer.
+ */
+export const HANDY_LAUNCH = {
+  command: "open",
+  args: ["-g", "-a", "Handy"],
+} as const
 
 export const HANDY_RUNNING_PROBE = {
   command: "pgrep",
@@ -62,13 +70,26 @@ export async function ensureHandyRunning(
   return false
 }
 
+export type VoiceToggleIntent = "start" | "stop"
+
 /**
  * Start or stop dictation. Resolves `false` when Handy is missing, will not
  * come up, or refused the flag — the renderer keeps its button honest on that.
+ *
+ * The intent matters when Handy died mid-take: "start" may boot it, but
+ * "stop" must not — a fresh instance would read the toggle as a start and
+ * record with the UI showing idle. A dead Handy on the stop path means the
+ * take is already gone, so it reports failure instead of launching anything.
  */
 export async function toggleHandyTranscription(
+  intent: VoiceToggleIntent,
   deps: HandyDeps = defaultDeps,
 ): Promise<boolean> {
+  if (intent === "stop") {
+    if (!handyInstalled(deps)) return false
+    if (!(await handyRunning(deps))) return false
+    return deps.run(HANDY_BINARY, HANDY_TOGGLE_ARGS)
+  }
   if (!(await ensureHandyRunning(deps))) return false
   return deps.run(HANDY_BINARY, HANDY_TOGGLE_ARGS)
 }

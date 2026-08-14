@@ -31,6 +31,7 @@ import type { Mode, ModelInfo } from "@shared/settings-types"
 import { formatClock } from "../lib/format"
 import {
   nextVoicePhase,
+  voiceToggleIntent,
   VOICE_WAIT_TIMEOUT_MS,
   type VoiceEvent,
   type VoicePhase,
@@ -98,6 +99,8 @@ type Props = {
   onOpenDiff: (path: string) => void
   dockOpen: boolean
   onToggleDock: () => void
+  /** An overlay owns Escape while open — the dictation cancel must not eat it. */
+  anyOverlayOpen: boolean
 }
 
 type ComposerDraft = {
@@ -421,6 +424,7 @@ export function ChatView({
   onOpenDiff,
   dockOpen,
   onToggleDock,
+  anyOverlayOpen,
 }: Props) {
   const [draft, setDraft] = useState("")
   const [attachments, setAttachments] = useState<MessageAttachment[]>([])
@@ -450,6 +454,9 @@ export function ChatView({
   // Dictation via Handy. The button only exists when Handy is installed.
   const [voiceAvailable, setVoiceAvailable] = useState(false)
   const [voicePhase, setVoicePhase] = useState<VoicePhase>("idle")
+  // True while a voiceToggle IPC is in flight — clicks in that window would
+  // re-read the not-yet-updated phase and send Handy a second toggle.
+  const voiceBusyRef = useRef(false)
 
   // Oldest→newest list of what you actually sent this session — the shell-style
   // ↑/↓ recall reads from it so you can re-run a prompt without retyping.
@@ -748,27 +755,35 @@ export function ChatView({
   }, [])
 
   async function voiceClick() {
-    // Waiting means Handy is already transcribing — another toggle would start
-    // a fresh recording under a button that claims to be finishing one.
-    if (voicePhase === "waiting") return
-    // Handy pastes into whatever field has focus; make sure it's ours.
-    if (voicePhase === "idle") taRef.current?.focus()
+    const intent = voiceToggleIntent(voicePhase)
+    if (intent === null) return
+    // One toggle per flight: a second click before the IPC resolves would read
+    // this same stale phase and double-toggle Handy out from under the button.
+    if (voiceBusyRef.current) return
+    voiceBusyRef.current = true
+    // Handy pastes into whatever field has focus, and the click just moved
+    // focus onto this button — on the stop path too. Make it the composer.
+    taRef.current?.focus()
     const wanted: VoiceEvent =
-      voicePhase === "idle"
+      intent === "start"
         ? { type: "toggle-accepted" }
         : { type: "stop-requested" }
     try {
-      const ok = await window.chatHub.voiceToggle()
+      const ok = await window.chatHub.voiceToggle(intent)
       dispatchVoice(ok ? wanted : { type: "toggle-failed" })
     } catch {
       dispatchVoice({ type: "toggle-failed" })
+    } finally {
+      voiceBusyRef.current = false
     }
   }
 
   // Esc aborts a recording. Attached only while recording, on capture, so the
-  // app's own Escape (stop the agent's turn) keeps working the rest of the time.
+  // app's own Escape (stop the agent's turn) keeps working the rest of the
+  // time. Overlays own their own Escape (App.tsx follows the same rule):
+  // while one is open the first Esc closes it and the recording survives.
   useEffect(() => {
-    if (voicePhase !== "recording") return
+    if (voicePhase !== "recording" || anyOverlayOpen) return
     const onEsc = (e: globalThis.KeyboardEvent) => {
       if (e.key !== "Escape") return
       e.preventDefault()
@@ -778,7 +793,7 @@ export function ChatView({
     }
     window.addEventListener("keydown", onEsc, true)
     return () => window.removeEventListener("keydown", onEsc, true)
-  }, [voicePhase])
+  }, [voicePhase, anyOverlayOpen])
 
   // A transcription that never lands (Handy died, focus stolen) must not leave
   // the button spinning; likewise blur — the paste follows focus, not us.
