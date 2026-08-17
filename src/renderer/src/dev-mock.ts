@@ -895,6 +895,19 @@ export function installDevMock(): void {
       ].join("\n"),
     gitStage: async (cwd: string) => api.gitStatus!(cwd),
     gitUnstage: async (cwd: string) => api.gitStatus!(cwd),
+    gitRepositories: async (cwd: string) => [
+      { root: cwd, name: cwd.split("/").pop() || cwd, branch: "main", dirty: true },
+    ],
+    gitWorktrees: async () => [],
+    // Counts matching gitStatus above, so the hunk badges and the publish-gate
+    // warning ("3 hunks in 2 files …") render in the browser mock.
+    gitHunkSummary: async () => ({
+      "src/middleware/auth.ts": { staged: 0, unstaged: 2 },
+      "src/lib/jwt.ts": { staged: 0, unstaged: 1 },
+      "tests/auth.test.ts": { staged: 1, unstaged: 0 },
+    }),
+    gitStageHunk: async () => ({ ok: true, output: "Hunk staged" }),
+    gitUnstageHunk: async () => ({ ok: true, output: "Hunk unstaged" }),
     gitCheckout: async () => ({ ok: true, output: "Switched branch" }),
     gitCommitStaged: async () => ({ ok: true, output: "[main abc1234] 1 file changed" }),
     gitPush: async () => ({ ok: true, output: "Everything up-to-date" }),

@@ -32,6 +32,9 @@ import {
   getCommitDetail,
   stagePaths,
   unstagePaths,
+  getHunkSummary,
+  stageFileHunk,
+  unstageFileHunk,
 } from "./git"
 import { SettingsStore } from "./settings"
 import type { PermissionMode } from "@shared/permission"
@@ -560,6 +563,41 @@ function registerIpc(
 
   ipcMain.handle(IpcChannels.gitUnstage, (_e, cwd: unknown, paths: unknown) =>
     unstagePaths(gitCwd(cwd), gitPaths(paths)),
+  )
+
+  const gitHunkArgs = (
+    path: unknown,
+    hunkIndex: unknown,
+    hunk: unknown,
+  ): [string, number, string] => {
+    if (typeof path !== "string" || !path) throw new Error("Invalid path")
+    if (
+      typeof hunkIndex !== "number" ||
+      !Number.isInteger(hunkIndex) ||
+      hunkIndex < 0
+    ) {
+      throw new Error("Invalid hunk index")
+    }
+    if (typeof hunk !== "string" || !hunk.startsWith("@@")) {
+      throw new Error("Invalid hunk")
+    }
+    return [path, hunkIndex, hunk]
+  }
+
+  ipcMain.handle(
+    IpcChannels.gitStageHunk,
+    (_e, cwd: unknown, path: unknown, hunkIndex: unknown, hunk: unknown) =>
+      stageFileHunk(gitCwd(cwd), ...gitHunkArgs(path, hunkIndex, hunk)),
+  )
+
+  ipcMain.handle(
+    IpcChannels.gitUnstageHunk,
+    (_e, cwd: unknown, path: unknown, hunkIndex: unknown, hunk: unknown) =>
+      unstageFileHunk(gitCwd(cwd), ...gitHunkArgs(path, hunkIndex, hunk)),
+  )
+
+  ipcMain.handle(IpcChannels.gitHunkSummary, (_e, cwd: unknown) =>
+    getHunkSummary(gitCwd(cwd)),
   )
 
   ipcMain.handle(IpcChannels.gitBranches, (_e, cwd: unknown) =>
