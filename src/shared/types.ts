@@ -434,6 +434,33 @@ export type GitBranchList = {
   branches: string[]
 }
 
+/** One commit as the History surface lists it. */
+export type GitLogEntry = {
+  sha: string
+  shortSha: string
+  subject: string
+  author: string
+  /** Author date, ISO 8601. */
+  date: string
+  /** Decorations: branch heads, tags, HEAD — empty for an unmarked commit. */
+  refs: string[]
+}
+
+/** One file's numstat row inside a commit; binary files carry no line counts. */
+export type GitCommitFileStat = {
+  path: string
+  added: number
+  removed: number
+  binary: boolean
+}
+
+export type GitCommitDetail = {
+  sha: string
+  files: GitCommitFileStat[]
+  /** Unified diff of the whole commit, as `git show` prints it. */
+  diff: string
+}
+
 export type GitRepository = { root: string; name: string; branch: string; dirty: boolean }
 
 /** One checkout registered in a repository's worktree administrative file. */
