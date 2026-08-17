@@ -895,9 +895,6 @@ export function installDevMock(): void {
       ].join("\n"),
     gitStage: async (cwd: string) => api.gitStatus!(cwd),
     gitUnstage: async (cwd: string) => api.gitStatus!(cwd),
-    gitRepositories: async (cwd: string) => [
-      { root: cwd, name: cwd.split("/").pop() || cwd, branch: "main", dirty: true },
-    ],
     gitWorktrees: async () => [],
     // Counts matching gitStatus above, so the hunk badges and the publish-gate
     // warning ("3 hunks in 2 files …") render in the browser mock.
