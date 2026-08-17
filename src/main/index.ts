@@ -78,6 +78,11 @@ import {
   grokFolderTrusted,
   trustGrokFolder,
 } from "./grok-trust"
+import {
+  cancelHandyTranscription,
+  handyInstalled,
+  toggleHandyTranscription,
+} from "./voice-handy"
 import { inspectAttachmentPaths } from "./attachments"
 import { chatHubBrowserSocketPath } from "@shared/bridge-path"
 import { BrowserControl } from "./surfaces/browser-control"
@@ -1221,6 +1226,17 @@ function registerIpc(
     if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
     return trustGrokFolder(cwd)
   })
+
+  ipcMain.handle(IpcChannels.voiceAvailable, () => handyInstalled())
+
+  ipcMain.handle(IpcChannels.voiceToggle, (_e, intent: unknown) => {
+    if (intent !== "start" && intent !== "stop") {
+      throw new Error("Invalid intent")
+    }
+    return toggleHandyTranscription(intent)
+  })
+
+  ipcMain.handle(IpcChannels.voiceCancel, () => cancelHandyTranscription())
 }
 
 /**
