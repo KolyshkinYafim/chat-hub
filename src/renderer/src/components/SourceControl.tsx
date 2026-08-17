@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { GitFileChange, GitRepository, GitWorkingCopy, GitWorktreeInfo } from "@shared/types"
+import type { GitFileChange, GitHunkSummary, GitRepository, GitWorkingCopy, GitWorktreeInfo } from "@shared/types"
 import {
   actionForPath,
   type AgentAction,
 } from "../lib/agent-actions"
 import { matchPath } from "../lib/path-match"
+import { leftBehindWarning } from "../lib/publish-gate"
 
 type Props = {
   cwd: string
@@ -56,10 +57,33 @@ function rowKey(row: Row): string {
   return `${row.staged ? "s" : "w"}:${row.file.path}`
 }
 
-function DiffPane({ text }: { text: string }) {
+/** Per-hunk action offered on each `@@` line of the rendered diff. */
+type HunkAction = {
+  label: string
+  disabled: boolean
+  /** `hunk` is the full displayed hunk — `@@` line plus verbatim body. */
+  onApply: (index: number, hunk: string) => void
+}
+
+/**
+ * Each hunk exactly as it is on screen: from its `@@` line to the next one.
+ * This is what an apply sends along, so the main process can refuse to stage
+ * anything that no longer matches what the user reviewed.
+ */
+function displayedHunks(lines: string[]): string[] {
+  const body = lines[lines.length - 1] === "" ? lines.slice(0, -1) : lines
+  const starts = body.flatMap((l, i) => (l.startsWith("@@") ? [i] : []))
+  return starts.map((start, i) =>
+    body.slice(start, starts[i + 1] ?? body.length).join("\n"),
+  )
+}
+
+function DiffPane({ text, hunkAction }: { text: string; hunkAction?: HunkAction }) {
   const lines = text.split("\n")
   const added = lines.filter((l) => l.startsWith("+") && l[1] !== "+").length
   const removed = lines.filter((l) => l.startsWith("-") && l[1] !== "-").length
+  const hunks = hunkAction ? displayedHunks(lines) : []
+  let hunkIndex = -1
   return (
     <div className="scm-diff">
       <div className="scm-diff-head">
@@ -69,17 +93,30 @@ function DiffPane({ text }: { text: string }) {
       <pre>
         <code>
           {lines.map((l, i) => {
+            const isHunkHead = l.startsWith("@@")
+            if (isHunkHead) hunkIndex += 1
             const cls =
-              l.startsWith("@@") || l.startsWith("diff ") || l.startsWith("#")
+              isHunkHead || l.startsWith("diff ") || l.startsWith("#")
                 ? "hunk"
                 : l.startsWith("+") && !l.startsWith("+++")
                   ? "add"
                   : l.startsWith("-") && !l.startsWith("---")
                     ? "del"
                     : "ctx"
+            const index = hunkIndex
             return (
               <span key={i} className={`diff-line ${cls}`}>
                 {l || " "}
+                {isHunkHead && hunkAction ? (
+                  <button
+                    type="button"
+                    className="scm-act scm-hunk-act"
+                    disabled={hunkAction.disabled}
+                    onClick={() => hunkAction.onApply(index, hunks[index] ?? l)}
+                  >
+                    {hunkAction.label}
+                  </button>
+                ) : null}
                 {"\n"}
               </span>
             )
@@ -104,6 +141,11 @@ export function SourceControl({
   const [branches, setBranches] = useState<string[]>([])
   const [selected, setSelected] = useState<Row | null>(null)
   const [diff, setDiff] = useState<string | null>(null)
+  // null: the summary could not be read; the gate says so instead of implying
+  // that everything is staged.
+  const [hunkSummary, setHunkSummary] = useState<GitHunkSummary | null>({})
+  // Bumped after a hunk apply: the shown diff is stale even when the row stays.
+  const [diffEpoch, setDiffEpoch] = useState(0)
   const [message, setMessage] = useState("")
   const [prTitle, setPrTitle] = useState("")
   const [prDraft, setPrDraft] = useState(true)
@@ -121,15 +163,17 @@ export function SourceControl({
   }, [])
 
   const reload = useCallback(async () => {
-    const [next, branchList, worktreeList] = await Promise.all([
+    const [next, branchList, worktreeList, hunks] = await Promise.all([
       window.chatHub.gitStatus(repoCwd),
       window.chatHub.gitBranches(repoCwd),
       window.chatHub.gitWorktrees(repoCwd).catch(() => [] as GitWorktreeInfo[]),
+      window.chatHub.gitHunkSummary(repoCwd).catch(() => null),
     ])
     if (!liveRef.current) return
     setCopy(next)
     setBranches(branchList.branches)
     setWorktrees(worktreeList)
+    setHunkSummary(hunks)
     // A refresh may reveal a different diff or branch; publishing requires an
     // explicit review of the current snapshot.
     setReviewConfirmed(false)
@@ -147,6 +191,12 @@ export function SourceControl({
 
   const staged = useMemo(() => stagedRows(copy.files), [copy.files])
   const unstaged = useMemo(() => unstagedRows(copy.files), [copy.files])
+
+  // What the publish gate must own up to: whatever a push would leave behind.
+  const gateWarning = useMemo(
+    () => leftBehindWarning(hunkSummary, copy.files),
+    [hunkSummary, copy.files],
+  )
 
   // A path clicked in the transcript picks its row here; unstaged first, since
   // that is where an edit the agent just made shows up.
@@ -192,7 +242,7 @@ export function SourceControl({
     return () => {
       cancelled = true
     }
-  }, [cwd, selected])
+  }, [cwd, selected, diffEpoch])
 
   async function run(
     op: () => Promise<GitWorkingCopy | { ok: boolean; output: string }>,
@@ -234,6 +284,27 @@ export function SourceControl({
 
   function unstage(paths: string[]) {
     void run(() => window.chatHub.gitUnstage(cwd, paths))
+  }
+
+  async function applyHunk(row: Row, index: number, hunk: string) {
+    setBusy(true)
+    setNotice(null)
+    try {
+      const res = row.staged
+        ? await window.chatHub.gitUnstageHunk(cwd, row.file.path, index, hunk)
+        : await window.chatHub.gitStageHunk(cwd, row.file.path, index, hunk)
+      if (!liveRef.current) return
+      if (!res.ok) setNotice(res.output)
+      // Success or not, later hunks' offsets may have shifted: re-fetch the
+      // diff rather than let a second click reuse stale hunk positions.
+      setDiffEpoch((epoch) => epoch + 1)
+      await reload()
+      onChanged()
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err))
+    } finally {
+      if (liveRef.current) setBusy(false)
+    }
   }
 
   async function commit() {
@@ -296,6 +367,8 @@ export function SourceControl({
     const active = selected ? rowKey(selected) === key : false
     // Only show when the trail already links this path to a tool call.
     const why = actionForPath(actions, row.file.path)
+    const counts = hunkSummary?.[row.file.path]
+    const hunkCount = (row.staged ? counts?.staged : counts?.unstaged) ?? 0
     return (
       <li key={key} className={`scm-row ${active ? "active" : ""}`}>
         <button
@@ -308,6 +381,11 @@ export function SourceControl({
             {row.code}
           </span>
           <span className="scm-path">{row.file.path}</span>
+          {hunkCount > 0 ? (
+            <span className="scm-hunk-count">
+              {hunkCount} hunk{hunkCount === 1 ? "" : "s"}
+            </span>
+          ) : null}
         </button>
         <span className="scm-row-actions">
           {why ? (
@@ -428,6 +506,9 @@ export function SourceControl({
                 <small>Inspect the changed files and diff below before Push or Create PR.</small>
               </span>
             </label>
+            {gateWarning ? (
+              <small className="scm-gate-warn">{gateWarning}</small>
+            ) : null}
           </div>
 
           <div className="scm-lists">
@@ -515,7 +596,21 @@ export function SourceControl({
               ) : diff.trim() === "" ? (
                 <p className="scm-hint">No textual diff for this change.</p>
               ) : (
-                <DiffPane text={diff} />
+                <DiffPane
+                  text={diff}
+                  hunkAction={
+                    // Plain modifications only: binary, untracked, deleted and
+                    // renamed files keep their whole-file stage/unstage.
+                    selected.code === "M"
+                      ? {
+                          label: selected.staged ? "Unstage hunk" : "Stage hunk",
+                          disabled: busy,
+                          onApply: (index, hunk) =>
+                            void applyHunk(selected, index, hunk),
+                        }
+                      : undefined
+                  }
+                />
               )
             ) : (
               <p className="scm-hint">Select a file to see its diff.</p>

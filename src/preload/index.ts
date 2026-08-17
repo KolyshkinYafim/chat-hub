@@ -5,6 +5,7 @@ import type {
   GitBranchList,
   GitCheckoutInfo,
   GitCommitDetail,
+  GitHunkSummary,
   GitLogEntry,
   GitWorkingCopy,
   GitRepository,
@@ -153,6 +154,24 @@ const api = {
     ipcRenderer.invoke(IpcChannels.gitStage, cwd, paths),
   gitUnstage: (cwd: string, paths: string[]): Promise<GitWorkingCopy> =>
     ipcRenderer.invoke(IpcChannels.gitUnstage, cwd, paths),
+  // `hunk` is the full hunk as displayed — header line plus verbatim body —
+  // so the main process can refuse anything the user did not actually review.
+  gitStageHunk: (
+    cwd: string,
+    path: string,
+    hunkIndex: number,
+    hunk: string,
+  ): Promise<{ ok: boolean; output: string }> =>
+    ipcRenderer.invoke(IpcChannels.gitStageHunk, cwd, path, hunkIndex, hunk),
+  gitUnstageHunk: (
+    cwd: string,
+    path: string,
+    hunkIndex: number,
+    hunk: string,
+  ): Promise<{ ok: boolean; output: string }> =>
+    ipcRenderer.invoke(IpcChannels.gitUnstageHunk, cwd, path, hunkIndex, hunk),
+  gitHunkSummary: (cwd: string): Promise<GitHunkSummary> =>
+    ipcRenderer.invoke(IpcChannels.gitHunkSummary, cwd),
   gitBranches: (cwd: string): Promise<GitBranchList> =>
     ipcRenderer.invoke(IpcChannels.gitBranches, cwd),
   gitLog: (cwd: string): Promise<GitLogEntry[]> =>

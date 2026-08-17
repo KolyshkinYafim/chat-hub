@@ -1,13 +1,14 @@
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
-import { mkdir, readdir } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, join, sep } from "node:path"
-import { homedir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import type {
   GitBranchList,
   GitCommitDetail,
   GitCommitFileStat,
   GitFileChange,
+  GitHunkSummary,
   GitLogEntry,
   GitWorkingCopy,
   GitWorktreeInfo,
@@ -273,6 +274,20 @@ export async function getWorkingCopy(cwd: string): Promise<GitWorkingCopy> {
 }
 
 /**
+ * Diffs feed a parse-and-reapply pipeline, so they must arrive in git's
+ * canonical shape whatever the user's diff.* config says: an external diff
+ * tool yields no hunks at all, `noprefix`/`mnemonicPrefix` break `apply -p1`
+ * and path attribution, and zero context makes `apply --cached` refuse.
+ */
+const DIFF_SHAPE = [
+  "-c",
+  "diff.noprefix=false",
+  "-c",
+  "diff.mnemonicPrefix=false",
+] as const
+const DIFF_FLAGS = ["--no-color", "--no-ext-diff", "-U3"] as const
+
+/**
  * The diff of one path. Untracked files have no blob to diff against, so they
  * go through `--no-index` from /dev/null — which exits 1 by design, hence the
  * stdout-off-the-error read.
@@ -285,10 +300,11 @@ export async function getFileDiff(
 ): Promise<string> {
   assertPathspec(path)
   const args = untracked
-    ? ["diff", "--no-color", "--no-index", "--", "/dev/null", path]
+    ? [...DIFF_SHAPE, "diff", ...DIFF_FLAGS, "--no-index", "--", "/dev/null", path]
     : [
+        ...DIFF_SHAPE,
         "diff",
-        "--no-color",
+        ...DIFF_FLAGS,
         ...(staged ? ["--cached"] : []),
         "--",
         path,
@@ -307,6 +323,228 @@ export async function getFileDiff(
     // Binary files and deleted-on-disk paths land here; say so in the pane
     // rather than leaving it blank as if the file were unchanged.
     return `# no diff available\n# ${msg.split("\n")[0]}`
+  }
+}
+
+/** One hunk of a unified diff, kept verbatim so re-applying it is loss-free. */
+export type FileHunk = {
+  /** The full `@@ -a,b +c,d @@ …` line, byte-for-byte as git printed it. */
+  header: string
+  oldStart: number
+  oldCount: number
+  newStart: number
+  newCount: number
+  /** Body lines, including any `\ No newline at end of file` markers. */
+  lines: string[]
+}
+
+export type FilePatch = {
+  /** Everything before the first hunk: `diff --git`, `index`, `---`, `+++`. */
+  headerLines: string[]
+  hunks: FileHunk[]
+  binary: boolean
+}
+
+const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
+
+/** The one serialization of a hunk: header plus verbatim body, as displayed. */
+export function hunkText(hunk: FileHunk): string {
+  return [hunk.header, ...hunk.lines].join("\n")
+}
+
+/**
+ * Split one file's `git diff` output into its header and verbatim hunks.
+ * Lines are kept exactly as printed — CRLF endings and no-newline markers
+ * included — so a rebuilt patch is byte-identical to what git would accept.
+ */
+export function parseFilePatch(text: string): FilePatch {
+  const lines = text.split("\n")
+  if (lines[lines.length - 1] === "") lines.pop()
+  const headerLines: string[] = []
+  const hunks: FileHunk[] = []
+  let current: FileHunk | null = null
+  for (const line of lines) {
+    const match = HUNK_HEADER.exec(line)
+    if (match) {
+      current = {
+        header: line,
+        oldStart: Number(match[1]),
+        oldCount: match[2] === undefined ? 1 : Number(match[2]),
+        newStart: Number(match[3]),
+        newCount: match[4] === undefined ? 1 : Number(match[4]),
+        lines: [],
+      }
+      hunks.push(current)
+      continue
+    }
+    if (current) current.lines.push(line)
+    else headerLines.push(line)
+  }
+  const binary =
+    hunks.length === 0 &&
+    headerLines.some(
+      (line) => line.startsWith("Binary files ") || line === "GIT binary patch",
+    )
+  return { headerLines, hunks, binary }
+}
+
+/**
+ * A patch holding exactly one hunk of `patch`, in a shape `git apply` takes.
+ * The hunk travels untouched: its old-side line numbers stay valid because the
+ * base (index or HEAD) does not move when sibling hunks are left out.
+ */
+export function buildHunkPatch(
+  patch: FilePatch,
+  index: number,
+): string | null {
+  const hunk = patch.hunks[index]
+  if (!hunk || patch.headerLines.length === 0) return null
+  return [...patch.headerLines, hunkText(hunk)].join("\n") + "\n"
+}
+
+/**
+ * Hunk counts per path from a whole-repo diff. `---`/`+++` are only trusted
+ * outside hunk bodies — a deleted line reading `-- x` prints as `--- x` and
+ * must not be mistaken for a file header.
+ */
+export function countHunksByFile(diffText: string): Map<string, number> {
+  const counts = new Map<string, number>()
+  let oldPath: string | null = null
+  let path: string | null = null
+  let inHunk = false
+  const headerPath = (line: string, prefix: "a/" | "b/"): string | null => {
+    let raw = line.slice(4)
+    if (raw.startsWith('"') && raw.endsWith('"')) {
+      raw = raw
+        .slice(1, -1)
+        .replace(/\\([\\"tn])/g, (_, ch: string) =>
+          ch === "t" ? "\t" : ch === "n" ? "\n" : ch,
+        )
+    }
+    if (raw === "/dev/null") return null
+    return raw.startsWith(prefix) ? raw.slice(2) : raw
+  }
+  for (const line of diffText.split("\n")) {
+    if (line.startsWith("diff --git ")) {
+      oldPath = null
+      path = null
+      inHunk = false
+      continue
+    }
+    if (HUNK_HEADER.test(line)) {
+      inHunk = true
+      if (path) counts.set(path, (counts.get(path) ?? 0) + 1)
+      continue
+    }
+    if (inHunk) continue
+    if (line.startsWith("--- ")) {
+      oldPath = headerPath(line, "a/")
+      continue
+    }
+    if (line.startsWith("+++ ")) {
+      // A deletion diffs to /dev/null; the old side still names the file.
+      path = headerPath(line, "b/") ?? oldPath
+    }
+  }
+  return counts
+}
+
+/**
+ * Staged and unstaged hunk counts for every path with a textual diff.
+ * A diff that cannot be read (repo too big for the buffer, timeout) rejects
+ * instead of resolving empty: these counts back a safety warning, and its
+ * failure must look different from "everything is staged".
+ */
+export async function getHunkSummary(cwd: string): Promise<GitHunkSummary> {
+  const diffOut = (args: string[]): Promise<string> =>
+    execFileAsync(
+      "git",
+      ["-c", "core.quotepath=false", ...DIFF_SHAPE, "diff", ...DIFF_FLAGS, ...args],
+      { cwd, timeout: 15_000, maxBuffer: BUFFER },
+    ).then((res) => res.stdout)
+  const [worktree, index] = await Promise.all([diffOut([]), diffOut(["--cached"])])
+  const summary: GitHunkSummary = {}
+  for (const [path, count] of countHunksByFile(worktree)) {
+    ;(summary[path] ??= { staged: 0, unstaged: 0 }).unstaged = count
+  }
+  for (const [path, count] of countHunksByFile(index)) {
+    ;(summary[path] ??= { staged: 0, unstaged: 0 }).staged = count
+  }
+  return summary
+}
+
+/** Stage exactly one working-tree hunk into the index. */
+export function stageFileHunk(
+  cwd: string,
+  path: string,
+  hunkIndex: number,
+  expectedHunk: string,
+): Promise<{ ok: boolean; output: string }> {
+  return applyFileHunk(cwd, path, hunkIndex, expectedHunk, false)
+}
+
+/** Take exactly one staged hunk back out of the index; the file keeps it. */
+export function unstageFileHunk(
+  cwd: string,
+  path: string,
+  hunkIndex: number,
+  expectedHunk: string,
+): Promise<{ ok: boolean; output: string }> {
+  return applyFileHunk(cwd, path, hunkIndex, expectedHunk, true)
+}
+
+/**
+ * The hunk is re-read from a fresh diff and matched byte-for-byte against the
+ * one the renderer displayed — header and body. Staging an earlier hunk shifts
+ * every later header, and an agent writing to the worktree mid-review can
+ * change a hunk's content without moving it at all; either way, what is no
+ * longer what the user reviewed must fail loudly, not get staged.
+ */
+async function applyFileHunk(
+  cwd: string,
+  path: string,
+  hunkIndex: number,
+  expectedHunk: string,
+  reverse: boolean,
+): Promise<{ ok: boolean; output: string }> {
+  assertPathspec(path)
+  try {
+    const { stdout: rootOut } = await execFileAsync(
+      "git",
+      ["rev-parse", "--show-toplevel"],
+      { cwd, timeout: 4000 },
+    )
+    const root = rootOut.trim()
+    if (!root) return { ok: false, output: "Not a git repository" }
+    const patch = parseFilePatch(await getFileDiff(root, path, reverse))
+    const hunk = patch.hunks[hunkIndex]
+    if (!hunk || hunkText(hunk) !== expectedHunk) {
+      return {
+        ok: false,
+        output: "The diff changed since it was shown — hunks were refreshed, pick again",
+      }
+    }
+    const patchText = buildHunkPatch(patch, hunkIndex)
+    if (!patchText) return { ok: false, output: "No patch for this hunk" }
+    const dir = await mkdtemp(join(tmpdir(), "chathub-hunk-"))
+    try {
+      const patchFile = join(dir, "hunk.patch")
+      await writeFile(patchFile, patchText, "utf8")
+      await execFileAsync(
+        "git",
+        ["apply", "--cached", ...(reverse ? ["-R"] : []), patchFile],
+        { cwd: root, timeout: 15_000, maxBuffer: BUFFER },
+      )
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+    return { ok: true, output: reverse ? "Hunk unstaged" : "Hunk staged" }
+  } catch (err) {
+    const e = err as { stderr?: string; message?: string }
+    return {
+      ok: false,
+      output: (e.stderr || e.message || "git apply failed").trim(),
+    }
   }
 }
 
