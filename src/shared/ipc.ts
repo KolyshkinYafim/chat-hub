@@ -95,6 +95,9 @@ export const IpcChannels = {
   mcpAddGitignore: "mcp:add-gitignore",
   grokTrustStatus: "grok:trust-status",
   grokTrustFolder: "grok:trust-folder",
+  voiceAvailable: "voice:available",
+  voiceToggle: "voice:toggle",
+  voiceCancel: "voice:cancel",
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]
