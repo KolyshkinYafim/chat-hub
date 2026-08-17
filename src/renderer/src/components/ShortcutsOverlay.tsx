@@ -10,6 +10,7 @@ const SHORTCUTS: { keys: string; what: string }[] = [
   { keys: "⌘,", what: "Settings" },
   { keys: "⌘/", what: "This list" },
   { keys: "⌘G", what: "Diff surface — stage, diff, commit" },
+  { keys: "⌘Y", what: "History surface — commits and their diffs" },
   { keys: "⌘B", what: "Right panel — browser, terminal, files, diff" },
   { keys: "Enter", what: "Send · Shift+Enter for a newline" },
   { keys: "⌘Enter", what: "Send from anywhere in the composer" },

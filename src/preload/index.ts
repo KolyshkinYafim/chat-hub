@@ -4,6 +4,8 @@ import type {
   CreateSessionInput,
   GitBranchList,
   GitCheckoutInfo,
+  GitCommitDetail,
+  GitLogEntry,
   GitWorkingCopy,
   GitRepository,
   GitWorktreeInfo,
@@ -153,6 +155,10 @@ const api = {
     ipcRenderer.invoke(IpcChannels.gitUnstage, cwd, paths),
   gitBranches: (cwd: string): Promise<GitBranchList> =>
     ipcRenderer.invoke(IpcChannels.gitBranches, cwd),
+  gitLog: (cwd: string): Promise<GitLogEntry[]> =>
+    ipcRenderer.invoke(IpcChannels.gitLog, cwd),
+  gitShow: (cwd: string, sha: string): Promise<GitCommitDetail> =>
+    ipcRenderer.invoke(IpcChannels.gitShow, cwd, sha),
   gitCheckout: (
     cwd: string,
     branch: string,
