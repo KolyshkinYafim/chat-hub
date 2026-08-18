@@ -161,14 +161,12 @@ export class ClaudeAdapter implements AgentAdapter {
       onStdoutLine: (line) => {
         const ev = safeJson(line)
         if (!ev) {
-          // plain fallback
           pushAssistantText(line + "\n")
           return
         }
 
         const type = String(ev.type ?? "")
 
-        // Capture session id for resume
         const sid =
           (typeof ev.session_id === "string" && ev.session_id) ||
           (ev.message &&
@@ -192,7 +190,6 @@ export class ClaudeAdapter implements AgentAdapter {
           return
         }
 
-        // Partial tokens
         if (
           type === "stream_event" ||
           type === "content_block_delta" ||
@@ -262,7 +259,6 @@ export class ClaudeAdapter implements AgentAdapter {
           return
         }
 
-        // tool_use as standalone
         if (type === "tool_use" || type === "tool_result") {
           const name = String(ev.name ?? type)
           if (!turn) turn = beginAssistant(sessionId, cb)
@@ -431,7 +427,6 @@ function extractThinkingDelta(ev: Record<string, unknown>): string {
 }
 
 function extractPartialDelta(ev: Record<string, unknown>): string {
-  // common shapes across claude versions
   if (typeof ev.delta === "string") return ev.delta
   if (ev.delta && typeof ev.delta === "object") {
     const d = ev.delta as Record<string, unknown>

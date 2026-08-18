@@ -18,6 +18,8 @@ import {
   type McpServerStatus,
 } from "@shared/mcp"
 import { writeFileAtomic } from "./atomic-write"
+import { isEnoent } from "./fs-util"
+import { tomlKey } from "./toml"
 import { resolveWorkspaceRoot } from "./surfaces/paths"
 import type { SettingsStore } from "./settings"
 
@@ -29,10 +31,6 @@ const CODEX_END = "# END CHATHUB-MCP"
 function mcpFile(cwd: unknown): string {
   const root = resolveWorkspaceRoot(cwd)
   return join(root, MCP_REL_PATH)
-}
-
-function isEnoent(e: unknown): boolean {
-  return (e as NodeJS.ErrnoException | null)?.code === "ENOENT"
 }
 
 /** Read project MCP config; missing file → empty list. */
@@ -577,11 +575,6 @@ export function replaceMarkerBlock(source: string, block: string): string {
 
 function tomlString(v: string): string {
   return JSON.stringify(v)
-}
-
-function tomlKey(k: string): string {
-  if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) return k
-  return JSON.stringify(k)
 }
 
 /** OpenCode: merge `mcp` key in `<cwd>/opencode.json`. */

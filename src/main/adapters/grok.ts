@@ -193,7 +193,6 @@ export class GrokAdapter implements AgentAdapter {
           return
         }
 
-        // text deltas
         const delta = extractGrokText(ev, type)
 
         if (delta) {

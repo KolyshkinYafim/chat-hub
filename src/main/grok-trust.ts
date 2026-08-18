@@ -4,6 +4,7 @@ import { homedir } from "node:os"
 import { isAbsolute, join, sep } from "node:path"
 import { writeFileAtomic } from "./atomic-write"
 import { lockPathFor } from "./bridge-lock"
+import { tomlKey } from "./toml"
 
 const FOLDER_TABLE_PREFIX = "[folders."
 const TRUSTED_ASSIGNMENT = /^trusted\s*=\s*(true|false)\s*(?:#.*)?$/
@@ -217,16 +218,6 @@ function appendFolderTable(
   if (text.trim() === "") return table
   const gap = text.endsWith("\n\n") ? "" : text.endsWith("\n") ? "\n" : "\n\n"
   return text + gap + table
-}
-
-function tomlKey(value: string): string {
-  const escaped = value
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, "\\n")
-    .replace(/\r/g, "\\r")
-    .replace(/\t/g, "\\t")
-  return `"${escaped}"`
 }
 
 function normalisePath(folder: string): string {

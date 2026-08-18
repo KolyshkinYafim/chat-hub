@@ -101,7 +101,6 @@ export function splitBlocks(src: string): Block[] {
         items.push(lines[i]!.replace(/^\s*[-*]\s+/, "").replace(/^\s*/, ""))
         i += 1
       }
-      // also match lines starting with - ✅
       out.push({ kind: "ul", items })
       continue
     }
