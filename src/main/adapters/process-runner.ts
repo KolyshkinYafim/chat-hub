@@ -106,7 +106,6 @@ export function runProcess(spec: RunSpec): RunningProcess {
     if (settled) return
     try {
       if (child.pid && process.platform !== "win32") {
-        // Kill the process group started with detached
         process.kill(-child.pid, "SIGTERM")
         setTimeout(() => {
           try {

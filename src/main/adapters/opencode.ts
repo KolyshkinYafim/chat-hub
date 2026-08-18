@@ -168,7 +168,6 @@ export class OpenCodeAdapter implements AgentAdapter {
           return
         }
 
-        // OpenCode emits various event shapes — be liberal
         const text =
           (typeof part?.text === "string" && part.text) ||
           (typeof ev.text === "string" && ev.text) ||

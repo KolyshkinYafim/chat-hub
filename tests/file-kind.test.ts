@@ -80,14 +80,14 @@ describe("detection by content sniff", () => {
     expect(fileTypeByContent(utf8("GIF89a…"))?.mime).toBe("image/gif")
     expect(fileTypeByContent(utf8("%PDF-1.7"))?.kind).toBe("pdf")
     expect(fileTypeByContent(utf8("OggS"))?.mime).toBe("audio/ogg")
-    expect(fileTypeByContent(utf8("ID3"))?.mime).toBe("audio/mpeg")
+    expect(fileTypeByContent(utf8("ID3\x03"))?.mime).toBe("audio/mpeg")
     expect(
       fileTypeByContent(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))?.mime,
     ).toBe("image/jpeg")
     expect(
       fileTypeByContent(new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]))?.mime,
     ).toBe("video/webm")
-    expect(fileTypeByContent(utf8("PK"))?.kind).toBe("binary")
+    expect(fileTypeByContent(utf8("PK\x03\x04"))?.kind).toBe("binary")
   })
 
   it("tells a RIFF container apart by its form type", () => {

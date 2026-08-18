@@ -489,7 +489,6 @@ export class SessionManager {
       type: "session.active",
       sessionId: id,
     })
-    // Ensure renderer has messages for the focused session.
     if (id) {
       this.bus.emit({
         type: "messages.replaced",

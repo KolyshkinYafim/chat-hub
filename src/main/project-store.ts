@@ -25,7 +25,6 @@ export class ProjectStore {
       const raw = await readFile(this.filePath, "utf8")
       const data = JSON.parse(raw) as PersistedProjects
       if (data?.version === 1 && Array.isArray(data.projects)) {
-        // Drop entries whose folder no longer exists.
         this.projects = data.projects.filter((p) => dirExists(p.cwd))
       }
     } catch {

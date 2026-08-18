@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promis
 import { dirname, join } from "node:path"
 import type { Board, BoardNote, BoardTodo } from "@shared/surfaces"
 import { resolveWorkspaceRoot } from "./paths"
+import { isEnoent } from "../fs-util"
 
 /** Absolute path of a workspace's board file (validated, contained in cwd). */
 function boardFile(cwd: unknown): string {
@@ -16,10 +17,6 @@ function str(v: unknown): string {
 
 function num(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) ? v : 0
-}
-
-function isEnoent(e: unknown): boolean {
-  return (e as NodeJS.ErrnoException | null)?.code === "ENOENT"
 }
 
 /** Both board item kinds share the fields the merge cares about. */

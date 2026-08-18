@@ -466,7 +466,6 @@ function registerIpc(
       await shell.openPath(path)
       return "finder"
     }
-    // Prefer VS Code / Cursor if present; else Finder
     const { spawn } = await import("node:child_process")
     const tryCmd = (cmd: string, args: string[]) =>
       new Promise<boolean>((resolve) => {
