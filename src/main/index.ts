@@ -997,6 +997,35 @@ function registerIpc(
     },
   )
 
+  ipcMain.handle(
+    IpcChannels.sessionSetSettled,
+    (_e, sessionId: unknown, settled: unknown) => {
+      if (typeof sessionId !== "string" || !sessionId) {
+        throw new Error("Invalid sessionId")
+      }
+      if (typeof settled !== "boolean") throw new Error("Invalid settled flag")
+      return sm.setSessionSettled(sessionId, settled)
+    },
+  )
+
+  ipcMain.handle(
+    IpcChannels.sessionSetArchived,
+    (_e, sessionId: unknown, archived: unknown) => {
+      if (typeof sessionId !== "string" || !sessionId) {
+        throw new Error("Invalid sessionId")
+      }
+      if (typeof archived !== "boolean") {
+        throw new Error("Invalid archived flag")
+      }
+      return sm.setSessionArchived(sessionId, archived)
+    },
+  )
+
+  ipcMain.handle(IpcChannels.sessionMigrateArchived, (_e, ids: unknown) => {
+    if (!Array.isArray(ids)) throw new Error("Invalid ids")
+    sm.migrateArchived(ids.filter((id): id is string => typeof id === "string"))
+  })
+
   ipcMain.handle(IpcChannels.pickFiles, async () => {
     const win = BrowserWindow.getFocusedWindow() ?? mainWindow
     const result = await dialog.showOpenDialog(win ?? undefined!, {

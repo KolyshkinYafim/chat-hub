@@ -5,11 +5,7 @@ import {
   editedPathsInMessage,
 } from "@renderer/lib/agent-actions"
 import { mergeReplacedMessages } from "@renderer/lib/transcript-window"
-import {
-  parseArchived,
-  pruneArchived,
-  serializeArchived,
-} from "@renderer/lib/archive"
+import { parseArchived } from "@renderer/lib/archive"
 import {
   buildTranscript,
   planProgress,
@@ -36,23 +32,16 @@ function onlyCall(block: TranscriptBlock | undefined): ToolCall {
   return block.calls[0]!
 }
 
-describe("archive set", () => {
-  it("round-trips through storage", () => {
-    const ids = new Set(["a", "b"])
-    expect(parseArchived(serializeArchived(ids))).toEqual(ids)
+describe("legacy archive migration parsing", () => {
+  it("reads a stored id list", () => {
+    expect(parseArchived('["a","b"]')).toEqual(["a", "b"])
   })
 
   it("survives a missing or corrupt value", () => {
-    expect(parseArchived(null).size).toBe(0)
-    expect(parseArchived("{not json").size).toBe(0)
-    expect(parseArchived('{"a":1}').size).toBe(0)
-    expect(parseArchived('["a", 7, null]')).toEqual(new Set(["a"]))
-  })
-
-  it("drops ids whose session no longer exists", () => {
-    expect(pruneArchived(new Set(["a", "b"]), ["b", "c"])).toEqual(
-      new Set(["b"]),
-    )
+    expect(parseArchived(null)).toEqual([])
+    expect(parseArchived("{not json")).toEqual([])
+    expect(parseArchived('{"a":1}')).toEqual([])
+    expect(parseArchived('["a", 7, null]')).toEqual(["a"])
   })
 })
 
