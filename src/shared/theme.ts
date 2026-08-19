@@ -21,6 +21,11 @@ export const THEME_TOKENS = [
   "--user-bg",
   "--code-bg",
   "--composer-bg",
+  "--syntax-keyword",
+  "--syntax-type",
+  "--syntax-string",
+  "--syntax-number",
+  "--syntax-punct",
 ] as const
 
 export type ThemeToken = (typeof THEME_TOKENS)[number]
@@ -56,6 +61,11 @@ export const BASE_TOKENS: Record<ThemeToken, string> = {
   "--user-bg": "#1a2332",
   "--code-bg": "#12141a",
   "--composer-bg": "#14151a",
+  "--syntax-keyword": "#c792ea",
+  "--syntax-type": "#7fd1e8",
+  "--syntax-string": "#b5e08a",
+  "--syntax-number": "#f6b26b",
+  "--syntax-punct": "#8b8d98",
 }
 
 const TOKEN_SET: ReadonlySet<string> = new Set(THEME_TOKENS)
@@ -171,6 +181,11 @@ export const BUILTIN_THEMES: ThemeDef[] = [
       "--user-bg": "#e2eaf7",
       "--code-bg": "#ececf0",
       "--composer-bg": "#ffffff",
+      "--syntax-keyword": "#8a3fc4",
+      "--syntax-type": "#12758f",
+      "--syntax-string": "#47761c",
+      "--syntax-number": "#a85f12",
+      "--syntax-punct": "#6f7280",
     },
   },
 ]

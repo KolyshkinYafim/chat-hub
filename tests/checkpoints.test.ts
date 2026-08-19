@@ -6,7 +6,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises"
-import { existsSync } from "node:fs"
+import { existsSync, writeFileSync } from "node:fs"
 import { promisify } from "node:util"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -33,6 +33,7 @@ vi.mock("electron", () => ({
 const { adapter, state } = vi.hoisted(() => {
   const state = {
     pending: null as { resolve: () => void; reject: (err: unknown) => void } | null,
+    onSend: null as (() => void) | null,
   }
   const adapter = {
     id: "mock" as const,
@@ -43,6 +44,7 @@ const { adapter, state } = vi.hoisted(() => {
       _message: string,
       cb: AdapterCallbacks,
     ): Promise<void> {
+      state.onSend?.()
       cb.onSessionEvent({ type: "session.status", id: sessionId, status: "running" })
       return new Promise<void>((resolve, reject) => {
         state.pending = { resolve, reject }
@@ -91,6 +93,7 @@ async function porcelain(repo: string): Promise<string> {
 
 beforeEach(() => {
   state.pending = null
+  state.onSend = null
 })
 
 describe("checkpoints core", () => {
@@ -244,6 +247,26 @@ describe("session-manager checkpoints", () => {
     ).rejects.toThrow(/running/i)
 
     state.pending?.resolve()
+  })
+
+  it("has the snapshot on disk before the agent is allowed to write", { timeout: 30_000 }, async () => {
+    const sm = await makeManager()
+    const repo = await makeRepo()
+    const session = await sm.createSession({ provider: "mock", cwd: repo })
+
+    let stamped: string | undefined
+    state.onSend = () => {
+      stamped = sm.getMessages(session.id)[0]?.checkpointRef
+      writeFileSync(join(repo, "written-by-the-agent.txt"), "edit\n")
+    }
+
+    await sm.sendMessage(session.id, "first turn")
+    state.pending?.resolve()
+
+    expect(stamped).toBeTruthy()
+    await expect(
+      exec("git", ["show", `${stamped}:written-by-the-agent.txt`], { cwd: repo }),
+    ).rejects.toThrow()
   })
 
   it("stamps a checkpointRef on the user message and truncates on revert", { timeout: 30_000 }, async () => {

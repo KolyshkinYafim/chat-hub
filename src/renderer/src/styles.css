@@ -21,6 +21,11 @@
   --user-bg: #1a2332;
   --code-bg: #12141a;
   --composer-bg: #14151a;
+  --syntax-keyword: #c792ea;
+  --syntax-type: #7fd1e8;
+  --syntax-string: #b5e08a;
+  --syntax-number: #f6b26b;
+  --syntax-punct: #8b8d98;
   --radius: 12px;
   --radius-s: 8px;
   --radius-m: 10px;
@@ -7323,8 +7328,7 @@ select:focus-visible {
   color: var(--text-secondary);
 }
 
-:root.theme-light .path-code,
-:root.theme-light .tok-punct {
+:root.theme-light .path-code {
   color: var(--text-muted);
 }
 
@@ -7357,22 +7361,6 @@ select:focus-visible {
 
 :root.theme-light .activity-diff {
   color: #5a7040;
-}
-
-:root.theme-light .tok-keyword {
-  color: #8a3fc4;
-}
-
-:root.theme-light .tok-type {
-  color: #12758f;
-}
-
-:root.theme-light .tok-string {
-  color: #47761c;
-}
-
-:root.theme-light .tok-number {
-  color: #a85f12;
 }
 
 :root.theme-light .row-act:hover,

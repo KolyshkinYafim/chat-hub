@@ -26,6 +26,11 @@ export type SessionMeta = {
    * "default", anything else as "user".
    */
   titleOrigin?: "default" | "auto" | "user"
+  /**
+   * The one automatic LLM title pass already ran. Persisted so a restart does
+   * not spend a request re-deriving a title the session already carries.
+   */
+  titleRefined?: boolean
   /** Project / folder group in the sidebar (e.g. mary, FinanceApp). */
   project: string
   provider: ProviderId
