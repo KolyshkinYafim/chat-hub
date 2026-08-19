@@ -6440,3 +6440,185 @@ select:focus-visible {
   font-size: 12px;
   color: var(--text-secondary);
 }
+
+/* ===== changed files tree ===== */
+
+.changed-files {
+  margin: 10px 0 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: #0f1014;
+  overflow: hidden;
+}
+
+.changed-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.changed-count {
+  flex: 1;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.changed-total {
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.changed-total .diff-stat {
+  font-size: 11px;
+}
+
+.changed-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.changed-action {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--speed-fast), color var(--speed-fast);
+}
+
+.changed-action:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.chtree,
+.chtree-branch {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.chtree {
+  padding: 4px 0;
+}
+
+.chtree-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 2px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chtree-row:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.chtree-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chtree-dir .chtree-name {
+  color: var(--text-muted);
+}
+
+.chtree-dir:hover .chtree-name {
+  color: var(--text-secondary);
+}
+
+.chtree-caret {
+  flex: none;
+  width: 12px;
+  font-size: 9px;
+  color: var(--text-faint);
+  transition: transform var(--speed-fast);
+}
+
+.chtree-caret.shut {
+  transform: rotate(-90deg);
+}
+
+.chtree-delta {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.chtree-badge {
+  flex: none;
+  min-width: 26px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  line-height: 14px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  background: rgba(139, 141, 152, 0.16);
+  color: var(--text-muted);
+}
+
+.chtree-badge.tone-ts {
+  background: rgba(91, 141, 239, 0.18);
+  color: #8fb4f5;
+}
+
+.chtree-badge.tone-js {
+  background: rgba(240, 200, 70, 0.16);
+  color: #e8cc74;
+}
+
+.chtree-badge.tone-css {
+  background: rgba(176, 124, 255, 0.16);
+  color: #c4a2f2;
+}
+
+.chtree-badge.tone-json {
+  background: rgba(240, 180, 41, 0.16);
+  color: #ecc06a;
+}
+
+.chtree-badge.tone-md {
+  background: rgba(139, 141, 152, 0.18);
+  color: #a6a8b3;
+}
+
+.chtree-badge.tone-img {
+  background: rgba(61, 214, 140, 0.15);
+  color: #7fdcae;
+}
+
+.chtree-badge.tone-html {
+  background: rgba(240, 113, 120, 0.14);
+  color: #eda3a8;
+}
