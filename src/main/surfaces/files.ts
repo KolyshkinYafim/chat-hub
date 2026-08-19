@@ -300,7 +300,7 @@ export async function createFile(
     await handle.close()
   } catch (err) {
     if (isAlreadyThere(err)) {
-      throw new Error(`${target.relativePath} already exists`)
+      throw new Error(`${target.relativePath} already exists`, { cause: err })
     }
     throw err
   }
@@ -317,7 +317,7 @@ export async function createDirectory(
     await mkdir(target.absolutePath)
   } catch (err) {
     if (isAlreadyThere(err)) {
-      throw new Error(`${target.relativePath} already exists`)
+      throw new Error(`${target.relativePath} already exists`, { cause: err })
     }
     throw err
   }

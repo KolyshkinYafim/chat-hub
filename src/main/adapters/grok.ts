@@ -308,6 +308,7 @@ export class GrokAdapter implements AgentAdapter {
 
     state.proc = proc
     await proc.done
+    // eslint-disable-next-line @typescript-eslint/await-thenable -- assigned inside the onStdoutLine closure, which control-flow analysis can't see
     if (continuation) await continuation
   }
 

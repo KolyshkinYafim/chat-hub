@@ -795,7 +795,7 @@ export class BrowserControl {
     return { x: Math.round(width / 2), y: Math.round(height / 2) }
   }
 
-  private pageState(guest: GuestLike): Record<string, unknown> {
+  private pageState(guest: GuestLike): { url: string; title: string } {
     return { url: this.safeUrl(guest), title: this.safeTitle(guest) }
   }
 
@@ -816,7 +816,7 @@ export class BrowserControl {
   }
 
   private liveGuest(binding: Binding): GuestLike | null {
-    let guest: GuestLike | null = null
+    let guest: GuestLike | null
     try {
       guest = this.resolveGuest(binding.webContentsId)
     } catch {
@@ -867,6 +867,7 @@ export class BrowserControl {
     } catch (err) {
       throw new Error(
         `Could not record network traffic: ${errorMessage(err)}. Close any other debugger attached to this page (DevTools counts) and try again.`,
+        { cause: err },
       )
     }
     const listener = (...args: unknown[]) => {

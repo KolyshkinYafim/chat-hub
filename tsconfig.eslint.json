@@ -1,0 +1,33 @@
+{
+  // Union program for type-aware linting only — `pnpm typecheck` still uses
+  // the stricter per-target tsconfigs. Covers tests/, which no build tsconfig
+  // includes.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["src/shared/*"],
+      "@renderer/*": ["src/renderer/src/*"]
+    }
+  },
+  // Explicit because include-globs shadow a .d.ts when a sibling .ts exists —
+  // without it `window.chatHub` is untyped and unsafe-* rules cascade.
+  "files": ["src/preload/index.d.ts"],
+  "include": [
+    "electron.vite.config.ts",
+    "vitest.config.ts",
+    "src/**/*",
+    "tests/**/*"
+  ]
+}

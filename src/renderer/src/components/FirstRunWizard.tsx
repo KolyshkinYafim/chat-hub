@@ -310,9 +310,10 @@ export function FirstRunWizard({ onFinish }: Props) {
                   <button
                     type="button"
                     className="tb-btn"
-                    onClick={async () => {
-                      const p = await window.chatHub.pickFolder()
-                      if (p) setCwd(p)
+                    onClick={() => {
+                      void window.chatHub.pickFolder().then((p) => {
+                        if (p) setCwd(p)
+                      })
                     }}
                   >
                     Browse…

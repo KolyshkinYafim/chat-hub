@@ -260,7 +260,7 @@ async function waitForGrokTrustWriter(lockPath: string): Promise<void> {
 }
 
 async function trustLockHeld(lockPath: string): Promise<boolean> {
-  let holder = ""
+  let holder: string
   try {
     holder = (await readFile(lockPath, "utf8")).trim()
   } catch {

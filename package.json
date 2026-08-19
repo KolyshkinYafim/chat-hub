@@ -17,7 +17,8 @@
     "status:mac": "./packaging/app-status.sh",
     "generate:codex-protocol": "codex app-server generate-ts --out src/main/codex-protocol/generated",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",
@@ -31,6 +32,7 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^26.1.1",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
@@ -38,8 +40,12 @@
     "electron": "^35.2.1",
     "electron-builder": "^25.1.8",
     "electron-vite": "^3.1.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.11.0",
     "jsdom": "^30.0.1",
     "typescript": "^5.8.3",
+    "typescript-eslint": "^8.67.0",
     "vite": "^6.3.3",
     "vitest": "^3.2.7"
   },

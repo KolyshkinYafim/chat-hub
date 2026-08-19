@@ -279,6 +279,13 @@ export function SettingsModal({
     return () => window.removeEventListener("keydown", onKey)
   }, [open, onClose])
 
+  // Keep the editable copy in sync with what's persisted; fall back to the
+  // seeded defaults until the user has saved any of their own. (Lives above
+  // the early return so hooks run unconditionally.)
+  useEffect(() => {
+    setModesDraft(general.modes?.length ? general.modes : DEFAULT_MODES)
+  }, [general.modes])
+
   if (!open) return null
 
   async function login(id: ProviderId) {
@@ -540,12 +547,6 @@ export function SettingsModal({
       setError(err instanceof Error ? err.message : String(err))
     }
   }
-
-  // Keep the editable copy in sync with what's persisted; fall back to the
-  // seeded defaults until the user has saved any of their own.
-  useEffect(() => {
-    setModesDraft(general.modes?.length ? general.modes : DEFAULT_MODES)
-  }, [general.modes])
 
   /** Live text edits stay local; callers persist on blur / structural change. */
   function editMode(id: string, patch: Partial<Mode>) {

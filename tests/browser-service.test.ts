@@ -58,7 +58,7 @@ afterEach(async () => {
 describe("BrowserService", () => {
   it("passes a request straight through when the surface is already attached", async () => {
     const open = vi.fn()
-    const { service, executor } = await makeService(open)
+    const { service } = await makeService(open)
     service.attach("s1", 7)
     await expect(service.handle(request())).resolves.toEqual({
       id: "r1",

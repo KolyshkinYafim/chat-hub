@@ -1,5 +1,7 @@
 # Chat Hub
 
+[![CI](https://github.com/KolyshkinYafim/chat-hub/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/KolyshkinYafim/chat-hub/actions/workflows/ci.yml)
+
 Chat Hub is a desktop cockpit for AI coding agents: one window that runs Claude Code, Codex, Grok and OpenCode sessions side by side, each in its own project and, optionally, its own git worktree. Around the transcript it adds the working context a coding session actually needs — files, terminal, browser, diffs, a project board — and it stays wired into Session Monitor, the Swift menu-bar app in the sibling repo, so session status and permission prompts follow you outside the window.
 
 Electron · TypeScript · React · pnpm — macOS first.

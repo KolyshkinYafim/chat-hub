@@ -194,7 +194,7 @@ export function mirrorToIsland(
     settle = resolve
   })
 
-  let socket: Socket | null = null
+  let socket: Socket | null
   try {
     socket = connect(socketPath)
   } catch {

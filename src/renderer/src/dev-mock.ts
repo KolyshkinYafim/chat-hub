@@ -482,7 +482,7 @@ let mockMcpServers: McpServerDef[] = [
     envKeys: [],
   },
 ]
-let mockMcpEnvKeys: Record<string, string[]> = {}
+const mockMcpEnvKeys: Record<string, string[]> = {}
 
 let mockBoard: Board = {
   todos: [
