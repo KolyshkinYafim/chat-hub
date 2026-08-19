@@ -34,6 +34,8 @@ import {
   type TranscriptHit,
 } from "@shared/search"
 import { createSessionWorktree, removeSessionWorktree } from "./git"
+import { heuristicTitle, looksDefaultTitle } from "@shared/title"
+import { generateTitle } from "./title-llm"
 
 /** Live window size; older turns spill into MessageArchive, not the void. */
 export const MAX_MESSAGES_PER_SESSION = 200
@@ -64,6 +66,11 @@ const WATCHDOG: WatchdogConfig = {
 /** Queue entry: the shared QueuedMessage the UI renders plus its send opts. */
 type QueuedTurn = { id: string; content: string; createdAt: number; opts?: SendOpts }
 
+export type TitleGenerator = (
+  userMessage: string,
+  assistantExcerpt: string,
+) => Promise<string | null>
+
 export class SessionManager {
   private sessions = new Map<string, SessionMeta>()
   private messages = new Map<string, ChatMessage[]>()
@@ -86,6 +93,9 @@ export class SessionManager {
   /** Preserve archive order and let an immediate scroll-back wait for its write. */
   private archiveWrites = new Map<string, Promise<void>>()
   private inputStatusWired = false
+  private readonly generateTitleFn: TitleGenerator
+  /** Sessions whose one automatic LLM refinement already ran (or is running). */
+  private titleRefined = new Set<string>()
 
   constructor(
     private readonly bus: EventBus,
@@ -94,7 +104,11 @@ export class SessionManager {
     private readonly notifications: NotificationService,
     private readonly settings: SettingsStore,
     private readonly watchdog: WatchdogConfig = WATCHDOG,
-    opts?: { archive?: MessageArchive; maxMessages?: number },
+    opts?: {
+      archive?: MessageArchive
+      maxMessages?: number
+      titleGenerator?: TitleGenerator
+    },
   ) {
     // Prompt hooks re-enter sendMessage so they share the normal queue (never
     // touch SessionMeta). Fire-and-forget from the runner; turn_done hooks that
@@ -106,6 +120,8 @@ export class SessionManager {
     this.archive =
       opts?.archive ?? MessageArchive.fromStatePath(this.persistence.filePath)
     this.maxMessages = opts?.maxMessages ?? MAX_MESSAGES_PER_SESSION
+    this.generateTitleFn =
+      opts?.titleGenerator ?? ((user, assistant) => generateTitle(user, assistant))
   }
 
   /**
@@ -321,16 +337,101 @@ export class SessionManager {
   }
 
   setSessionTitle(sessionId: string, title: string): SessionMeta {
-    const session = this.sessions.get(sessionId)
-    if (!session) throw new Error("Session not found")
     const t = title.trim()
     if (!t) throw new Error("Title required")
-    const next = { ...session, title: t, updatedAt: Date.now() }
+    return this.applyTitle(sessionId, t, "user")
+  }
+
+  /** A rename the user typed; from here on auto-titling keeps its hands off. */
+  renameSession(sessionId: string, title: string): SessionMeta {
+    return this.setSessionTitle(sessionId, title)
+  }
+
+  /**
+   * User-forced LLM pass. Allowed for any session — including a hand-renamed
+   * one — but the result is an "auto" title again, so later renames stay sacred.
+   */
+  async regenerateTitle(sessionId: string): Promise<SessionMeta> {
+    const session = this.sessions.get(sessionId)
+    if (!session) throw new Error("Session not found")
+    const exchange = this.firstExchange(sessionId)
+    if (!exchange) return session
+    this.titleRefined.add(sessionId)
+    const title = await this.generateTitleFn(exchange.user, exchange.assistant)
+    const current = this.sessions.get(sessionId)
+    if (!current) throw new Error("Session not found")
+    if (!title) return current
+    return this.applyTitle(sessionId, title, "auto")
+  }
+
+  private applyTitle(
+    sessionId: string,
+    title: string,
+    titleOrigin: "auto" | "user",
+  ): SessionMeta {
+    const session = this.sessions.get(sessionId)
+    if (!session) throw new Error("Session not found")
+    const next: SessionMeta = {
+      ...session,
+      title,
+      titleOrigin,
+      updatedAt: Date.now(),
+    }
     this.sessions.set(sessionId, next)
     this.publishSessionEvent({ type: "session.upsert", session: next })
     this.bus.emit({ type: "sessions.replaced", sessions: this.listSessions() })
     this.scheduleSave()
     return next
+  }
+
+  private titleOriginOf(session: SessionMeta): "default" | "auto" | "user" {
+    return (
+      session.titleOrigin ??
+      (looksDefaultTitle(session.title) ? "default" : "user")
+    )
+  }
+
+  private maybeAutoTitle(sessionId: string, content: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    if (this.titleOriginOf(session) !== "default") return
+    const userMessages = (this.messages.get(sessionId) ?? []).filter(
+      (m) => m.role === "user",
+    )
+    if (userMessages.length !== 1) return
+    const title = heuristicTitle(content)
+    if (!title) return
+    this.applyTitle(sessionId, title, "auto")
+  }
+
+  private maybeRefineTitle(sessionId: string): void {
+    if (this.titleRefined.has(sessionId)) return
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    if (this.titleOriginOf(session) === "user") return
+    const exchange = this.firstExchange(sessionId)
+    if (!exchange) return
+    this.titleRefined.add(sessionId)
+    void this.generateTitleFn(exchange.user, exchange.assistant)
+      .then((title) => {
+        if (!title) return
+        const current = this.sessions.get(sessionId)
+        if (!current || this.titleOriginOf(current) === "user") return
+        this.applyTitle(sessionId, title, "auto")
+      })
+      .catch(() => undefined)
+  }
+
+  private firstExchange(
+    sessionId: string,
+  ): { user: string; assistant: string } | null {
+    const list = this.messages.get(sessionId) ?? []
+    const userIdx = list.findIndex((m) => m.role === "user")
+    if (userIdx === -1) return null
+    const assistant = list
+      .slice(userIdx + 1)
+      .find((m) => m.role === "assistant")
+    return { user: list[userIdx].content, assistant: assistant?.content ?? "" }
   }
 
   async init(): Promise<void> {
@@ -532,6 +633,7 @@ export class SessionManager {
     const session: SessionMeta = {
       id,
       title: input.title?.trim() || defaultTitle(provider, project, now),
+      titleOrigin: input.title?.trim() ? "user" : "default",
       project,
       provider,
       instanceId,
@@ -628,6 +730,7 @@ export class SessionManager {
       role: "user",
       preview: `${userContent}${attachPreview}`.slice(0, 160),
     })
+    this.maybeAutoTitle(sessionId, userContent)
 
     // turns.has() as well as the status: dispatch() registers the turn
     // synchronously, while "running" only arrives once the adapter says so — two
@@ -678,6 +781,7 @@ export class SessionManager {
           this.applyStatus(sessionId, "idle")
         }
         this.flushQueued(sessionId)
+        this.maybeRefineTitle(sessionId)
       })
       .catch((err) => {
         this.turns.delete(sessionId)
@@ -906,6 +1010,7 @@ export class SessionManager {
     this.turns.delete(sessionId)
     this.queued.delete(sessionId)
     this.usage.delete(sessionId)
+    this.titleRefined.delete(sessionId)
     await this.discardArchive(sessionId)
     this.hooks.clearSession(sessionId)
     // The CLI is dead, so nothing is left to answer its permission any more.
@@ -947,6 +1052,7 @@ export class SessionManager {
     this.turns.clear()
     this.queued.clear()
     this.usage.clear()
+    this.titleRefined.clear()
     for (const id of ids) await this.discardArchive(id)
     for (const id of ids) this.hooks.clearSession(id)
     this.activeSessionId = null

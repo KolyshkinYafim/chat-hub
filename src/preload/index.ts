@@ -263,6 +263,12 @@ const api = {
     ipcRenderer.invoke(IpcChannels.setSessionPermission, sessionId, mode),
   setSessionTitle: (sessionId: string, title: string): Promise<SessionMeta> =>
     ipcRenderer.invoke(IpcChannels.setSessionTitle, sessionId, title),
+  /** Marks the title user-owned so auto-titling never overwrites it. */
+  renameSession: (sessionId: string, title: string): Promise<SessionMeta> =>
+    ipcRenderer.invoke(IpcChannels.sessionRename, sessionId, title),
+  /** Fresh LLM title pass; resolves with the (possibly unchanged) session. */
+  regenerateTitle: (sessionId: string): Promise<SessionMeta> =>
+    ipcRenderer.invoke(IpcChannels.sessionRegenerateTitle, sessionId),
   pickFiles: (): Promise<string[]> =>
     ipcRenderer.invoke(IpcChannels.pickFiles),
   inspectAttachments: (paths: string[]): Promise<MessageAttachment[]> =>
