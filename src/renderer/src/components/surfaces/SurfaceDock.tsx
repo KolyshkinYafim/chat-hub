@@ -135,6 +135,7 @@ export function SurfaceDock({
           <TerminalSurface
             key={session.id}
             cwd={session.cwd}
+            sessionId={session.id}
             hookRuns={hookRuns}
           />
         ) : null}
