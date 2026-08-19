@@ -49,7 +49,6 @@ export const IpcChannels = {
   setSessionModel: "session:set-model",
   applySessionMode: "session:apply-mode",
   setSessionPermission: "session:set-permission",
-  setSessionTitle: "session:set-title",
   sessionSetSettled: "session:set-settled",
   sessionSetArchived: "session:set-archived",
   sessionMigrateArchived: "session:migrate-archived",

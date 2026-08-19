@@ -1,59 +1,37 @@
 import type { PickTarget } from "./pick-script"
+import { createSessionListStore } from "./session-list-store"
 
 export type PreviewPick = PickTarget & { id: string; note: string }
 
 export type PreviewPickInput = Omit<PreviewPick, "id">
 
-const store = new Map<string, PreviewPick[]>()
-const listeners = new Set<() => void>()
-
-let nextId = 0
-
-function notify(): void {
-  for (const listener of [...listeners]) listener()
-}
+const store = createSessionListStore<PreviewPick>("pp")
 
 export function addPick(
   sessionId: string,
   input: PreviewPickInput,
 ): PreviewPick {
-  nextId += 1
-  const pick: PreviewPick = { id: `pp-${nextId}`, ...input }
-  store.set(sessionId, [...(store.get(sessionId) ?? []), pick])
-  notify()
-  return pick
+  return store.add(sessionId, input)
 }
 
 export function removePick(sessionId: string, id: string): void {
-  const existing = store.get(sessionId)
-  if (!existing?.some((p) => p.id === id)) return
-  const remaining = existing.filter((p) => p.id !== id)
-  if (remaining.length === 0) store.delete(sessionId)
-  else store.set(sessionId, remaining)
-  notify()
+  store.remove(sessionId, id)
 }
 
 export function listPicks(sessionId: string): PreviewPick[] {
-  return [...(store.get(sessionId) ?? [])]
+  return store.list(sessionId)
 }
 
 export function clearPicks(sessionId: string): void {
-  if (!store.has(sessionId)) return
-  store.delete(sessionId)
-  notify()
+  store.clear(sessionId)
 }
 
 export function onPreviewPicksChanged(cb: () => void): () => void {
-  listeners.add(cb)
-  return () => {
-    listeners.delete(cb)
-  }
+  return store.subscribe(cb)
 }
 
 export function prunePreviewPicks(liveSessionIds: ReadonlySet<string>): void {
-  for (const sessionId of [...store.keys()]) {
-    if (!liveSessionIds.has(sessionId)) store.delete(sessionId)
-  }
+  store.prune(liveSessionIds)
 }
 
 function labelFor(pick: PreviewPick): string {

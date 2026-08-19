@@ -271,8 +271,6 @@ const api = {
     mode: PermissionMode | undefined,
   ): Promise<SessionMeta> =>
     ipcRenderer.invoke(IpcChannels.setSessionPermission, sessionId, mode),
-  setSessionTitle: (sessionId: string, title: string): Promise<SessionMeta> =>
-    ipcRenderer.invoke(IpcChannels.setSessionTitle, sessionId, title),
   setSessionSettled: (
     sessionId: string,
     settled: boolean,

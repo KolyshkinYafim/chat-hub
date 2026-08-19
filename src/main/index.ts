@@ -985,17 +985,6 @@ function registerIpc(
   )
 
   ipcMain.handle(
-    IpcChannels.setSessionTitle,
-    (_e, sessionId: unknown, title: unknown) => {
-      if (typeof sessionId !== "string" || !sessionId) {
-        throw new Error("Invalid sessionId")
-      }
-      if (typeof title !== "string") throw new Error("Invalid title")
-      return sm.setSessionTitle(sessionId, title)
-    },
-  )
-
-  ipcMain.handle(
     IpcChannels.sessionSetSettled,
     (_e, sessionId: unknown, settled: unknown) => {
       if (typeof sessionId !== "string" || !sessionId) {

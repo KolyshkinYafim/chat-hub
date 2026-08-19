@@ -52,8 +52,9 @@ vi.mock("../src/main/adapters", () => ({
   listProviderInfo: () => [],
 }))
 
-const { UsageLedger, dayKey, mergeLedgerEntry, rollupWindows, seedFromSessions } =
+const { UsageLedger, mergeLedgerEntry, rollupWindows, seedFromSessions } =
   await import("../src/main/usage-ledger")
+const { dayKey } = await import("../src/shared/day")
 const { SessionManager } = await import("../src/main/session-manager")
 const { EventBus } = await import("../src/main/event-bus")
 const { Persistence } = await import("../src/main/persistence")

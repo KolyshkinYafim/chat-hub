@@ -977,10 +977,7 @@ export default function App() {
     const next = window.prompt("Rename session", activeSession.title)
     if (!next?.trim()) return
     try {
-      const s = await window.chatHub.setSessionTitle(
-        activeSession.id,
-        next.trim(),
-      )
+      const s = await window.chatHub.renameSession(activeSession.id, next.trim())
       setSessions((curr) => curr.map((x) => (x.id === s.id ? s : x)))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

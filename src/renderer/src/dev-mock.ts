@@ -862,8 +862,6 @@ export function installDevMock(): void {
     getBridgePath: async () => dataPaths.bridgePath,
     getDataPaths: async () => dataPaths,
     usageSummary: async () => mockUsageSummary,
-    scriptsList: async () => ({ scripts: [], updatedAt: now }),
-    scriptsSave: async (_cwd, scripts) => ({ scripts, updatedAt: now }),
     getGitInfo: async () => ({ branch: "main", dirty: true, root: projects[0].cwd }),
     setActiveSession: async () => snapshot,
     setPermissionMode: async (m) => ({ permissionMode: m }),
@@ -890,7 +888,6 @@ export function installDevMock(): void {
       s.permissionMode = mode
       return s
     },
-    setSessionTitle: async (id) => sessions.find((s) => s.id === id)!,
     setSessionSettled: async (id, settled) => {
       const s = sessions.find((x) => x.id === id)!
       if (settled) {

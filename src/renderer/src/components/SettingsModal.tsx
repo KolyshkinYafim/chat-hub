@@ -28,6 +28,7 @@ import {
   THEME_TOKENS,
 } from "@shared/theme"
 import type { ThemeDef, ThemeToken } from "@shared/theme"
+import { DAY_MS, dayKey } from "@shared/day"
 import { applyTheme } from "../lib/theme-apply"
 import type {
   McpServerDef,
@@ -166,15 +167,6 @@ const NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "advanced", label: "Advanced", icon: "…" },
 ]
 
-const DAY_MS = 86_400_000
-
-function localDay(ts: number): string {
-  const d = new Date(ts)
-  const month = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${d.getFullYear()}-${month}-${day}`
-}
-
 type UsageGroup = {
   label: string
   inputTokens: number
@@ -285,7 +277,7 @@ function UsageBarList({
 function UsageDayStrip({ entries }: { entries: UsageLedgerEntry[] }) {
   const nowTs = Date.now()
   const totals = Array.from({ length: 14 }, (_, i) => {
-    const day = localDay(nowTs - (13 - i) * DAY_MS)
+    const day = dayKey(nowTs - (13 - i) * DAY_MS)
     let costUsd = 0
     let tokens = 0
     let turns = 0
@@ -2143,7 +2135,7 @@ export function SettingsModal({
                       title="By provider · 30 days"
                       groups={groupUsage(
                         usageSummary.entries.filter(
-                          (e) => e.day >= localDay(Date.now() - 29 * DAY_MS),
+                          (e) => e.day >= dayKey(Date.now() - 29 * DAY_MS),
                         ),
                         (e) => e.provider,
                         8,
@@ -2153,7 +2145,7 @@ export function SettingsModal({
                       title="By model · 30 days"
                       groups={groupUsage(
                         usageSummary.entries.filter(
-                          (e) => e.day >= localDay(Date.now() - 29 * DAY_MS),
+                          (e) => e.day >= dayKey(Date.now() - 29 * DAY_MS),
                         ),
                         (e) => e.model,
                         8,

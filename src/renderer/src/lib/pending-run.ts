@@ -1,37 +1,73 @@
 type PendingListener = (sessionId: string) => void
 
-const terminalCommands = new Map<string, string>()
-const terminalListeners = new Set<PendingListener>()
-const browserUrls = new Map<string, string>()
-const browserListeners = new Set<PendingListener>()
-
-function notify(listeners: Set<PendingListener>, sessionId: string): void {
-  for (const listener of [...listeners]) listener(sessionId)
+type Handoff = {
+  stash: (sessionId: string, value: string) => void
+  peek: (sessionId: string) => string | null
+  take: (sessionId: string) => string | null
+  clear: (sessionId: string) => void
+  subscribe: (cb: PendingListener) => () => void
+  prune: (liveSessionIds: ReadonlySet<string>) => void
 }
+
+/**
+ * One value in flight from a click to the surface that will act on it. The
+ * surface may not be mounted when the click happens (the dock shows one at a
+ * time), so the value waits here and the listener wakes whichever surface is
+ * already up.
+ */
+function createHandoff(): Handoff {
+  const values = new Map<string, string>()
+  const listeners = new Set<PendingListener>()
+
+  return {
+    stash(sessionId, value) {
+      values.set(sessionId, value)
+      for (const listener of [...listeners]) listener(sessionId)
+    },
+    peek(sessionId) {
+      return values.get(sessionId) ?? null
+    },
+    take(sessionId) {
+      const value = values.get(sessionId) ?? null
+      values.delete(sessionId)
+      return value
+    },
+    clear(sessionId) {
+      values.delete(sessionId)
+    },
+    subscribe(cb) {
+      listeners.add(cb)
+      return () => {
+        listeners.delete(cb)
+      }
+    },
+    prune(liveSessionIds) {
+      for (const sessionId of [...values.keys()]) {
+        if (!liveSessionIds.has(sessionId)) values.delete(sessionId)
+      }
+    },
+  }
+}
+
+const terminal = createHandoff()
+const browser = createHandoff()
 
 /** Hand a script command to the session's terminal surface (mounted or not). */
 export function stashTerminalCommand(sessionId: string, command: string): void {
-  terminalCommands.set(sessionId, command)
-  notify(terminalListeners, sessionId)
+  terminal.stash(sessionId, command)
 }
 
 export function takeTerminalCommand(sessionId: string): string | null {
-  const command = terminalCommands.get(sessionId) ?? null
-  terminalCommands.delete(sessionId)
-  return command
+  return terminal.take(sessionId)
 }
 
 export function onPendingTerminalCommand(cb: PendingListener): () => void {
-  terminalListeners.add(cb)
-  return () => {
-    terminalListeners.delete(cb)
-  }
+  return terminal.subscribe(cb)
 }
 
 /** Hand a preview URL to the session's browser surface (mounted or not). */
 export function stashBrowserUrl(sessionId: string, url: string): void {
-  browserUrls.set(sessionId, url)
-  notify(browserListeners, sessionId)
+  browser.stash(sessionId, url)
 }
 
 /**
@@ -39,25 +75,18 @@ export function stashBrowserUrl(sessionId: string, url: string): void {
  * under StrictMode) and clears from an effect once the URL has been applied.
  */
 export function peekBrowserUrl(sessionId: string): string | null {
-  return browserUrls.get(sessionId) ?? null
+  return browser.peek(sessionId)
 }
 
 export function clearBrowserUrl(sessionId: string): void {
-  browserUrls.delete(sessionId)
+  browser.clear(sessionId)
 }
 
 export function onPendingBrowserUrl(cb: PendingListener): () => void {
-  browserListeners.add(cb)
-  return () => {
-    browserListeners.delete(cb)
-  }
+  return browser.subscribe(cb)
 }
 
 export function prunePendingRuns(liveSessionIds: ReadonlySet<string>): void {
-  for (const sessionId of [...terminalCommands.keys()]) {
-    if (!liveSessionIds.has(sessionId)) terminalCommands.delete(sessionId)
-  }
-  for (const sessionId of [...browserUrls.keys()]) {
-    if (!liveSessionIds.has(sessionId)) browserUrls.delete(sessionId)
-  }
+  terminal.prune(liveSessionIds)
+  browser.prune(liveSessionIds)
 }

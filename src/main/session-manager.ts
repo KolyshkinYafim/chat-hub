@@ -476,15 +476,11 @@ export class SessionManager {
     this.scheduleSave()
   }
 
-  setSessionTitle(sessionId: string, title: string): SessionMeta {
+  /** A rename the user typed; from here on auto-titling keeps its hands off. */
+  renameSession(sessionId: string, title: string): SessionMeta {
     const t = title.trim()
     if (!t) throw new Error("Title required")
     return this.applyTitle(sessionId, t, "user")
-  }
-
-  /** A rename the user typed; from here on auto-titling keeps its hands off. */
-  renameSession(sessionId: string, title: string): SessionMeta {
-    return this.setSessionTitle(sessionId, title)
   }
 
   /**
