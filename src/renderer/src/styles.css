@@ -7096,3 +7096,291 @@ select:focus-visible {
   background: color-mix(in srgb, var(--accent-2) 22%, transparent);
   transition: background 600ms ease;
 }
+
+/* ===== themes ===== */
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 22px;
+}
+
+.theme-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg-elevated);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color var(--speed-fast) ease;
+}
+
+.theme-card:hover {
+  border-color: var(--border-strong);
+}
+
+.theme-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.theme-swatches {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.theme-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  flex: none;
+}
+
+.theme-card-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.theme-card.active .theme-card-name {
+  color: var(--text);
+}
+
+.theme-del {
+  color: var(--text-faint);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.theme-del:hover {
+  color: var(--danger);
+}
+
+.theme-editor {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 4px 18px;
+  margin-bottom: 16px;
+}
+
+.theme-token-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.theme-token-name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.theme-token-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  flex: none;
+}
+
+.theme-token-row input[type="color"] {
+  width: 26px;
+  height: 22px;
+  padding: 1px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-elevated);
+  cursor: pointer;
+  flex: none;
+}
+
+.theme-token-hex {
+  width: 92px;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  flex: none;
+}
+
+.theme-token-hex:focus {
+  border-color: var(--accent-2);
+  outline: none;
+}
+
+.theme-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.theme-name-input {
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 12px;
+  width: 160px;
+}
+
+.theme-name-input:focus {
+  border-color: var(--accent-2);
+  outline: none;
+}
+
+.theme-import {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.theme-import textarea {
+  flex: 1;
+  resize: vertical;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  min-height: 58px;
+}
+
+.theme-import textarea:focus {
+  border-color: var(--accent-2);
+  outline: none;
+}
+
+:root .settings-root {
+  background: var(--bg);
+}
+
+:root .settings-nav {
+  background: var(--bg-sidebar);
+}
+
+:root .modal-panel {
+  background: var(--bg-elevated);
+}
+
+:root .tool-card,
+:root .plan-card,
+:root .tool-run,
+:root .attachment-preview {
+  background: var(--code-bg);
+}
+
+:root .md-diff,
+:root .tool-output,
+:root .diff-card,
+:root .changed-files {
+  background: color-mix(in srgb, var(--code-bg) 60%, var(--bg));
+}
+
+:root .send-btn {
+  background: var(--text);
+  color: var(--bg);
+}
+
+:root .send-btn.queueing {
+  background: #c5ccff;
+  color: #111;
+}
+
+:root.theme-light {
+  color-scheme: light;
+}
+
+:root.theme-light .md-inline-code,
+:root.theme-light .queued-tag,
+:root.theme-light .select-chip.mode-on,
+:root.theme-light .perm-chip.perm-acceptEdits,
+:root.theme-light .tb-btn.primary-soft {
+  color: var(--accent-2);
+}
+
+:root.theme-light .md-code,
+:root.theme-light .md-mermaid-source,
+:root.theme-light .tool-body,
+:root.theme-light .tool-args {
+  color: var(--text-secondary);
+}
+
+:root.theme-light .path-code,
+:root.theme-light .tok-punct {
+  color: var(--text-muted);
+}
+
+:root.theme-light .perm-chip.perm-yolo,
+:root.theme-light .auth-badge.warn,
+:root.theme-light .onboard-strip,
+:root.theme-light .onboard-strip .link-btn,
+:root.theme-light .onboard-close {
+  color: var(--waiting);
+}
+
+:root.theme-light .auth-badge.ok,
+:root.theme-light .plan-mark.done {
+  color: var(--ok);
+}
+
+:root.theme-light .auth-badge.err,
+:root.theme-light .tb-btn.danger,
+:root.theme-light .tool-card.failed .tool-title {
+  color: var(--danger);
+}
+
+:root.theme-light .diff-line.add {
+  color: #1c7a48;
+}
+
+:root.theme-light .diff-line.del {
+  color: #b23842;
+}
+
+:root.theme-light .activity-diff {
+  color: #5a7040;
+}
+
+:root.theme-light .tok-keyword {
+  color: #8a3fc4;
+}
+
+:root.theme-light .tok-type {
+  color: #12758f;
+}
+
+:root.theme-light .tok-string {
+  color: #47761c;
+}
+
+:root.theme-light .tok-number {
+  color: #a85f12;
+}
+
+:root.theme-light .row-act:hover,
+:root.theme-light .auth-badge.muted {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+:root.theme-light .code-editor .cm-activeLine,
+:root.theme-light .settled-banner {
+  background: rgba(0, 0, 0, 0.035);
+}

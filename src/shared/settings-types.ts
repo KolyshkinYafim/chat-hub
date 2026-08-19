@@ -1,5 +1,6 @@
 import type { ProviderId } from "./types"
 import type { PermissionMode } from "./permission"
+import type { ThemeDef } from "./theme"
 
 export type AuthState =
   | "connected"
@@ -104,6 +105,10 @@ export type GeneralConfig = {
   onboarded?: boolean
   /** User-defined mode presets; falls back to DEFAULT_MODES when unset. */
   modes?: Mode[]
+  /** Active theme id; unset = Midnight (the stylesheet's own palette). */
+  themeId?: string
+  /** User-saved themes from the Appearance editor / JSON import. */
+  customThemes?: ThemeDef[]
 }
 
 /**
