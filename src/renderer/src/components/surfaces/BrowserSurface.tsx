@@ -5,10 +5,29 @@ import {
   onPendingBrowserUrl,
   peekBrowserUrl,
 } from "../../lib/pending-run"
+import { stashComposerInsert } from "../../lib/pending-prompt"
+import {
+  disablePickScript,
+  enablePickScript,
+  readPickScript,
+  type PickTarget,
+} from "../../lib/pick-script"
+import {
+  addPick,
+  buildPickMessage,
+  clearPicks,
+  listPicks,
+  onPreviewPicksChanged,
+  removePick,
+} from "../../lib/preview-picks"
 
 const DEFAULT_URL = "http://localhost:5173"
 
 const ACTIVITY_FADE_MS = 4000
+
+const PICK_POLL_MS = 300
+
+const PICK_LABEL_CHARS = 32
 
 type WebviewElement = HTMLElement & {
   src: string
@@ -21,6 +40,7 @@ type WebviewElement = HTMLElement & {
   goForward: () => void
   canGoBack: () => boolean
   canGoForward: () => boolean
+  executeJavaScript: (code: string) => Promise<unknown>
 }
 
 function normalizeUrl(input: string): string | null {
@@ -44,6 +64,24 @@ function activityLabel(activity: BrowserActivity): string {
     : `${activity.summary} — failed`
 }
 
+function pickChipLabel(pick: { tag: string; text: string }): string {
+  if (pick.text === "") return pick.tag
+  const preview =
+    pick.text.length > PICK_LABEL_CHARS
+      ? `${pick.text.slice(0, PICK_LABEL_CHARS)}…`
+      : pick.text
+  return `${pick.tag} · ${preview}`
+}
+
+function looksLikePick(value: unknown): value is PickTarget {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { selector?: unknown }).selector === "string" &&
+    typeof (value as { tag?: unknown }).tag === "string"
+  )
+}
+
 type Props = {
   sessionId: string
 }
@@ -64,6 +102,61 @@ export function BrowserSurface({ sessionId }: Props) {
   const [attached, setAttached] = useState(false)
   const [activity, setActivity] = useState<BrowserActivity | null>(null)
   const [fallbackNonce, setFallbackNonce] = useState(0)
+  const [picking, setPicking] = useState(false)
+  const [pendingPick, setPendingPick] = useState<PickTarget | null>(null)
+  const [note, setNote] = useState("")
+  const [, bumpPicks] = useState(0)
+
+  useEffect(() => onPreviewPicksChanged(() => bumpPicks((v) => v + 1)), [])
+  const picks = listPicks(sessionId)
+
+  useEffect(() => {
+    const view = viewRef.current
+    if (!picking || !embedded || !view) return
+    const enable = () => {
+      void view.executeJavaScript(enablePickScript()).catch(() => {})
+    }
+    enable()
+    const timer = window.setInterval(() => {
+      void view
+        .executeJavaScript(readPickScript())
+        .then((result) => {
+          if (!looksLikePick(result)) return
+          setPendingPick(result)
+          setNote("")
+        })
+        .catch(() => {})
+    }, PICK_POLL_MS)
+    view.addEventListener("dom-ready", enable)
+    view.addEventListener("did-navigate", enable)
+    return () => {
+      window.clearInterval(timer)
+      view.removeEventListener("dom-ready", enable)
+      view.removeEventListener("did-navigate", enable)
+      void view.executeJavaScript(disablePickScript()).catch(() => {})
+    }
+  }, [picking, embedded])
+
+  const savePendingPick = useCallback(() => {
+    if (pendingPick === null) return
+    const trimmed = note.trim()
+    if (trimmed === "") return
+    addPick(sessionId, { ...pendingPick, note: trimmed })
+    setPendingPick(null)
+    setNote("")
+  }, [pendingPick, note, sessionId])
+
+  const discardPendingPick = useCallback(() => {
+    setPendingPick(null)
+    setNote("")
+  }, [])
+
+  const sendPicks = useCallback(() => {
+    const message = buildPickMessage(url, listPicks(sessionId))
+    if (message === null) return
+    stashComposerInsert(sessionId, message)
+    clearPicks(sessionId)
+  }, [url, sessionId])
 
   useEffect(() => {
     const view = viewRef.current
@@ -199,6 +292,22 @@ export function BrowserSurface({ sessionId }: Props) {
             onChange={(e) => setDraft(e.target.value)}
           />
         </form>
+        <button
+          type="button"
+          className={`surface-pick-toggle ${picking ? "on" : ""}`}
+          disabled={!embedded}
+          aria-pressed={picking}
+          title={
+            embedded
+              ? picking
+                ? "Stop picking elements"
+                : "Pick an element on the page to annotate"
+              : "Picking needs the embedded browser"
+          }
+          onClick={() => setPicking((v) => !v)}
+        >
+          pick
+        </button>
         <span
           className={`surface-browser-agent ${attached ? "live" : ""}`}
           title={
@@ -210,6 +319,54 @@ export function BrowserSurface({ sessionId }: Props) {
           {attached ? "agent ready" : "agent off"}
         </span>
       </div>
+      {pendingPick !== null || picks.length > 0 ? (
+        <div className="surface-pick-strip">
+          {picks.map((pick) => (
+            <span
+              key={pick.id}
+              className="surface-pick-chip"
+              title={`${pick.selector}\n${pick.note}`}
+            >
+              <span className="surface-pick-chip-label">
+                {pickChipLabel(pick)}
+              </span>
+              <button
+                type="button"
+                className="surface-pick-chip-remove"
+                title="Remove this note"
+                onClick={() => removePick(sessionId, pick.id)}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          {pendingPick !== null ? (
+            <div className="surface-pick-editor">
+              <span className="surface-pick-target" title={pendingPick.selector}>
+                {pickChipLabel(pendingPick)}
+              </span>
+              <input
+                autoFocus
+                className="surface-pick-input"
+                value={note}
+                spellCheck={false}
+                placeholder="Note for the agent — Enter saves, Esc discards"
+                aria-label="Annotation for the picked element"
+                onChange={(e) => setNote(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault()
+                    savePendingPick()
+                  } else if (e.key === "Escape") {
+                    e.preventDefault()
+                    discardPendingPick()
+                  }
+                }}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       {activity ? (
         <div
           className={`surface-browser-activity ${activity.ok ? "" : "failed"}`}
@@ -235,6 +392,29 @@ export function BrowserSurface({ sessionId }: Props) {
           />
         )}
       </div>
+      {picks.length > 0 ? (
+        <footer className="dcm-footer">
+          <span className="dcm-footer-count">
+            {picks.length} pick{picks.length === 1 ? "" : "s"}
+          </span>
+          <button
+            type="button"
+            className="tb-btn primary dcm-footer-send"
+            title="Put the batch in the composer for review — nothing sends until you do"
+            onClick={sendPicks}
+          >
+            Send to agent
+          </button>
+          <button
+            type="button"
+            className="tb-btn"
+            title="Drop all pending picks"
+            onClick={() => clearPicks(sessionId)}
+          >
+            Clear
+          </button>
+        </footer>
+      ) : null}
     </div>
   )
 }
