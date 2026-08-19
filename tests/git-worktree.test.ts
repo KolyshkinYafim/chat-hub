@@ -14,7 +14,9 @@ import {
 const exec = promisify(execFile)
 
 describe("session worktrees", () => {
-  it("creates an isolated branch from HEAD and removes it cleanly", async () => {
+  // Spawns a dozen git subprocesses; under a full-suite run they compete for
+  // CPU/disk with 50+ parallel test files, so the default 5s timeout flakes.
+  it("creates an isolated branch from HEAD and removes it cleanly", { timeout: 30_000 }, async () => {
     const repo = await mkdtemp(join(tmpdir(), "chat-hub-worktree-repo-"))
     await exec("git", ["init", "-q"], { cwd: repo })
     await exec("git", ["config", "user.email", "test@example.com"], { cwd: repo })
