@@ -40,6 +40,11 @@ import { LiveStepTicker } from "./LiveStepTicker"
 import { buildTranscript } from "../lib/tool-runs"
 import { currentStep, planProgress } from "../lib/live-step"
 import { formatSessionUsage, formatUsage, usageDetail } from "../lib/usage"
+import {
+  contextUsedTokens,
+  contextWindowFor,
+  formatContextMeter,
+} from "@shared/context-window"
 import { MarkdownBody } from "./MarkdownBody"
 import { TopBar } from "./TopBar"
 import { AttachmentGallery } from "./AttachmentGallery"
@@ -122,6 +127,36 @@ function TurnCost({ usage }: { usage: TurnUsage }) {
     <span className="turn-cost" title={usageDetail(usage)}>
       {label}
     </span>
+  )
+}
+
+function ContextMeter({
+  usage,
+  model,
+}: {
+  usage: SessionUsage | null
+  model?: string
+}) {
+  const last = usage?.lastTurn
+  if (!last) return null
+  const used = contextUsedTokens(last)
+  const window = contextWindowFor(model, last.contextWindow ?? usage.contextWindow)
+  if (used === null || window === null) return null
+  const { label, ratio } = formatContextMeter(used, window)
+  const tone = ratio >= 0.9 ? " is-critical" : ratio >= 0.7 ? " is-warning" : ""
+  return (
+    <div
+      className={`context-meter${tone}`}
+      title={`Context after last turn · ${usageDetail(last)}`}
+    >
+      <span className="context-meter-bar" aria-hidden>
+        <span
+          className="context-meter-fill"
+          style={{ width: `${Math.round(ratio * 1000) / 10}%` }}
+        />
+      </span>
+      <span className="context-meter-label">{label}</span>
+    </div>
   )
 }
 
@@ -1236,6 +1271,7 @@ export function ChatView({
             onJump={jumpToLiveCard}
           />
         ) : null}
+        <ContextMeter usage={usage} model={session.model} />
         <div className="composer-shell">
           <textarea
             ref={taRef}
