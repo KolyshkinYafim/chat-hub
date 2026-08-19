@@ -263,6 +263,19 @@ const api = {
     ipcRenderer.invoke(IpcChannels.setSessionPermission, sessionId, mode),
   setSessionTitle: (sessionId: string, title: string): Promise<SessionMeta> =>
     ipcRenderer.invoke(IpcChannels.setSessionTitle, sessionId, title),
+  setSessionSettled: (
+    sessionId: string,
+    settled: boolean,
+  ): Promise<SessionMeta> =>
+    ipcRenderer.invoke(IpcChannels.sessionSetSettled, sessionId, settled),
+  setSessionArchived: (
+    sessionId: string,
+    archived: boolean,
+  ): Promise<SessionMeta> =>
+    ipcRenderer.invoke(IpcChannels.sessionSetArchived, sessionId, archived),
+  /** One-shot push of the legacy localStorage archive ids into main. */
+  migrateArchived: (ids: string[]): Promise<void> =>
+    ipcRenderer.invoke(IpcChannels.sessionMigrateArchived, ids),
   pickFiles: (): Promise<string[]> =>
     ipcRenderer.invoke(IpcChannels.pickFiles),
   inspectAttachments: (paths: string[]): Promise<MessageAttachment[]> =>

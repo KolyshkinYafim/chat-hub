@@ -30,7 +30,7 @@ import type {
 } from "@shared/settings-types"
 import { DEFAULT_MODES } from "@shared/settings-types"
 import { projectFromCwd } from "@shared/project"
-import { loadArchived, pruneArchived, saveArchived } from "./lib/archive"
+import { clearMigratedArchive, readArchivedForMigration } from "./lib/archive"
 import { mergeReplacedMessages } from "./lib/transcript-window"
 import { Sidebar } from "./components/Sidebar"
 import { ChatView } from "./components/ChatView"
@@ -126,7 +126,6 @@ export default function App() {
   const [hooksBySession, setHooksBySession] = useState<
     Record<string, HookRun[]>
   >({})
-  const [archived, setArchived] = useState<Set<string>>(() => loadArchived())
   const [highlight, setHighlight] = useState<{
     sessionId: string
     messageId: string
@@ -384,6 +383,11 @@ export default function App() {
         if (!settings.general.onboarded && snap.sessions.length === 0) {
           setWizardOpen(true)
         }
+        const legacyArchived = readArchivedForMigration()
+        if (legacyArchived.length > 0) {
+          await window.chatHub.migrateArchived(legacyArchived)
+        }
+        clearMigratedArchive()
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
       }
@@ -475,30 +479,26 @@ export default function App() {
     })
   }, [])
 
-  useEffect(() => {
-    // Sessions deleted elsewhere (or wiped) would otherwise leave their ids in
-    // the archive forever. Never prune against an empty list — that is the
-    // pre-snapshot state, not an empty app.
-    if (sessions.length === 0) return
-    setArchived((curr) => {
-      const next = pruneArchived(
-        curr,
-        sessions.map((s) => s.id),
-      )
-      if (next.size === curr.size) return curr
-      saveArchived(next)
-      return next
-    })
-  }, [sessions])
-
   function setSessionArchived(id: string, archive: boolean) {
-    setArchived((curr) => {
-      const next = new Set(curr)
-      if (archive) next.add(id)
-      else next.delete(id)
-      saveArchived(next)
-      return next
-    })
+    void window.chatHub
+      .setSessionArchived(id, archive)
+      .then((next) =>
+        setSessions((curr) => curr.map((s) => (s.id === next.id ? next : s))),
+      )
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : String(err))
+      })
+  }
+
+  function setSessionSettled(id: string, settled: boolean) {
+    void window.chatHub
+      .setSessionSettled(id, settled)
+      .then((next) =>
+        setSessions((curr) => curr.map((s) => (s.id === next.id ? next : s))),
+      )
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : String(err))
+      })
   }
 
   async function jumpToMessage(sessionId: string, messageId: string) {
@@ -833,7 +833,6 @@ export default function App() {
     setError(null)
     try {
       await window.chatHub.deleteSession(id)
-      setSessionArchived(id, false)
       const snap = await window.chatHub.getSnapshot()
       setSessions(snap.sessions)
       setMessagesBySession(snap.messages)
@@ -1082,13 +1081,13 @@ export default function App() {
         messagesBySession={messagesBySession}
         projects={projects}
         activeId={activeId}
-        archived={archived}
         busy={busy}
         collapsed={sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
         onCreate={(hint) => openNewSession(hint)}
         onSelect={(id) => void selectSession(id)}
         onArchive={setSessionArchived}
+        onSettle={setSessionSettled}
         onJumpToMessage={(sessionId, messageId) =>
           void jumpToMessage(sessionId, messageId)
         }
@@ -1166,6 +1165,9 @@ export default function App() {
           onOpenEditor={() => void openEditor()}
           onCommit={() => openSurface("diff")}
           onRename={() => void renameSession()}
+          onUnsettle={() => {
+            if (activeId) setSessionSettled(activeId, false)
+          }}
           onOpenDiff={openDiffForPath}
           dockOpen={showDock}
           onToggleDock={() => setDock(!dockOpen)}

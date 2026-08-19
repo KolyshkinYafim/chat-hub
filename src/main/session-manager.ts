@@ -86,6 +86,7 @@ export class SessionManager {
   /** Preserve archive order and let an immediate scroll-back wait for its write. */
   private archiveWrites = new Map<string, Promise<void>>()
   private inputStatusWired = false
+  private userUnsettled = new Set<string>()
 
   constructor(
     private readonly bus: EventBus,
@@ -318,6 +319,99 @@ export class SessionManager {
     this.bus.emit({ type: "sessions.replaced", sessions: this.listSessions() })
     this.scheduleSave()
     return next
+  }
+
+  /**
+   * Manual settle/unsettle. A user-unsettled session holds off auto-settle
+   * until its next turn actually completes.
+   */
+  setSessionSettled(sessionId: string, settled: boolean): SessionMeta {
+    const session = this.sessions.get(sessionId)
+    if (!session) throw new Error("Session not found")
+    const next: SessionMeta = { ...session, updatedAt: Date.now() }
+    if (settled) {
+      next.settledAt = Date.now()
+      next.settledBy = "user"
+      this.userUnsettled.delete(sessionId)
+    } else {
+      delete next.settledAt
+      delete next.settledBy
+      this.userUnsettled.add(sessionId)
+    }
+    this.sessions.set(sessionId, next)
+    this.publishSessionEvent({ type: "session.upsert", session: next })
+    this.bus.emit({ type: "sessions.replaced", sessions: this.listSessions() })
+    this.scheduleSave()
+    return next
+  }
+
+  /** Archiving implies settled; unarchiving does not unsettle. */
+  setSessionArchived(sessionId: string, archived: boolean): SessionMeta {
+    const session = this.sessions.get(sessionId)
+    if (!session) throw new Error("Session not found")
+    const next: SessionMeta = { ...session, updatedAt: Date.now() }
+    if (archived) {
+      next.archived = true
+      if (next.settledAt === undefined) {
+        next.settledAt = Date.now()
+        next.settledBy = "user"
+      }
+      this.userUnsettled.delete(sessionId)
+    } else {
+      delete next.archived
+    }
+    this.sessions.set(sessionId, next)
+    this.publishSessionEvent({ type: "session.upsert", session: next })
+    this.bus.emit({ type: "sessions.replaced", sessions: this.listSessions() })
+    this.scheduleSave()
+    return next
+  }
+
+  /** One-shot import of the renderer's legacy localStorage archive ids. */
+  migrateArchived(ids: string[]): void {
+    let changed = false
+    for (const id of ids) {
+      const session = this.sessions.get(id)
+      if (!session || session.archived) continue
+      const next: SessionMeta = { ...session, archived: true }
+      if (next.settledAt === undefined) {
+        next.settledAt = Date.now()
+        next.settledBy = "user"
+      }
+      this.sessions.set(id, next)
+      this.publishSessionEvent({ type: "session.upsert", session: next })
+      changed = true
+    }
+    if (!changed) return
+    this.bus.emit({ type: "sessions.replaced", sessions: this.listSessions() })
+    this.scheduleSave()
+  }
+
+  private autoSettle(sessionId: string): void {
+    if (this.userUnsettled.has(sessionId)) return
+    const session = this.sessions.get(sessionId)
+    if (!session || session.settledAt !== undefined) return
+    const next: SessionMeta = {
+      ...session,
+      settledAt: Date.now(),
+      settledBy: "auto",
+    }
+    this.sessions.set(sessionId, next)
+    this.publishSessionEvent({ type: "session.upsert", session: next })
+    this.bus.emit({ type: "sessions.replaced", sessions: this.listSessions() })
+    this.scheduleSave()
+  }
+
+  private unsettle(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session || session.settledAt === undefined) return
+    const next: SessionMeta = { ...session, updatedAt: Date.now() }
+    delete next.settledAt
+    delete next.settledBy
+    this.sessions.set(sessionId, next)
+    this.publishSessionEvent({ type: "session.upsert", session: next })
+    this.bus.emit({ type: "sessions.replaced", sessions: this.listSessions() })
+    this.scheduleSave()
   }
 
   setSessionTitle(sessionId: string, title: string): SessionMeta {
@@ -622,6 +716,7 @@ export class SessionManager {
     }
     this.appendMessage(userMsg)
     this.touch(sessionId)
+    this.unsettle(sessionId)
     this.publishSessionEvent({
       type: "session.message",
       id: sessionId,
@@ -650,6 +745,7 @@ export class SessionManager {
     const session = this.sessions.get(sessionId)
     if (!session) return
 
+    this.unsettle(sessionId)
     const adapter = getAdapter(session.provider)
     const permissionMode = this.permissionModeFor(session)
     const resolved = this.settings.resolveInstance(
@@ -677,11 +773,15 @@ export class SessionManager {
         if (this.sessions.get(sessionId)?.status === "running") {
           this.applyStatus(sessionId, "idle")
         }
+        this.userUnsettled.delete(sessionId)
+        const hasQueued = (this.queued.get(sessionId)?.length ?? 0) > 0
         this.flushQueued(sessionId)
+        if (!hasQueued) this.autoSettle(sessionId)
       })
       .catch((err) => {
         this.turns.delete(sessionId)
         console.error("[session-manager] send failed", err)
+        this.unsettle(sessionId)
         this.applyStatus(sessionId, "error")
         this.publishSessionEvent({
           type: "session.ended",
@@ -864,6 +964,7 @@ export class SessionManager {
         session.id,
         `Marked failed — no output from ${session.provider} for ${minutes} min. The process was stopped.`,
       )
+      this.unsettle(session.id)
       this.applyStatus(session.id, "error")
       this.publishSessionEvent({
         type: "session.ended",
@@ -906,6 +1007,7 @@ export class SessionManager {
     this.turns.delete(sessionId)
     this.queued.delete(sessionId)
     this.usage.delete(sessionId)
+    this.userUnsettled.delete(sessionId)
     await this.discardArchive(sessionId)
     this.hooks.clearSession(sessionId)
     // The CLI is dead, so nothing is left to answer its permission any more.
@@ -947,6 +1049,7 @@ export class SessionManager {
     this.turns.clear()
     this.queued.clear()
     this.usage.clear()
+    this.userUnsettled.clear()
     for (const id of ids) await this.discardArchive(id)
     for (const id of ids) this.hooks.clearSession(id)
     this.activeSessionId = null

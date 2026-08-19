@@ -96,6 +96,7 @@ type Props = {
   onOpenEditor: () => void
   onCommit: () => void
   onRename: () => void
+  onUnsettle: () => void
   /** A path from a turn's changed-files row — opens it in the Diff surface. */
   onOpenDiff: (path: string) => void
   dockOpen: boolean
@@ -422,6 +423,7 @@ export function ChatView({
   onOpenEditor,
   onCommit,
   onRename,
+  onUnsettle,
   onOpenDiff,
   dockOpen,
   onToggleDock,
@@ -942,6 +944,17 @@ export function ChatView({
       ) : null}
 
       <GrokTrustBanner cwd={session.cwd} provider={session.provider} />
+
+      {session.settledAt !== undefined ? (
+        <div className="settled-banner">
+          <span className="settled-banner-text">
+            This thread is settled — sending a message reactivates it
+          </span>
+          <button type="button" className="tb-btn" onClick={onUnsettle}>
+            Un-settle
+          </button>
+        </div>
+      ) : null}
 
       {error ? <div className="error-banner">{error}</div> : null}
 
