@@ -8,19 +8,10 @@ import type {
   UsageSummary,
   UsageWindowTotals,
 } from "@shared/types"
+import { DAY_MS, dayKey } from "@shared/day"
 import { writeFileAtomic } from "./atomic-write"
 
-const DAY_MS = 86_400_000
-
 type LedgerFile = { version: 1; entries: UsageLedgerEntry[] }
-
-/** Local calendar day of a timestamp, "YYYY-MM-DD". */
-export function dayKey(ts: number): string {
-  const d = new Date(ts)
-  const month = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${d.getFullYear()}-${month}-${day}`
-}
 
 /** Accumulates into the row matching day+provider+model, or appends a new one. */
 export function mergeLedgerEntry(

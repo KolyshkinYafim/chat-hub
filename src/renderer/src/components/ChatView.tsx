@@ -27,6 +27,7 @@ import { PERMISSION_LABELS } from "@shared/permission"
 import type { ProjectScript } from "@shared/scripts"
 import type { Mode, ModelInfo } from "@shared/settings-types"
 import { formatClock, formatRelative } from "../lib/format"
+import { useOutsideDismiss } from "../lib/use-outside-dismiss"
 import {
   loadStash,
   pushStash,
@@ -541,14 +542,7 @@ export function ChatView({
     [sessions],
   )
 
-  useEffect(() => {
-    if (!stashOpen) return
-    const onPointerDown = (e: MouseEvent) => {
-      if (!stashRef.current?.contains(e.target as Node)) setStashOpen(false)
-    }
-    document.addEventListener("mousedown", onPointerDown)
-    return () => document.removeEventListener("mousedown", onPointerDown)
-  }, [stashOpen])
+  useOutsideDismiss(stashRef, stashOpen, () => setStashOpen(false))
 
   useEffect(() => () => window.clearTimeout(stashFlashTimer.current), [])
 

@@ -5713,6 +5713,23 @@ select:focus-visible {
   white-space: nowrap;
 }
 
+.settled-group {
+  margin-top: 10px;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 8px;
+  opacity: 0.85;
+}
+
+.settled-group:hover {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .settled-banner {
+    animation: rise-in 140ms ease-out both;
+  }
+}
+
 /* ===== project scripts ===== */
 
 .scripts-menu {
@@ -5750,23 +5767,6 @@ select:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.settled-group {
-  margin-top: 10px;
-  border-top: 1px solid var(--border-soft);
-  padding-top: 8px;
-  opacity: 0.85;
-}
-
-.settled-group:hover {
-  opacity: 1;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .settled-banner {
-    animation: rise-in 140ms ease-out both;
-  }
 }
 
 /* ===== auto titles ===== */

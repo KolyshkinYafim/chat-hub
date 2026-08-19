@@ -1,3 +1,5 @@
+import { createSessionListStore } from "./session-list-store"
+
 export type DiffLineKind = "add" | "del" | "ctx"
 
 export type DiffComment = {
@@ -11,67 +13,37 @@ export type DiffComment = {
 
 export type DiffCommentInput = Omit<DiffComment, "id">
 
-const store = new Map<string, DiffComment[]>()
-const listeners = new Set<() => void>()
-
-let nextId = 0
-
-function notify(): void {
-  for (const listener of [...listeners]) listener()
-}
+const store = createSessionListStore<DiffComment>("dc")
 
 export function addComment(
   sessionId: string,
   input: DiffCommentInput,
 ): DiffComment {
-  nextId += 1
-  const comment: DiffComment = { id: `dc-${nextId}`, ...input }
-  const existing = store.get(sessionId) ?? []
-  store.set(sessionId, [...existing, comment])
-  notify()
-  return comment
+  return store.add(sessionId, input)
 }
 
 export function updateComment(sessionId: string, id: string, text: string): void {
-  const existing = store.get(sessionId)
-  if (!existing?.some((c) => c.id === id)) return
-  store.set(
-    sessionId,
-    existing.map((c) => (c.id === id ? { ...c, text } : c)),
-  )
-  notify()
+  store.update(sessionId, id, { text })
 }
 
 export function removeComment(sessionId: string, id: string): void {
-  const existing = store.get(sessionId)
-  if (!existing?.some((c) => c.id === id)) return
-  const remaining = existing.filter((c) => c.id !== id)
-  if (remaining.length === 0) store.delete(sessionId)
-  else store.set(sessionId, remaining)
-  notify()
+  store.remove(sessionId, id)
 }
 
 export function listComments(sessionId: string): DiffComment[] {
-  return [...(store.get(sessionId) ?? [])]
+  return store.list(sessionId)
 }
 
 export function clearComments(sessionId: string): void {
-  if (!store.has(sessionId)) return
-  store.delete(sessionId)
-  notify()
+  store.clear(sessionId)
 }
 
 export function onDiffCommentsChanged(cb: () => void): () => void {
-  listeners.add(cb)
-  return () => {
-    listeners.delete(cb)
-  }
+  return store.subscribe(cb)
 }
 
 export function pruneDiffComments(liveSessionIds: ReadonlySet<string>): void {
-  for (const sessionId of [...store.keys()]) {
-    if (!liveSessionIds.has(sessionId)) store.delete(sessionId)
-  }
+  store.prune(liveSessionIds)
 }
 
 const MARKER: Record<DiffLineKind, string> = { add: "+", del: "-", ctx: " " }
