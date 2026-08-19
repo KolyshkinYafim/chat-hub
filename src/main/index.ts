@@ -38,11 +38,10 @@ import {
   unstageFileHunk,
 } from "./git"
 import { listCheckpoints } from "./checkpoints"
-import { SettingsStore } from "./settings"
+import { sanitizeGeneralPatch, SettingsStore } from "./settings"
 import type { PermissionMode } from "@shared/permission"
 import type {
   DataPaths,
-  GeneralConfig,
   ProviderConfig,
 } from "@shared/settings-types"
 import {
@@ -722,32 +721,7 @@ function registerIpc(
   })
 
   ipcMain.handle(IpcChannels.setGeneralConfig, async (_e, patch: unknown) => {
-    if (!patch || typeof patch !== "object") throw new Error("Invalid general")
-    const p = patch as GeneralConfig
-    const clean: GeneralConfig = {}
-    if (p.defaultProvider !== undefined) {
-      if (!PROVIDER_IDS.has(p.defaultProvider as ProviderId)) {
-        throw new Error("Unknown provider")
-      }
-      clean.defaultProvider = p.defaultProvider
-    }
-    if (p.defaultEffort !== undefined) {
-      if (!["low", "medium", "high", "xhigh", "max", "ultra"].includes(p.defaultEffort)) {
-        throw new Error("Invalid effort")
-      }
-      clean.defaultEffort = p.defaultEffort
-    }
-    if (p.editor !== undefined) {
-      if (!["auto", "cursor", "code", "finder"].includes(p.editor)) {
-        throw new Error("Invalid editor")
-      }
-      clean.editor = p.editor
-    }
-    if (p.onboarded !== undefined) {
-      if (typeof p.onboarded !== "boolean") throw new Error("Invalid onboarded")
-      clean.onboarded = p.onboarded
-    }
-    const next = await settings.setGeneralConfig(clean)
+    const next = await settings.setGeneralConfig(sanitizeGeneralPatch(patch))
     return { general: next.general }
   })
 
