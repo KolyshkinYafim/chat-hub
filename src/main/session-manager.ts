@@ -47,6 +47,13 @@ import {
 /** Retention window: how many per-turn checkpoints a session keeps. */
 export const MAX_CHECKPOINTS_PER_SESSION = 20
 
+/**
+ * How long a turn waits for its own snapshot before it stops waiting. Ordering
+ * the snapshot ahead of the agent is what makes a checkpoint mean "before this
+ * turn"; the cap keeps a repo too large to hash in time from delaying the send.
+ */
+export const CHECKPOINT_GATE_MS = 2500
+
 const ARCHIVE_REFILL_LIMIT = 50
 import { runWorktreeCreateScripts } from "./surfaces/scripts"
 
@@ -122,8 +129,6 @@ export class SessionManager {
   private userUnsettled = new Set<string>()
   private readonly generateTitleFn: TitleGenerator
   private readonly usageLedger: UsageLedger | null
-  /** Sessions whose one automatic LLM refinement already ran (or is running). */
-  private titleRefined = new Set<string>()
   private readonly worktreeSetup: WorktreeSetupRunner
 
   constructor(
@@ -491,12 +496,26 @@ export class SessionManager {
     if (!session) throw new Error("Session not found")
     const exchange = this.firstExchange(sessionId)
     if (!exchange) return session
-    this.titleRefined.add(sessionId)
+    this.markTitleRefined(sessionId)
     const title = await this.generateTitleFn(exchange.user, exchange.assistant)
     const current = this.sessions.get(sessionId)
     if (!current) throw new Error("Session not found")
-    if (!title) return current
+    // A rename typed while the model was thinking wins: the user renamed the
+    // title they could see, which is newer than the one they asked for.
+    if (!title || current.title !== session.title) return current
     return this.applyTitle(sessionId, title, "auto")
+  }
+
+  /**
+   * Burn the session's one automatic title pass. Written into the meta rather
+   * than a runtime set so it survives a restart, and silent because no view
+   * renders it.
+   */
+  private markTitleRefined(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session || session.titleRefined) return
+    this.sessions.set(sessionId, { ...session, titleRefined: true })
+    this.scheduleSave()
   }
 
   private applyTitle(
@@ -540,13 +559,12 @@ export class SessionManager {
   }
 
   private maybeRefineTitle(sessionId: string): void {
-    if (this.titleRefined.has(sessionId)) return
     const session = this.sessions.get(sessionId)
-    if (!session) return
+    if (!session || session.titleRefined) return
     if (this.titleOriginOf(session) === "user") return
     const exchange = this.firstExchange(sessionId)
     if (!exchange) return
-    this.titleRefined.add(sessionId)
+    this.markTitleRefined(sessionId)
     void this.generateTitleFn(exchange.user, exchange.assistant)
       .then((title) => {
         if (!title) return
@@ -914,15 +932,15 @@ export class SessionManager {
       return
     }
 
-    this.dispatch(sessionId, content, opts, userMsg.id)
+    await this.dispatch(sessionId, content, opts, userMsg.id)
   }
 
-  private dispatch(
+  private async dispatch(
     sessionId: string,
     content: string,
     opts?: SendOpts,
     userMessageId?: string,
-  ): void {
+  ): Promise<void> {
     const session = this.sessions.get(sessionId)
     if (!session) return
 
@@ -939,7 +957,9 @@ export class SessionManager {
     }
     const token = this.nextTurnToken++
     this.turns.set(sessionId, { lastActivityAt: Date.now(), token })
-    void this.snapshotTurn(session, content, userMessageId)
+    await this.snapshotGate(session, content, userMessageId)
+    // Stopping during the gate must not resurrect the turn it just killed.
+    if (!this.ownsTurn(sessionId, token)) return
     // Fire-and-forget: stream/status arrive via event bus; UI stays responsive.
     void adapter
       .send(sessionId, content || "Please review the attached files.", this.callbacks(), {
@@ -983,12 +1003,31 @@ export class SessionManager {
   }
 
   /**
-   * Snapshot the working tree as the turn starts. Nothing awaits this, so on a
-   * large tree the scan can overlap the agent's first edits and the checkpoint
-   * captures a mix — the honest fix is to snapshot while the tree is quiescent
-   * at the end of the previous turn, which is a change of shape, not a guard.
-   * Best-effort otherwise: a failed or unavailable checkpoint (non-git folder)
-   * must never block or fail the turn.
+   * Hold the send until the snapshot is on disk, so the checkpoint holds the
+   * tree as it was before the agent could touch it. A repo slower than the gate
+   * keeps the old best-effort behaviour: the send goes out and the snapshot
+   * still stamps its message, just without the ordering guarantee.
+   */
+  private snapshotGate(
+    session: SessionMeta,
+    content: string,
+    userMessageId?: string,
+  ): Promise<void> {
+    const snapshot = this.snapshotTurn(session, content, userMessageId).catch(
+      () => undefined,
+    )
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, CHECKPOINT_GATE_MS)
+      void snapshot.then(() => {
+        clearTimeout(timer)
+        resolve()
+      })
+    })
+  }
+
+  /**
+   * Best-effort by contract: a failed or unavailable checkpoint (a non-git
+   * folder is the common one) must never block or fail the turn.
    */
   private async snapshotTurn(
     session: SessionMeta,
@@ -1104,7 +1143,7 @@ export class SessionManager {
     if (!next) return
     if (queue && queue.length === 0) this.queued.delete(sessionId)
     this.emitQueue(sessionId)
-    this.dispatch(sessionId, next.content, next.opts, next.userMessageId)
+    void this.dispatch(sessionId, next.content, next.opts, next.userMessageId)
   }
 
   /** Never leave the user guessing whether a queued message was delivered. */
@@ -1289,7 +1328,6 @@ export class SessionManager {
     this.queued.delete(sessionId)
     this.usage.delete(sessionId)
     this.userUnsettled.delete(sessionId)
-    this.titleRefined.delete(sessionId)
     await this.discardArchive(sessionId)
     this.hooks.clearSession(sessionId)
     // The CLI is dead, so nothing is left to answer its permission any more.
@@ -1337,7 +1375,6 @@ export class SessionManager {
     this.queued.clear()
     this.usage.clear()
     this.userUnsettled.clear()
-    this.titleRefined.clear()
     for (const id of ids) await this.discardArchive(id)
     for (const id of ids) this.hooks.clearSession(id)
     this.activeSessionId = null

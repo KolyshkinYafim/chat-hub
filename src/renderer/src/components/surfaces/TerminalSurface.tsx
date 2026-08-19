@@ -98,8 +98,46 @@ export function TerminalSurface({ cwd, sessionId, hookRuns = [] }: Props) {
     })
     observer.observe(host)
 
+    let starting = false
+
+    const startShell = () => {
+      if (starting || disposed) return
+      starting = true
+      ptyId = null
+      void bridge
+        .termStart(cwd, term.cols, term.rows)
+        .then((started) => {
+          starting = false
+          if (disposed) {
+            bridge.termKill(started.ptyId)
+            return
+          }
+          ptyId = started.ptyId
+          exited = false
+          setStatus(null)
+          for (const chunk of early) {
+            if (chunk.ptyId === ptyId) term.write(chunk.data)
+          }
+          early.length = 0
+          term.focus()
+          drainPendingCommand()
+        })
+        .catch((err: unknown) => {
+          starting = false
+          if (!disposed) setStatus(errorText(err))
+        })
+    }
+
+    /**
+     * A command aimed at a shell that has exited revives it instead of
+     * vanishing: the stash keeps the command until the new pty reports in.
+     */
     const drainPendingCommand = () => {
-      if (!sessionId || ptyId === null || exited || disposed) return
+      if (!sessionId || disposed) return
+      if (ptyId === null || exited) {
+        if (exited) startShell()
+        return
+      }
       const command = takeTerminalCommand(sessionId)
       if (command === null) return
       registerScriptTerminal(sessionId, ptyId)
@@ -120,24 +158,7 @@ export function TerminalSurface({ cwd, sessionId, hookRuns = [] }: Props) {
       term.focus()
       drainPendingCommand()
     } else {
-      void bridge
-        .termStart(cwd, term.cols, term.rows)
-        .then((started) => {
-          if (disposed) {
-            bridge.termKill(started.ptyId)
-            return
-          }
-          ptyId = started.ptyId
-          for (const chunk of early) {
-            if (chunk.ptyId === ptyId) term.write(chunk.data)
-          }
-          early.length = 0
-          term.focus()
-          drainPendingCommand()
-        })
-        .catch((err: unknown) => {
-          if (!disposed) setStatus(errorText(err))
-        })
+      startShell()
     }
 
     return () => {

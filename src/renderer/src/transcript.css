@@ -316,19 +316,19 @@
 }
 
 .tok-keyword {
-  color: #c792ea;
+  color: var(--syntax-keyword);
 }
 
 .tok-type {
-  color: #7fd1e8;
+  color: var(--syntax-type);
 }
 
 .tok-string {
-  color: #b5e08a;
+  color: var(--syntax-string);
 }
 
 .tok-number {
-  color: #f6b26b;
+  color: var(--syntax-number);
 }
 
 .tok-comment {
@@ -337,7 +337,7 @@
 }
 
 .tok-punct {
-  color: #8b8d98;
+  color: var(--syntax-punct);
 }
 
 /* The bytes that actually differ, on top of the line's own tint — a one-token

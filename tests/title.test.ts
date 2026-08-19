@@ -64,8 +64,8 @@ const { Persistence } = await import("../src/main/persistence")
 const { SessionMonitorBridge } = await import("../src/main/bridge")
 const { SettingsStore } = await import("../src/main/settings")
 
-async function makeManager(titleGenerator: TitleGenerator) {
-  const dir = await mkdtemp(join(tmpdir(), "chat-hub-title-"))
+async function makeManager(titleGenerator: TitleGenerator, at?: string) {
+  const dir = at ?? (await mkdtemp(join(tmpdir(), "chat-hub-title-")))
   const persistence = new Persistence(join(dir, "state.json"))
   const settings = new SettingsStore(join(dir, "settings.json"))
   await settings.load()
@@ -371,6 +371,54 @@ describe("session auto-titling", () => {
     const meta = await sm.regenerateTitle(session.id)
     expect(meta.title).toBe("Fresh LLM title")
     expect(meta.titleOrigin).toBe("auto")
+  })
+
+  it("a rename typed during a forced regenerate wins over the late answer", async () => {
+    let release: (v: string | null) => void = () => {}
+    const gate = new Promise<string | null>((r) => {
+      release = r
+    })
+    const { sm, dir } = await makeManager(() => gate)
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.sendMessage(session.id, "fix the flaky retry logic")
+    state.pending?.resolve()
+    await vi.waitFor(() => expect(sm.getSession(session.id)?.status).toBe("idle"))
+
+    const pending = sm.regenerateTitle(session.id)
+    sm.renameSession(session.id, "Manual name")
+    release("Late LLM title")
+
+    const meta = await pending
+    expect(meta.title).toBe("Manual name")
+    expect(sm.getSession(session.id)?.title).toBe("Manual name")
+  })
+
+  it("does not spend a second LLM pass on a session restored from disk", async () => {
+    let calls = 0
+    const generate: TitleGenerator = async () => {
+      calls += 1
+      return "Flaky retry fix"
+    }
+    const { sm, dir } = await makeManager(generate)
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.sendMessage(session.id, "fix the flaky retry logic")
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(sm.getSession(session.id)?.title).toBe("Flaky retry fix"),
+    )
+    await sm.flush()
+    expect(calls).toBe(1)
+
+    const { sm: reborn } = await makeManager(generate, dir)
+    await reborn.sendMessage(session.id, "second turn after restart")
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(reborn.getSession(session.id)?.status).toBe("idle"),
+    )
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(calls).toBe(1)
+    expect(reborn.getSession(session.id)?.title).toBe("Flaky retry fix")
   })
 
   it("regenerate keeps the current title when the LLM fails", async () => {
