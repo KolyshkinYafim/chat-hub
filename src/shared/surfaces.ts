@@ -9,6 +9,7 @@ export type SurfaceKind =
   | "diff"
   | "history"
   | "board"
+  | "fleet"
 
 /**
  * One task on the project board. `done` toggles from the UI or the agent.

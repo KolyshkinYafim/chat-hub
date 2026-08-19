@@ -8,6 +8,7 @@ export const SURFACE_LABEL: Record<SurfaceKind, string> = {
   files: "Files",
   diff: "Diff",
   history: "History",
+  fleet: "Agents",
 }
 
 const SURFACE_HINT: Record<SurfaceKind, string> = {
@@ -17,6 +18,7 @@ const SURFACE_HINT: Record<SurfaceKind, string> = {
   files: "Browse and read workspace files.",
   diff: "Review changes in this thread.",
   history: "Walk recent commits and their diffs.",
+  fleet: "Every session at a glance.",
 }
 
 const TILE_ORDER: SurfaceKind[] = [
@@ -26,6 +28,7 @@ const TILE_ORDER: SurfaceKind[] = [
   "files",
   "diff",
   "history",
+  "fleet",
 ]
 
 type Props = {
