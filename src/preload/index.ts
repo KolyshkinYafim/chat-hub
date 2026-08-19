@@ -32,6 +32,7 @@ import type {
   FileSaved,
   FileStamp,
   OpenedFile,
+  ProjectSearchHit,
   TerminalChunk,
   TerminalExit,
   TerminalHandle,
@@ -356,6 +357,12 @@ const api = {
       ipcRenderer.removeListener(IpcChannels.hubEvent, handler)
     }
   },
+  /** Every listable file in the workspace, for the ⌘P picker. */
+  projectFiles: (cwd: string): Promise<string[]> =>
+    ipcRenderer.invoke(IpcChannels.projectFiles, cwd),
+  /** Case-insensitive fixed-string content search, for ⇧⌘F. */
+  projectSearch: (cwd: string, query: string): Promise<ProjectSearchHit[]> =>
+    ipcRenderer.invoke(IpcChannels.projectSearch, cwd, query),
   listDir: (cwd: string, relPath: string): Promise<DirListing> =>
     ipcRenderer.invoke(IpcChannels.listDir, cwd, relPath),
   readFileText: (cwd: string, relPath: string): Promise<FileContents> =>
