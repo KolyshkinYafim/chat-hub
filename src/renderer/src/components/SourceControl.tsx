@@ -1,14 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { GitFileChange, GitHunkSummary, GitRepository, GitWorkingCopy, GitWorktreeInfo } from "@shared/types"
 import {
   actionForPath,
   type AgentAction,
 } from "../lib/agent-actions"
+import {
+  addComment,
+  listComments,
+  onDiffCommentsChanged,
+  removeComment,
+  updateComment,
+  type DiffLineKind,
+} from "../lib/diff-comments"
 import { matchPath } from "../lib/path-match"
 import { leftBehindWarning } from "../lib/publish-gate"
 
 type Props = {
   cwd: string
+  sessionId: string
   /** Bumped by the caller when a turn ends, so the list follows the agent. */
   refreshKey: number
   /** File the transcript asked for; `at` re-selects it on a repeated click. */
@@ -78,14 +87,95 @@ function displayedHunks(lines: string[]): string[] {
   )
 }
 
-function DiffPane({ text, hunkAction }: { text: string; hunkAction?: HunkAction }) {
-  const lines = text.split("\n")
+type CommentTarget = { kind: DiffLineKind; line: number; content: string }
+
+function commentTargets(lines: string[]): (CommentTarget | null)[] {
+  let oldLine = 0
+  let newLine = 0
+  let inHunk = false
+  return lines.map((l, i) => {
+    const head = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l)
+    if (head) {
+      oldLine = Number(head[1])
+      newLine = Number(head[2])
+      inHunk = true
+      return null
+    }
+    if (!inHunk) return null
+    if (i === lines.length - 1 && l === "") return null
+    if (l.startsWith("+++") || l.startsWith("---") || l.startsWith("\\")) {
+      return null
+    }
+    if (l.startsWith("diff ") || l.startsWith("#")) {
+      inHunk = false
+      return null
+    }
+    if (l.startsWith("+")) {
+      return { kind: "add", line: newLine++, content: l.slice(1) }
+    }
+    if (l.startsWith("-")) {
+      return { kind: "del", line: oldLine++, content: l.slice(1) }
+    }
+    oldLine += 1
+    return { kind: "ctx", line: newLine++, content: l.slice(1) }
+  })
+}
+
+type Commenting = { sessionId: string; file: string }
+
+type ComposeState = { index: number; text: string; editId: string | null }
+
+function DiffPane({
+  text,
+  hunkAction,
+  commenting,
+}: {
+  text: string
+  hunkAction?: HunkAction
+  commenting?: Commenting
+}) {
+  const [compose, setCompose] = useState<ComposeState | null>(null)
+  const [, bump] = useState(0)
+  useEffect(() => onDiffCommentsChanged(() => bump((v) => v + 1)), [])
+  useEffect(() => {
+    setCompose(null)
+  }, [text, commenting?.file])
+  const lines = useMemo(() => text.split("\n"), [text])
+  const targets = useMemo(
+    () => (commenting ? commentTargets(lines) : null),
+    [lines, commenting],
+  )
+  const comments = commenting
+    ? listComments(commenting.sessionId).filter((c) => c.file === commenting.file)
+    : []
   const added = lines.filter((l) => l.startsWith("+") && l[1] !== "+").length
   const removed = lines.filter((l) => l.startsWith("-") && l[1] !== "-").length
   const hunks = hunkAction ? displayedHunks(lines) : []
   let hunkIndex = -1
+
+  function saveCompose(target: CommentTarget | null) {
+    if (!commenting || !compose) return
+    const trimmed = compose.text.trim()
+    if (trimmed === "") {
+      setCompose(null)
+      return
+    }
+    if (compose.editId) {
+      updateComment(commenting.sessionId, compose.editId, trimmed)
+    } else if (target) {
+      addComment(commenting.sessionId, {
+        file: commenting.file,
+        line: target.line,
+        lineText: target.content,
+        kind: target.kind,
+        text: trimmed,
+      })
+    }
+    setCompose(null)
+  }
+
   return (
-    <div className="scm-diff">
+    <div className={`scm-diff ${commenting ? "dcm-enabled" : ""}`}>
       <div className="scm-diff-head">
         <span className="diff-stat add">+{added}</span>
         <span className="diff-stat del">−{removed}</span>
@@ -104,21 +194,89 @@ function DiffPane({ text, hunkAction }: { text: string; hunkAction?: HunkAction 
                     ? "del"
                     : "ctx"
             const index = hunkIndex
+            const target = targets?.[i] ?? null
+            const lineComments = target
+              ? comments.filter(
+                  (c) => c.kind === target.kind && c.line === target.line,
+                )
+              : []
             return (
-              <span key={i} className={`diff-line ${cls}`}>
-                {l || " "}
-                {isHunkHead && hunkAction ? (
-                  <button
-                    type="button"
-                    className="scm-act scm-hunk-act"
-                    disabled={hunkAction.disabled}
-                    onClick={() => hunkAction.onApply(index, hunks[index] ?? l)}
-                  >
-                    {hunkAction.label}
-                  </button>
+              <Fragment key={i}>
+                <span className={`diff-line ${cls}`}>
+                  {target ? (
+                    <button
+                      type="button"
+                      className="dcm-add"
+                      title="Comment on this line"
+                      aria-label={`Comment on line ${target.line}`}
+                      onClick={() =>
+                        setCompose({ index: i, text: "", editId: null })
+                      }
+                    >
+                      +
+                    </button>
+                  ) : null}
+                  {l || " "}
+                  {isHunkHead && hunkAction ? (
+                    <button
+                      type="button"
+                      className="scm-act scm-hunk-act"
+                      disabled={hunkAction.disabled}
+                      onClick={() => hunkAction.onApply(index, hunks[index] ?? l)}
+                    >
+                      {hunkAction.label}
+                    </button>
+                  ) : null}
+                  {"\n"}
+                </span>
+                {lineComments.map((c) => (
+                  <span key={c.id} className="dcm-chip">
+                    <button
+                      type="button"
+                      className="dcm-chip-text"
+                      title="Edit comment"
+                      onClick={() =>
+                        setCompose({ index: i, text: c.text, editId: c.id })
+                      }
+                    >
+                      {c.text}
+                    </button>
+                    <button
+                      type="button"
+                      className="dcm-chip-del"
+                      title="Delete comment"
+                      onClick={() =>
+                        commenting
+                          ? removeComment(commenting.sessionId, c.id)
+                          : undefined
+                      }
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                {compose?.index === i ? (
+                  <span className="dcm-editor">
+                    <input
+                      autoFocus
+                      value={compose.text}
+                      placeholder="Comment — Enter saves, Esc cancels"
+                      aria-label="Line comment"
+                      onChange={(e) =>
+                        setCompose({ ...compose, text: e.target.value })
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault()
+                          saveCompose(target)
+                        } else if (e.key === "Escape") {
+                          setCompose(null)
+                        }
+                      }}
+                    />
+                  </span>
                 ) : null}
-                {"\n"}
-              </span>
+              </Fragment>
             )
           })}
         </code>
@@ -129,6 +287,7 @@ function DiffPane({ text, hunkAction }: { text: string; hunkAction?: HunkAction 
 
 export function SourceControl({
   cwd,
+  sessionId,
   refreshKey,
   focus,
   actions = [],
@@ -598,6 +757,7 @@ export function SourceControl({
               ) : (
                 <DiffPane
                   text={diff}
+                  commenting={{ sessionId, file: selected.file.path }}
                   hunkAction={
                     // Plain modifications only: binary, untracked, deleted and
                     // renamed files keep their whole-file stage/unstage.
