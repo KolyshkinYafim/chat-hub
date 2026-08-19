@@ -153,6 +153,7 @@ export function SurfaceDock({
           <DiffSurface
             key={session.id}
             cwd={session.cwd}
+            sessionId={session.id}
             refreshKey={gitRefreshKey}
             focus={diffFocus}
             actions={agentActions}

@@ -32,7 +32,9 @@ import { DEFAULT_MODES } from "@shared/settings-types"
 import { projectFromCwd } from "@shared/project"
 import { clearMigratedArchive, readArchivedForMigration } from "./lib/archive"
 import type { ProjectScript } from "@shared/scripts"
+import { pruneDiffComments } from "./lib/diff-comments"
 import { prunePendingRuns, stashBrowserUrl, stashTerminalCommand } from "./lib/pending-run"
+import { prunePendingPrompts } from "./lib/pending-prompt"
 import { pruneScriptTerminals } from "./lib/script-terminals"
 import { mergeReplacedMessages } from "./lib/transcript-window"
 import { Sidebar } from "./components/Sidebar"
@@ -599,6 +601,8 @@ export default function App() {
     if (sessions.length === 0) return
     const live = new Set(sessions.map((s) => s.id))
     prunePendingRuns(live)
+    prunePendingPrompts(live)
+    pruneDiffComments(live)
     pruneScriptTerminals(live)
     setSurfaceBySession((curr) => {
       const next = Object.fromEntries(

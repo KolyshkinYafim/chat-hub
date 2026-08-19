@@ -585,7 +585,8 @@ function mockNameOf(relPath: string): string {
 // Starts untrusted so ?mock=1 shows the Grok folder-trust banner.
 let mockGrokTrusted = false
 
-function makeSurfaceBridge(): SurfaceBridge {
+function makeSurfaceBridge(): SurfaceBridge &
+  Pick<ChatHubApi, "scriptsList" | "scriptsSave"> {
   return {
     listDir: async (_cwd, relPath) => {
       const names = mockDirs[relPath]
@@ -699,8 +700,8 @@ function makeSurfaceBridge(): SurfaceBridge {
       mockBoard = { ...board, updatedAt: Date.now() }
       return mockBoard
     },
-    scriptsList: async () => [],
-    scriptsSave: async (_cwd, scripts) => scripts,
+    scriptsList: async () => ({ scripts: [], updatedAt: 0 }),
+    scriptsSave: async (_cwd, scripts) => ({ scripts, updatedAt: Date.now() }),
     browserAttach: async () => false,
     browserDetach: async () => false,
     onBrowserActivity: () => () => {},
