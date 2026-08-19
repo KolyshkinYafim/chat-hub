@@ -23,10 +23,7 @@ import type {
   TurnUsage,
 } from "@shared/types"
 import type { PermissionMode } from "@shared/permission"
-import {
-  PERMISSION_HINTS,
-  PERMISSION_LABELS,
-} from "@shared/permission"
+import { PERMISSION_LABELS } from "@shared/permission"
 import type { Mode, ModelInfo } from "@shared/settings-types"
 import { formatClock } from "../lib/format"
 import {
@@ -37,6 +34,7 @@ import {
   type VoicePhase,
 } from "../lib/voice-state"
 import { PlanSteps, toPlanSteps } from "./PlanSteps"
+import { ComposerMenu } from "./ComposerMenu"
 import { LiveStepTicker } from "./LiveStepTicker"
 import { buildTranscript } from "../lib/tool-runs"
 import { currentStep, planProgress } from "../lib/live-step"
@@ -1171,104 +1169,24 @@ export function ChatView({
           />
           <div className="composer-toolbar">
             <div className="composer-chips">
-              {/* Session-bound agent — not the global "default for new" */}
-              <span className="chip select-chip locked" title="Agent for this session">
-                <span className="chip-ico">✦</span>
-                {providers.find((p) => p.id === session.provider)?.label ??
-                  session.provider}
-              </span>
-              {models.length > 0 ? (
-                <label
-                  className="chip select-chip"
-                  title="Model for this session"
-                >
-                  {/* Bound to the session as it really is: an unset model runs
-                      the CLI default, and showing models[0] instead was a lie
-                      the user could not even click away. */}
-                  <select
-                    value={session.model ?? ""}
-                    onChange={(e) => onModelChange(e.target.value)}
-                    aria-label="Model"
-                  >
-                    <option value="">CLI default</option>
-                    {session.model &&
-                    !models.some((m) => m.id === session.model) ? (
-                      <option value={session.model}>
-                        {session.model} · not probed
-                      </option>
-                    ) : null}
-                    {models.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : (
-                <span className="chip muted">default model</span>
-              )}
-              {modes.length > 0 ? (
-                <label
-                  className={`chip select-chip ${session.modeId ? "mode-on" : ""}`}
-                  title="Mode preset — appends a system prompt (+ model/effort/permission) to this session"
-                >
-                  <span className="chip-ico">◈</span>
-                  <select
-                    value={session.modeId ?? ""}
-                    onChange={(e) => onApplyMode(e.target.value)}
-                    aria-label="Mode"
-                  >
-                    <option value="">No mode</option>
-                    {modes.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-              <label
-                className={`chip select-chip perm-chip perm-${permissionMode}`}
-                title={`${PERMISSION_HINTS[permissionMode]} · applies to this session`}
-              >
-                <select
-                  value={permissionMode}
-                  onChange={(e) =>
-                    onPermissionChange(e.target.value as PermissionMode)
-                  }
-                  aria-label="Permission mode"
-                >
-                  {(["yolo", "acceptEdits", "default"] as PermissionMode[]).map(
-                    (m) => (
-                      <option key={m} value={m}>
-                        {PERMISSION_LABELS[m]}
-                        {m === "yolo" ? " · full access" : ""}
-                      </option>
-                    ),
-                  )}
-                </select>
-              </label>
-              <label
-                className={`chip select-chip ${supportsEffort ? "" : "muted"}`}
-                title={
-                  supportsEffort
-                    ? `Reasoning effort (${session.provider})`
-                    : `${session.provider} does not expose an effort control`
+              <ComposerMenu
+                providerLabel={
+                  providers.find((p) => p.id === session.provider)?.label ??
+                  session.provider
                 }
-              >
-                <select
-                  value={effort}
-                  disabled={!supportsEffort}
-                  onChange={(e) => onEffortChange(e.target.value as Effort)}
-                  aria-label="Effort"
-                >
-                  {availableEfforts.map((level) => (
-                    <option key={level} value={level}>
-                      {{ low: "Light", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max", ultra: "Ultra" }[level]}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                model={session.model}
+                models={models}
+                modeId={session.modeId}
+                modes={modes}
+                permissionMode={permissionMode}
+                effort={effort}
+                availableEfforts={availableEfforts}
+                supportsEffort={supportsEffort}
+                onModelChange={onModelChange}
+                onApplyMode={onApplyMode}
+                onPermissionChange={onPermissionChange}
+                onEffortChange={onEffortChange}
+              />
             </div>
             {/* Chips above are session state; everything here performs an
                 action, so they do not share a weight. */}
