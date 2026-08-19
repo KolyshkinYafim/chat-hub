@@ -230,7 +230,7 @@ const busyTurn =
     " ✓ tests/expiry.test.ts (2 tests) 9ms\n ✓ tests/auth.test.ts (4 tests) 18ms\n\n Test Files  2 passed (2)\n      Tests  6 passed (6)",
     { id: "t6", exitCode: 0 },
   ) +
-  "\nFixed. `verifyJwt` now compares `exp` against the current second, and the middleware no longer re-implements the same check with the wrong claim. Both suites are green."
+  "\nFixed. `verifyJwt` now compares `exp` against the current second, and the middleware no longer re-implements the same check with the wrong claim. Both suites are green. Posted the review note to [MR !61](https://git.example.dev/orbit/orbit-api/-/merge_requests/61#note_21576).\n\nhttps://git.example.dev/orbit/orbit-api/-/merge_requests/61#note_21576"
 
 const projects: Project[] = [
   { id: "p1", name: "orbit-api", cwd: "/Users/dev/code/orbit-api", createdAt: now - 5e6 },
