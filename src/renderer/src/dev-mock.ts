@@ -12,6 +12,8 @@ import type {
   SessionMeta,
   SessionSnapshot,
   SessionUsage,
+  UsageSummary,
+  UsageWindowTotals,
 } from "@shared/types"
 import type {
   ProviderInstance,
@@ -329,6 +331,49 @@ const usage: Record<string, SessionUsage> = {
   s1: { turns: 2, inputTokens: 18400, outputTokens: 2260, cacheReadTokens: 96000, costUsd: 0.42, durationMs: 31200 },
   s2: { turns: 1, inputTokens: 5100, outputTokens: 890, costUsd: 0.06, durationMs: 9400 },
 }
+
+// A believable fortnight of ledger rows so the Usage tab renders tiles, both
+// breakdowns, and the day strip without Electron.
+const mockUsageSummary: UsageSummary = (() => {
+  const dayStr = (offset: number): string => {
+    const d = new Date(now - offset * 86_400_000)
+    const m = String(d.getMonth() + 1).padStart(2, "0")
+    const dd = String(d.getDate()).padStart(2, "0")
+    return `${d.getFullYear()}-${m}-${dd}`
+  }
+  const rows = [
+    { offset: 0, provider: "claude", model: "opus", inputTokens: 48_200, outputTokens: 6_100, costUsd: 1.84, turns: 9 },
+    { offset: 0, provider: "codex", model: "gpt-5.6-sol", inputTokens: 12_300, outputTokens: 2_400, costUsd: 0.31, turns: 4 },
+    { offset: 1, provider: "claude", model: "opus", inputTokens: 91_400, outputTokens: 11_800, costUsd: 3.42, turns: 17 },
+    { offset: 2, provider: "claude", model: "sonnet", inputTokens: 22_000, outputTokens: 4_100, costUsd: 0.44, turns: 6 },
+    { offset: 3, provider: "codex", model: "gpt-5.6-terra", inputTokens: 8_800, outputTokens: 1_500, costUsd: 0.19, turns: 3 },
+    { offset: 4, provider: "claude", model: "opus", inputTokens: 60_300, outputTokens: 7_700, costUsd: 2.31, turns: 12 },
+    { offset: 6, provider: "opencode", model: "anthropic/claude-sonnet", inputTokens: 15_600, outputTokens: 2_900, costUsd: 0.27, turns: 5 },
+    { offset: 8, provider: "claude", model: "opus", inputTokens: 130_500, outputTokens: 16_200, costUsd: 4.96, turns: 21 },
+    { offset: 9, provider: "grok", model: "grok-4", inputTokens: 9_400, outputTokens: 2_100, costUsd: 0.12, turns: 4 },
+    { offset: 11, provider: "claude", model: "haiku", inputTokens: 5_200, outputTokens: 900, costUsd: 0.03, turns: 2 },
+    { offset: 12, provider: "codex", model: "gpt-5.6-sol", inputTokens: 27_800, outputTokens: 5_300, costUsd: 0.68, turns: 8 },
+    { offset: 13, provider: "claude", model: "opus", inputTokens: 44_100, outputTokens: 5_600, costUsd: 1.62, turns: 10 },
+  ]
+  const win = (maxOffset: number): UsageWindowTotals =>
+    rows
+      .filter((r) => r.offset <= maxOffset)
+      .reduce(
+        (acc, r) => ({
+          inputTokens: acc.inputTokens + r.inputTokens,
+          outputTokens: acc.outputTokens + r.outputTokens,
+          costUsd: acc.costUsd + r.costUsd,
+          turns: acc.turns + r.turns,
+        }),
+        { inputTokens: 0, outputTokens: 0, costUsd: 0, turns: 0 },
+      )
+  return {
+    entries: rows.map(({ offset, ...rest }) => ({ day: dayStr(offset), ...rest })),
+    today: win(0),
+    last7d: win(6),
+    last30d: win(29),
+  }
+})()
 
 const permissions: PermissionRequestInfo[] = [
   { requestId: "req1", sessionId: "s2", agentSessionId: "codex-2f1c", source: "codex", summary: "Run `pnpm test -- webhooks`", toolName: "Bash", cwd: projects[0].cwd, createdAt: now - 8e3 },
@@ -699,8 +744,6 @@ function makeSurfaceBridge(): SurfaceBridge {
       mockBoard = { ...board, updatedAt: Date.now() }
       return mockBoard
     },
-    scriptsList: async () => [],
-    scriptsSave: async (_cwd, scripts) => scripts,
     browserAttach: async () => false,
     browserDetach: async () => false,
     onBrowserActivity: () => () => {},
@@ -794,6 +837,9 @@ export function installDevMock(): void {
     listProjects: async () => projects,
     getBridgePath: async () => dataPaths.bridgePath,
     getDataPaths: async () => dataPaths,
+    usageSummary: async () => mockUsageSummary,
+    scriptsList: async () => ({ scripts: [], updatedAt: now }),
+    scriptsSave: async (_cwd, scripts) => ({ scripts, updatedAt: now }),
     getGitInfo: async () => ({ branch: "main", dirty: true, root: projects[0].cwd }),
     setActiveSession: async () => snapshot,
     setPermissionMode: async (m) => ({ permissionMode: m }),

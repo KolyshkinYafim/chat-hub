@@ -20,6 +20,7 @@ import type {
   SessionMeta,
   SessionSnapshot,
   ChatMessage,
+  UsageSummary,
 } from "@shared/types"
 import type { ArchiveSearchResult } from "@shared/search"
 import type { PermissionMode } from "@shared/permission"
@@ -331,6 +332,9 @@ const api = {
     ipcRenderer.invoke(IpcChannels.setGeneralConfig, patch),
   getDataPaths: (): Promise<DataPaths> =>
     ipcRenderer.invoke(IpcChannels.getDataPaths),
+  /** Merged daily usage ledger with today / 7d / 30d rollups. */
+  usageSummary: (): Promise<UsageSummary> =>
+    ipcRenderer.invoke(IpcChannels.usageSummary),
   revealPath: (target: string): Promise<boolean> =>
     ipcRenderer.invoke(IpcChannels.revealPath, target),
   wipeSessions: (): Promise<SessionSnapshot> =>

@@ -94,6 +94,33 @@ export type TurnUsage = {
 /** Running total over every turn of a session that reported usage. */
 export type SessionUsage = TurnUsage & { turns: number }
 
+/** One day × provider × model row of the persisted usage ledger. */
+export type UsageLedgerEntry = {
+  /** Local calendar day, "YYYY-MM-DD". */
+  day: string
+  provider: string
+  model: string
+  inputTokens: number
+  outputTokens: number
+  costUsd: number
+  turns: number
+}
+
+export type UsageWindowTotals = {
+  inputTokens: number
+  outputTokens: number
+  costUsd: number
+  turns: number
+}
+
+/** Merged ledger plus rolling windows, as the Usage settings tab reads it. */
+export type UsageSummary = {
+  entries: UsageLedgerEntry[]
+  today: UsageWindowTotals
+  last7d: UsageWindowTotals
+  last30d: UsageWindowTotals
+}
+
 export type TurnItemStatus =
   | "pending"
   | "running"

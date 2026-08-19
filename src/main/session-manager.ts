@@ -21,6 +21,7 @@ import type { Persistence, PersistedState } from "./persistence"
 import { buildDemoState } from "./demo-seed"
 import { addUsage } from "./adapters/usage"
 import type { PermissionBroker } from "./permission-broker"
+import type { UsageLedger } from "./usage-ledger"
 import { realpathSync, statSync } from "node:fs"
 import type { PermissionMode } from "@shared/permission"
 import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
@@ -117,6 +118,7 @@ export class SessionManager {
   private inputStatusWired = false
   private userUnsettled = new Set<string>()
   private readonly generateTitleFn: TitleGenerator
+  private readonly usageLedger: UsageLedger | null
   /** Sessions whose one automatic LLM refinement already ran (or is running). */
   private titleRefined = new Set<string>()
   private readonly worktreeSetup: WorktreeSetupRunner
@@ -133,6 +135,7 @@ export class SessionManager {
       maxMessages?: number
       titleGenerator?: TitleGenerator
       worktreeSetup?: WorktreeSetupRunner
+      usageLedger?: UsageLedger
     },
   ) {
     // Prompt hooks re-enter sendMessage so they share the normal queue (never
@@ -148,6 +151,7 @@ export class SessionManager {
     this.generateTitleFn =
       opts?.titleGenerator ?? ((user, assistant) => generateTitle(user, assistant))
     this.worktreeSetup = opts?.worktreeSetup ?? runWorktreeCreateScripts
+    this.usageLedger = opts?.usageLedger ?? null
   }
 
   /**
@@ -1424,9 +1428,11 @@ export class SessionManager {
     turn: TurnUsage,
     messageId?: string,
   ): void {
-    if (!this.sessions.has(sessionId)) return
+    const session = this.sessions.get(sessionId)
+    if (!session) return
     const total = addUsage(this.usage.get(sessionId), turn)
     this.usage.set(sessionId, total)
+    void this.usageLedger?.record(session.provider, session.model, turn)
 
     const list = this.messages.get(sessionId)
     const idx = messageId ? (list?.findIndex((m) => m.id === messageId) ?? -1) : -1
