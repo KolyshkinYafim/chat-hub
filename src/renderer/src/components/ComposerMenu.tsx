@@ -72,9 +72,22 @@ export function ComposerMenu(props: Props) {
         {activeMode ? (
           <span className="composer-pill-mode">◈ {activeMode.name}</span>
         ) : null}
-        <span className="composer-pill-caret" aria-hidden>
-          {open ? "▾" : "▴"}
-        </span>
+        <svg
+          className={`composer-pill-caret ${open ? "is-open" : ""}`}
+          aria-hidden
+          width="8"
+          height="8"
+          viewBox="0 0 8 8"
+        >
+          <path
+            d="M1.5 5.25 4 2.75l2.5 2.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
       </button>
 
       {open ? (

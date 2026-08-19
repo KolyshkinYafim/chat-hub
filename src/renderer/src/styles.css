@@ -5553,8 +5553,17 @@ select:focus-visible {
 }
 
 .composer-pill-caret {
+  flex: none;
   color: var(--text-faint);
-  font-size: 9px;
+  transition: transform var(--speed-fast) ease;
+}
+
+.composer-pill-caret.is-open {
+  transform: rotate(180deg);
+}
+
+.composer-pill:hover .composer-pill-caret {
+  color: var(--text-muted);
 }
 
 .composer-popover {
