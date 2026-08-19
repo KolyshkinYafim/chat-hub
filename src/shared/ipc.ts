@@ -48,6 +48,8 @@ export const IpcChannels = {
   applySessionMode: "session:apply-mode",
   setSessionPermission: "session:set-permission",
   setSessionTitle: "session:set-title",
+  sessionRename: "session:rename",
+  sessionRegenerateTitle: "session:regenerate-title",
   pickFiles: "dialog:pick-files",
   inspectAttachments: "fs:inspect-attachments",
   savePastedImage: "clipboard:save-image",

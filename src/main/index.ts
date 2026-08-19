@@ -997,6 +997,27 @@ function registerIpc(
     },
   )
 
+  ipcMain.handle(
+    IpcChannels.sessionRename,
+    (_e, sessionId: unknown, title: unknown) => {
+      if (typeof sessionId !== "string" || !sessionId) {
+        throw new Error("Invalid sessionId")
+      }
+      if (typeof title !== "string") throw new Error("Invalid title")
+      return sm.renameSession(sessionId, title)
+    },
+  )
+
+  ipcMain.handle(
+    IpcChannels.sessionRegenerateTitle,
+    (_e, sessionId: unknown) => {
+      if (typeof sessionId !== "string" || !sessionId) {
+        throw new Error("Invalid sessionId")
+      }
+      return sm.regenerateTitle(sessionId)
+    },
+  )
+
   ipcMain.handle(IpcChannels.pickFiles, async () => {
     const win = BrowserWindow.getFocusedWindow() ?? mainWindow
     const result = await dialog.showOpenDialog(win ?? undefined!, {
