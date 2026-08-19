@@ -699,8 +699,6 @@ function makeSurfaceBridge(): SurfaceBridge {
       mockBoard = { ...board, updatedAt: Date.now() }
       return mockBoard
     },
-    scriptsList: async () => [],
-    scriptsSave: async (_cwd, scripts) => scripts,
     browserAttach: async () => false,
     browserDetach: async () => false,
     onBrowserActivity: () => () => {},
@@ -718,6 +716,8 @@ function makeSurfaceBridge(): SurfaceBridge {
 
 export function installDevMock(): void {
   const api: Partial<ChatHubApi> = {
+    scriptsList: async () => ({ scripts: [], updatedAt: 0 }),
+    scriptsSave: async (_cwd, scripts) => ({ scripts, updatedAt: Date.now() }),
     getSnapshot: async () => snapshot,
     listSessions: async () => sessions,
     getMessages: async (id: string) => messages[id] ?? [],

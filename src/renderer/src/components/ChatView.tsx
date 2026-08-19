@@ -26,7 +26,13 @@ import type { PermissionMode } from "@shared/permission"
 import { PERMISSION_LABELS } from "@shared/permission"
 import type { ProjectScript } from "@shared/scripts"
 import type { Mode, ModelInfo } from "@shared/settings-types"
-import { formatClock } from "../lib/format"
+import { formatClock, formatRelative } from "../lib/format"
+import {
+  loadStash,
+  pushStash,
+  removeStash,
+  type StashEntry,
+} from "../lib/prompt-stash"
 import {
   nextVoicePhase,
   voiceToggleIntent,
@@ -57,6 +63,8 @@ export type OnboardNotice = {
 
 type Props = {
   session: SessionMeta | null
+  /** All sessions — the stash popover resolves entry origins to titles. */
+  sessions: SessionMeta[]
   onboard: OnboardNotice | null
   /** Message the sidebar search asked us to reveal; cleared once scrolled to. */
   highlightMessageId: string | null
@@ -386,6 +394,11 @@ function AgentInputCard({
   )
 }
 
+function stashPreview(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim()
+  return flat.length > 80 ? `${flat.slice(0, 80)}…` : flat
+}
+
 function providerAsksLabel(source: string): string {
   const provider = source.split(":", 1)[0] || "Agent"
   return `${provider.slice(0, 1).toUpperCase()}${provider.slice(1)} asks`
@@ -393,6 +406,7 @@ function providerAsksLabel(source: string): string {
 
 export function ChatView({
   session,
+  sessions,
   onboard,
   highlightMessageId,
   onHighlightShown,
@@ -470,6 +484,11 @@ export function ChatView({
   const [confirmRevertId, setConfirmRevertId] = useState<string | null>(null)
   const [reverting, setReverting] = useState(false)
   const [revertError, setRevertError] = useState<string | null>(null)
+  const [stash, setStash] = useState<StashEntry[]>(() => loadStash())
+  const [stashOpen, setStashOpen] = useState(false)
+  const [stashedFlash, setStashedFlash] = useState(false)
+  const stashRef = useRef<HTMLDivElement | null>(null)
+  const stashFlashTimer = useRef<number | undefined>(undefined)
 
   // Oldest→newest list of what you actually sent this session — the shell-style
   // ↑/↓ recall reads from it so you can re-run a prompt without retyping.
@@ -477,6 +496,22 @@ export function ChatView({
     () => messages.filter((m) => m.role === "user").map((m) => m.content),
     [messages],
   )
+
+  const sessionTitles = useMemo(
+    () => new Map(sessions.map((s) => [s.id, s.title])),
+    [sessions],
+  )
+
+  useEffect(() => {
+    if (!stashOpen) return
+    const onPointerDown = (e: MouseEvent) => {
+      if (!stashRef.current?.contains(e.target as Node)) setStashOpen(false)
+    }
+    document.addEventListener("mousedown", onPointerDown)
+    return () => document.removeEventListener("mousedown", onPointerDown)
+  }, [stashOpen])
+
+  useEffect(() => () => window.clearTimeout(stashFlashTimer.current), [])
 
   const lastMessage = messages[messages.length - 1]
   const liveMessage =
@@ -697,7 +732,35 @@ export function ChatView({
     return false
   }
 
+  function stashDraft() {
+    if (!session || !draft.trim()) return
+    setStash(pushStash(draft, session.id))
+    setDraft("")
+    setHistIndex(-1)
+    setStashedFlash(true)
+    window.clearTimeout(stashFlashTimer.current)
+    stashFlashTimer.current = window.setTimeout(
+      () => setStashedFlash(false),
+      1200,
+    )
+  }
+
+  function restoreStash(entry: StashEntry) {
+    setStash(removeStash(entry.id))
+    setDraft((current) =>
+      current.trim() ? `${current.trimEnd()}\n\n${entry.text}` : entry.text,
+    )
+    setHistIndex(-1)
+    setStashOpen(false)
+    taRef.current?.focus()
+  }
+
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+      e.preventDefault()
+      stashDraft()
+      return
+    }
     if ((e.key === "ArrowUp" || e.key === "ArrowDown") && recallHistory(e)) {
       e.preventDefault()
       return
@@ -1261,6 +1324,11 @@ export function ChatView({
               void onPaste(e)
             }}
           />
+          {stashedFlash ? (
+            <span className="stash-flash" aria-live="polite">
+              Stashed
+            </span>
+          ) : null}
           <div className="composer-toolbar">
             <div className="composer-chips">
               <ComposerMenu
@@ -1309,6 +1377,82 @@ export function ChatView({
                       : "Voice"}
                 </button>
               ) : null}
+              <div className="stash-anchor" ref={stashRef}>
+                <button
+                  type="button"
+                  className="composer-action stash-btn"
+                  aria-expanded={stashOpen}
+                  aria-haspopup="menu"
+                  title="Stashed drafts — ⌘S stashes the current draft"
+                  onClick={() => {
+                    setStash(loadStash())
+                    setStashOpen((v) => !v)
+                  }}
+                >
+                  <svg aria-hidden width="9" height="11" viewBox="0 0 9 11">
+                    <path
+                      d="M1.5 1.5h6v8L4.5 7.1 1.5 9.5z"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.3"
+                      strokeLinejoin="round"
+                    />
+                  </svg>{" "}
+                  Stash
+                  {stash.length > 0 ? (
+                    <span className="stash-count">{stash.length}</span>
+                  ) : null}
+                </button>
+                {stashOpen ? (
+                  <div
+                    className="stash-popover"
+                    role="menu"
+                    onKeyDown={(e) => {
+                      if (e.key !== "Escape") return
+                      e.stopPropagation()
+                      setStashOpen(false)
+                    }}
+                  >
+                    {stash.length === 0 ? (
+                      <div className="stash-empty">
+                        ⌘S stashes the current draft
+                      </div>
+                    ) : (
+                      stash.map((entry) => {
+                        const from = sessionTitles.get(entry.sessionId)
+                        return (
+                          <div key={entry.id} className="stash-row">
+                            <button
+                              type="button"
+                              className="stash-restore"
+                              role="menuitem"
+                              title="Append to the current draft"
+                              onClick={() => restoreStash(entry)}
+                            >
+                              <span className="stash-text">
+                                {stashPreview(entry.text)}
+                              </span>
+                              <span className="stash-meta">
+                                {formatRelative(entry.at)}
+                                {from ? ` · ${from}` : ""}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              className="stash-delete"
+                              aria-label="Delete stashed draft"
+                              title="Delete"
+                              onClick={() => setStash(removeStash(entry.id))}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                ) : null}
+              </div>
               <button
                 type="button"
                 className="composer-action"

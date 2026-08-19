@@ -1174,6 +1174,7 @@ export default function App() {
       <div className="main-column">
         <ChatView
           session={activeSession}
+          sessions={sessions}
           anyOverlayOpen={anyOverlayOpen}
           onboard={
             showOnboard
