@@ -62,7 +62,12 @@ describe("addUsage", () => {
   it("sums turns and counts them", () => {
     const first = addUsage(undefined, { outputTokens: 10, costUsd: 0.5 })
     const second = addUsage(first, { outputTokens: 5, costUsd: 0.25 })
-    expect(second).toEqual({ turns: 2, outputTokens: 15, costUsd: 0.75 })
+    expect(second).toEqual({
+      turns: 2,
+      outputTokens: 15,
+      costUsd: 0.75,
+      lastTurn: { outputTokens: 5, costUsd: 0.25 },
+    })
   })
 
   it("keeps a field the CLI stopped reporting instead of dropping it", () => {
@@ -71,10 +76,41 @@ describe("addUsage", () => {
       turns: 2,
       costUsd: 1,
       outputTokens: 3,
+      lastTurn: { outputTokens: 3 },
     })
   })
 
   it("never invents a field no turn reported", () => {
-    expect(addUsage(undefined, { costUsd: 1 })).toEqual({ turns: 1, costUsd: 1 })
+    expect(addUsage(undefined, { costUsd: 1 })).toEqual({
+      turns: 1,
+      costUsd: 1,
+      lastTurn: { costUsd: 1 },
+    })
+  })
+
+  it("keeps the last turn as reported, not the cumulative sum", () => {
+    const first = addUsage(undefined, {
+      inputTokens: 10,
+      cacheReadTokens: 300_000,
+      cacheCreateTokens: 5_000,
+    })
+    const second = addUsage(first, {
+      inputTokens: 4,
+      cacheReadTokens: 351_000,
+      cacheCreateTokens: 300,
+    })
+    expect(second.cacheReadTokens).toBe(651_000)
+    expect(second.lastTurn).toEqual({
+      inputTokens: 4,
+      cacheReadTokens: 351_000,
+      cacheCreateTokens: 300,
+    })
+  })
+
+  it("carries the context window forward when a later turn omits it", () => {
+    const first = addUsage(undefined, { inputTokens: 5, contextWindow: 1_000_000 })
+    const second = addUsage(first, { inputTokens: 7 })
+    expect(second.contextWindow).toBe(1_000_000)
+    expect(second.inputTokens).toBe(12)
   })
 })

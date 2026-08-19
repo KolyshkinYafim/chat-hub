@@ -89,10 +89,14 @@ export type TurnUsage = {
   cacheCreateTokens?: number
   costUsd?: number
   durationMs?: number
+  contextWindow?: number
 }
 
 /** Running total over every turn of a session that reported usage. */
-export type SessionUsage = TurnUsage & { turns: number }
+export type SessionUsage = TurnUsage & {
+  turns: number
+  lastTurn?: TurnUsage
+}
 
 export type TurnItemStatus =
   | "pending"

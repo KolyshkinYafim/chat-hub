@@ -323,11 +323,15 @@ export class CodexAdapter implements AgentAdapter {
       }
       case "thread/tokenUsage/updated": {
         const usage = event.params.tokenUsage.last
+        const window = event.params.tokenUsage.modelContextWindow
         active.usage = {
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
           cacheReadTokens: usage.cachedInputTokens,
           cacheCreateTokens: usage.cacheWriteInputTokens,
+          ...(typeof window === "number" && window > 0
+            ? { contextWindow: window }
+            : {}),
         }
         break
       }
