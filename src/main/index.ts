@@ -1009,6 +1009,17 @@ function registerIpc(
   )
 
   ipcMain.handle(
+    IpcChannels.sessionRename,
+    (_e, sessionId: unknown, title: unknown) => {
+      if (typeof sessionId !== "string" || !sessionId) {
+        throw new Error("Invalid sessionId")
+      }
+      if (typeof title !== "string") throw new Error("Invalid title")
+      return sm.renameSession(sessionId, title)
+    },
+  )
+
+  ipcMain.handle(
     IpcChannels.sessionSetArchived,
     (_e, sessionId: unknown, archived: unknown) => {
       if (typeof sessionId !== "string" || !sessionId) {
@@ -1025,6 +1036,16 @@ function registerIpc(
     if (!Array.isArray(ids)) throw new Error("Invalid ids")
     sm.migrateArchived(ids.filter((id): id is string => typeof id === "string"))
   })
+
+  ipcMain.handle(
+    IpcChannels.sessionRegenerateTitle,
+    (_e, sessionId: unknown) => {
+      if (typeof sessionId !== "string" || !sessionId) {
+        throw new Error("Invalid sessionId")
+      }
+      return sm.regenerateTitle(sessionId)
+    },
+  )
 
   ipcMain.handle(IpcChannels.pickFiles, async () => {
     const win = BrowserWindow.getFocusedWindow() ?? mainWindow

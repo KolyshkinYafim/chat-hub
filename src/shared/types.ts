@@ -20,6 +20,12 @@ export type ProviderInfo = {
 export type SessionMeta = {
   id: string
   title: string
+  /**
+   * Who named the session. "user" titles are sacred — auto-titling never touches
+   * them. Absent (pre-feature sessions): default-looking titles count as
+   * "default", anything else as "user".
+   */
+  titleOrigin?: "default" | "auto" | "user"
   /** Project / folder group in the sidebar (e.g. mary, FinanceApp). */
   project: string
   provider: ProviderId

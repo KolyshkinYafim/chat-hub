@@ -5723,4 +5723,81 @@ select:focus-visible {
   .settled-banner {
     animation: rise-in 140ms ease-out both;
   }
+/* ===== auto titles ===== */
+
+.session-row-menu {
+  position: absolute;
+  top: calc(100% - 4px);
+  right: 6px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  padding: 4px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+
+.session-row-menu-item {
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.session-row-menu-item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.session-row-menu-item:disabled {
+  color: var(--text-faint);
+}
+
+.session-title-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  padding: 1px 5px;
+  outline: none;
+}
+
+.title-regen {
+  background: linear-gradient(
+    90deg,
+    var(--text-muted) 20%,
+    var(--text) 50%,
+    var(--text-muted) 80%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .title-regen {
+    animation: title-shimmer 1.4s linear infinite;
+  }
+}
+
+@keyframes title-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.session-row.active .session-row-title.title-regen {
+  color: transparent;
 }
