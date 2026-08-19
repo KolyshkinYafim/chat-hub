@@ -162,6 +162,7 @@ describe("cost & tokens", () => {
         turns: 2,
         costUsd: 0.75,
         outputTokens: 140,
+        lastTurn: { costUsd: 0.25, outputTokens: 40 },
       }),
     )
     expect(events.filter((e) => e.type === "usage.changed")).toHaveLength(2)
@@ -191,6 +192,7 @@ describe("cost & tokens", () => {
     expect((await persistence.load()).usage?.[session.id]).toEqual({
       turns: 1,
       costUsd: 1.5,
+      lastTurn: { costUsd: 1.5 },
     })
   })
 })
