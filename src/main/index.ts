@@ -36,6 +36,7 @@ import {
   stageFileHunk,
   unstageFileHunk,
 } from "./git"
+import { listCheckpoints } from "./checkpoints"
 import { SettingsStore } from "./settings"
 import type { PermissionMode } from "@shared/permission"
 import type {
@@ -651,6 +652,26 @@ function registerIpc(
         typeof body === "string" ? body : "",
         draft === true,
       )
+    },
+  )
+  ipcMain.handle(IpcChannels.checkpointList, (_e, sessionId: unknown) => {
+    if (typeof sessionId !== "string" || !sessionId) {
+      throw new Error("Invalid session id")
+    }
+    const session = sm.getSession(sessionId)
+    if (!session) return []
+    return listCheckpoints(session.cwd, sessionId)
+  })
+  ipcMain.handle(
+    IpcChannels.checkpointRevert,
+    (_e, sessionId: unknown, ref: unknown) => {
+      if (typeof sessionId !== "string" || !sessionId) {
+        throw new Error("Invalid session id")
+      }
+      if (typeof ref !== "string" || !ref) {
+        throw new Error("Invalid checkpoint ref")
+      }
+      return sm.revertToCheckpoint(sessionId, ref)
     },
   )
   ipcMain.handle(IpcChannels.gitWorktrees, (_e, cwd: unknown) =>

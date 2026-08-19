@@ -36,6 +36,8 @@ export const IpcChannels = {
   gitCommitStaged: "git:commit-staged",
   gitPush: "git:push",
   gitCreatePr: "git:create-pr",
+  checkpointList: "checkpoint:list",
+  checkpointRevert: "checkpoint:revert",
   gitWorktrees: "git:worktrees",
   gitRemoveWorktree: "git:remove-worktree",
   gitPruneWorktrees: "git:prune-worktrees",
