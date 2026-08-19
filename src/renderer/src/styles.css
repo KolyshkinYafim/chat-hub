@@ -5800,4 +5800,59 @@ select:focus-visible {
 
 .session-row.active .session-row-title.title-regen {
   color: transparent;
+/* ===== checkpoints ===== */
+
+.checkpoint-btn {
+  flex: none;
+  border: none;
+  background: none;
+  padding: 0 4px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-faint);
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+.turn-user:hover .checkpoint-btn,
+.checkpoint-btn:focus-visible {
+  opacity: 1;
+}
+
+.checkpoint-btn:hover:not(:disabled) {
+  color: var(--accent-2);
+  background: var(--bg-hover);
+}
+
+.checkpoint-btn:disabled {
+  cursor: default;
+  opacity: 0;
+}
+
+.checkpoint-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  font-size: 12px;
+}
+
+.checkpoint-confirm-text {
+  color: var(--text-secondary);
+}
+
+.checkpoint-error {
+  color: var(--warn);
+}
+
+.checkpoint-confirm-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
 }

@@ -214,6 +214,8 @@ export type ChatMessage = {
   items?: AgentTurnItem[]
   /** Structured local-file references for user messages. */
   attachments?: MessageAttachment[]
+  /** Git ref snapshotting the working tree just before this user turn ran. */
+  checkpointRef?: string
 }
 
 /**

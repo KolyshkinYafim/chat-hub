@@ -460,6 +460,9 @@ export function ChatView({
   // True while a voiceToggle IPC is in flight — clicks in that window would
   // re-read the not-yet-updated phase and send Handy a second toggle.
   const voiceBusyRef = useRef(false)
+  const [confirmRevertId, setConfirmRevertId] = useState<string | null>(null)
+  const [reverting, setReverting] = useState(false)
+  const [revertError, setRevertError] = useState<string | null>(null)
 
   // Oldest→newest list of what you actually sent this session — the shell-style
   // ↑/↓ recall reads from it so you can re-run a prompt without retyping.
@@ -480,6 +483,22 @@ export function ChatView({
     const { blocks } = buildTranscript(liveMessage.content, liveMessage.id)
     return { step: currentStep(blocks), plan: planProgress(blocks) }
   }, [liveMessage])
+
+  const revertBlocked = sending || session?.status === "running"
+
+  const revertCheckpoint = async (message: ChatMessage) => {
+    if (!session || !message.checkpointRef || reverting) return
+    setReverting(true)
+    setRevertError(null)
+    try {
+      await window.chatHub.checkpointRevert(session.id, message.checkpointRef)
+      setConfirmRevertId(null)
+    } catch (err) {
+      setRevertError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setReverting(false)
+    }
+  }
 
   useEffect(() => {
     draftRef.current = draft
@@ -503,6 +522,8 @@ export function ChatView({
     setAttachments(restored?.attachments ?? [])
     setPreview(null)
     setHistIndex(-1)
+    setConfirmRevertId(null)
+    setRevertError(null)
     atBottomRef.current = true
     setAtBottom(true)
   }, [session?.id])
@@ -1044,7 +1065,57 @@ export function ChatView({
                   <div className="turn-meta">
                     <span className="turn-role">You</span>
                     <span className="turn-time">{formatClock(m.createdAt)}</span>
+                    {m.checkpointRef && confirmRevertId !== m.id ? (
+                      <button
+                        type="button"
+                        className="checkpoint-btn"
+                        title={
+                          revertBlocked
+                            ? "Stop the running turn before reverting"
+                            : "Revert files and transcript to before this message"
+                        }
+                        disabled={revertBlocked}
+                        onClick={() => {
+                          setRevertError(null)
+                          setConfirmRevertId(m.id)
+                        }}
+                      >
+                        ⟲
+                      </button>
+                    ) : null}
                   </div>
+                  {confirmRevertId === m.id ? (
+                    <div className="checkpoint-confirm">
+                      <span className="checkpoint-confirm-text">
+                        Revert files + transcript to before this message? The
+                        CLI still remembers the reverted turns.
+                      </span>
+                      {revertError ? (
+                        <span className="checkpoint-error">{revertError}</span>
+                      ) : null}
+                      <div className="checkpoint-confirm-actions">
+                        <button
+                          type="button"
+                          className="tb-btn"
+                          disabled={reverting}
+                          onClick={() => {
+                            setConfirmRevertId(null)
+                            setRevertError(null)
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="tb-btn primary"
+                          disabled={reverting || revertBlocked}
+                          onClick={() => void revertCheckpoint(m)}
+                        >
+                          {reverting ? "Reverting…" : "Revert"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="user-bubble">{m.content}</div>
                   {m.attachments?.length ? (
                     <AttachmentGallery

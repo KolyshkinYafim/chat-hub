@@ -36,6 +36,15 @@ import {
 import { createSessionWorktree, removeSessionWorktree } from "./git"
 import { heuristicTitle, looksDefaultTitle } from "@shared/title"
 import { generateTitle } from "./title-llm"
+import {
+  createCheckpoint,
+  deleteSessionCheckpoints,
+  pruneCheckpoints,
+  revertToCheckpoint,
+} from "./checkpoints"
+
+/** Retention window: how many per-turn checkpoints a session keeps. */
+export const MAX_CHECKPOINTS_PER_SESSION = 20
 
 /** Live window size; older turns spill into MessageArchive, not the void. */
 export const MAX_MESSAGES_PER_SESSION = 200
@@ -64,7 +73,13 @@ const WATCHDOG: WatchdogConfig = {
 }
 
 /** Queue entry: the shared QueuedMessage the UI renders plus its send opts. */
-type QueuedTurn = { id: string; content: string; createdAt: number; opts?: SendOpts }
+type QueuedTurn = {
+  id: string
+  content: string
+  createdAt: number
+  opts?: SendOpts
+  userMessageId?: string
+}
 
 export type TitleGenerator = (
   userMessage: string,
@@ -835,16 +850,27 @@ export class SessionManager {
       // Sending now would pre-empt the live turn mid-tool-call and lose its work;
       // hold the text and hand it over when the turn reports back.
       const queue = this.queued.get(sessionId) ?? []
-      queue.push({ id: randomUUID(), content, createdAt: Date.now(), opts })
+      queue.push({
+        id: randomUUID(),
+        content,
+        createdAt: Date.now(),
+        opts,
+        userMessageId: userMsg.id,
+      })
       this.queued.set(sessionId, queue)
       this.emitQueue(sessionId)
       return
     }
 
-    this.dispatch(sessionId, content, opts)
+    this.dispatch(sessionId, content, opts, userMsg.id)
   }
 
-  private dispatch(sessionId: string, content: string, opts?: SendOpts): void {
+  private dispatch(
+    sessionId: string,
+    content: string,
+    opts?: SendOpts,
+    userMessageId?: string,
+  ): void {
     const session = this.sessions.get(sessionId)
     if (!session) return
 
@@ -860,6 +886,7 @@ export class SessionManager {
       ...this.hookIdentityEnv(session),
     }
     this.turns.set(sessionId, { lastActivityAt: Date.now() })
+    this.snapshotTurn(session, content, userMessageId)
     // Fire-and-forget: stream/status arrive via event bus; UI stays responsive.
     void adapter
       .send(sessionId, content || "Please review the attached files.", this.callbacks(), {
@@ -897,6 +924,73 @@ export class SessionManager {
   }
 
   /**
+   * Snapshot the working tree before the turn's first byte reaches the CLI.
+   * Best-effort by design: a failed or unavailable checkpoint (non-git folder)
+   * must never block or fail the turn, so nothing here is awaited by dispatch.
+   */
+  private snapshotTurn(
+    session: SessionMeta,
+    content: string,
+    userMessageId?: string,
+  ): void {
+    void createCheckpoint(session.cwd, session.id, content || "attachments")
+      .then((checkpoint) => {
+        if (!checkpoint) return
+        if (userMessageId) {
+          const list = this.messages.get(session.id)
+          const idx = list?.findIndex((m) => m.id === userMessageId) ?? -1
+          if (list && idx !== -1) {
+            list[idx] = { ...list[idx], checkpointRef: checkpoint.ref }
+            this.bus.emit({
+              type: "messages.replaced",
+              sessionId: session.id,
+              messages: [...list],
+            })
+            this.scheduleSave()
+          }
+        }
+        return pruneCheckpoints(
+          session.cwd,
+          session.id,
+          MAX_CHECKPOINTS_PER_SESSION,
+        )
+      })
+      .catch((err) => {
+        console.warn("[session-manager] checkpoint failed", session.id, err)
+      })
+  }
+
+  /**
+   * Roll files and transcript back to the snapshot taken before `ref`'s turn.
+   * Refused while a turn is live — reverting under a writing agent would race
+   * its edits. The CLI's own resumed conversation still remembers the reverted
+   * turns; only the workspace and the visible transcript go back.
+   */
+  async revertToCheckpoint(sessionId: string, ref: string): Promise<void> {
+    const session = this.sessions.get(sessionId)
+    if (!session) throw new Error("Session not found")
+    if (this.turns.has(sessionId) || session.status === "running") {
+      throw new Error("Stop the running turn before reverting")
+    }
+    await revertToCheckpoint(session.cwd, sessionId, ref)
+
+    const list = this.messages.get(sessionId) ?? []
+    const idx = list.findIndex((m) => m.checkpointRef === ref)
+    if (idx !== -1) {
+      const kept = list.slice(0, idx)
+      this.messages.set(sessionId, kept)
+      this.bus.emit({
+        type: "messages.replaced",
+        sessionId,
+        messages: kept,
+      })
+    }
+    this.touch(sessionId)
+    this.bus.emit({ type: "sessions.replaced", sessions: this.listSessions() })
+    this.scheduleSave()
+  }
+
+  /**
    * Point the CLI's agent-desktop hook at the Hub's socket so its permission
    * prompts land in the transcript. Only the two CLIs that speak the blocking
    * hook protocol: for OpenCode the same variable addresses its plugin's event
@@ -930,7 +1024,7 @@ export class SessionManager {
     if (!next) return
     if (queue && queue.length === 0) this.queued.delete(sessionId)
     this.emitQueue(sessionId)
-    this.dispatch(sessionId, next.content, next.opts)
+    this.dispatch(sessionId, next.content, next.opts, next.userMessageId)
   }
 
   /** Never leave the user guessing whether a queued message was delivered. */
@@ -1100,6 +1194,9 @@ export class SessionManager {
       // ignore dispose errors
     }
 
+    await deleteSessionCheckpoints(session.cwd, sessionId).catch((err) =>
+      console.warn("[session-manager] checkpoint cleanup skipped", err),
+    )
     if (session.worktreePath && session.baseCwd) {
       await removeSessionWorktree(session.baseCwd, session.worktreePath).catch((err) =>
         console.warn("[session-manager] worktree cleanup skipped", err),
@@ -1143,6 +1240,11 @@ export class SessionManager {
       }
       this.publishSessionEvent({ type: "session.ended", id, reason: "killed" })
       const session = this.sessions.get(id)
+      if (session) {
+        await deleteSessionCheckpoints(session.cwd, id).catch((err) =>
+          console.warn("[session-manager] checkpoint cleanup skipped", err),
+        )
+      }
       if (session?.worktreePath && session.baseCwd) {
         await removeSessionWorktree(session.baseCwd, session.worktreePath).catch((err) =>
           console.warn("[session-manager] worktree cleanup skipped", err),
