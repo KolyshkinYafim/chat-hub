@@ -34,6 +34,10 @@ import {
   type StashEntry,
 } from "../lib/prompt-stash"
 import {
+  onPendingComposerInsert,
+  takeComposerInsert,
+} from "../lib/pending-prompt"
+import {
   nextVoicePhase,
   voiceToggleIntent,
   VOICE_WAIT_TIMEOUT_MS,
@@ -603,6 +607,24 @@ export function ChatView({
     setRevertError(null)
     atBottomRef.current = true
     setAtBottom(true)
+  }, [session?.id])
+
+  useEffect(() => {
+    const sessionId = session?.id
+    if (!sessionId) return
+    const consume = (forSessionId: string) => {
+      if (forSessionId !== sessionId) return
+      const text = takeComposerInsert(sessionId)
+      if (text === null) return
+      setDraft((prev) => {
+        const kept = prev.replace(/\s+$/, "")
+        return kept === "" ? text : `${kept}\n\n${text}`
+      })
+      setHistIndex(-1)
+      taRef.current?.focus()
+    }
+    consume(sessionId)
+    return onPendingComposerInsert(consume)
   }, [session?.id])
 
   // Programmatic draft changes (history recall, send-clear) also need the
