@@ -29,6 +29,8 @@ import type {
   ProviderStatus,
 } from "@shared/settings-types"
 import { DEFAULT_MODES } from "@shared/settings-types"
+import { resolveTheme } from "@shared/theme"
+import { applyTheme } from "./lib/theme-apply"
 import { projectFromCwd } from "@shared/project"
 import { clearMigratedArchive, readArchivedForMigration } from "./lib/archive"
 import type { ProjectScript } from "@shared/scripts"
@@ -377,6 +379,9 @@ export default function App() {
         setProviders(prov)
         setPermissionMode(settings.permissionMode)
         setProviderStatuses(settings.statuses)
+        applyTheme(
+          resolveTheme(settings.general.themeId, settings.general.customThemes),
+        )
         if (settings.general.defaultEffort) {
           setEffort(settings.general.defaultEffort)
         }
@@ -1319,6 +1324,7 @@ export default function App() {
             void window.chatHub.getSettings().then((s) => {
               setProviderStatuses(s.statuses)
               setPermissionMode(s.permissionMode)
+              applyTheme(resolveTheme(s.general.themeId, s.general.customThemes))
               if (s.general.defaultEffort) setEffort(s.general.defaultEffort)
               if (
                 s.general.defaultProvider &&

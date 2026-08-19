@@ -14,6 +14,7 @@ import type {
   ProviderInstance,
   RedactedProviderConfig,
 } from "@shared/settings-types"
+import { parseThemeDef, type ThemeDef } from "@shared/theme"
 import { openSecret, sealSecret } from "./secret"
 import { homeEnvFor } from "./instances"
 import { quarantineCorrupt, writeFileAtomic } from "./atomic-write"
@@ -395,6 +396,24 @@ export function sanitizeGeneralPatch(patch: unknown): GeneralConfig {
   if (p.modes !== undefined) {
     if (!Array.isArray(p.modes)) throw new Error("Invalid modes")
     clean.modes = p.modes.map(sanitizeMode)
+  }
+  if (p.themeId !== undefined) {
+    if (typeof p.themeId !== "string" || p.themeId.length > 64) {
+      throw new Error("Invalid theme id")
+    }
+    clean.themeId = p.themeId
+  }
+  if (p.customThemes !== undefined) {
+    if (!Array.isArray(p.customThemes) || p.customThemes.length > 64) {
+      throw new Error("Invalid themes")
+    }
+    const themes: ThemeDef[] = []
+    for (const raw of p.customThemes) {
+      const parsed = parseThemeDef(raw)
+      if (!parsed) throw new Error("Invalid theme")
+      themes.push(parsed)
+    }
+    clean.customThemes = themes
   }
   return clean
 }
