@@ -1257,6 +1257,11 @@ export default function App() {
           diffFocus={diffFocus}
           hookRuns={activeId ? (hooksBySession[activeId] ?? []) : []}
           agentActions={agentActions}
+          sessions={sessions}
+          messagesBySession={messagesBySession}
+          usageBySession={usageBySession}
+          queuedBySession={queuedBySession}
+          onSelectSession={(id) => void selectSession(id)}
           onGitChanged={refreshGit}
           onSelectKind={chooseSurface}
           onWidthChange={setDockWidth}
