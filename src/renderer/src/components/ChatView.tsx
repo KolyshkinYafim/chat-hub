@@ -567,6 +567,39 @@ export function ChatView({
 
   const revertBlocked = sending || session?.status === "running"
 
+  // Retention prunes refs long before messages lose their stamp, so the button
+  // is offered only for checkpoints git can still reach.
+  const stampedRefs = useMemo(
+    () =>
+      messages
+        .map((m) => m.checkpointRef)
+        .filter((ref): ref is string => Boolean(ref))
+        .join(","),
+    [messages],
+  )
+  const [liveRefs, setLiveRefs] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  )
+  useEffect(() => {
+    const id = session?.id
+    if (!id || stampedRefs === "") {
+      setLiveRefs(new Set<string>())
+      return
+    }
+    let alive = true
+    void window.chatHub
+      .checkpointList(id)
+      .then((list) => {
+        if (alive) setLiveRefs(new Set(list.map((c) => c.ref)))
+      })
+      .catch(() => {
+        if (alive) setLiveRefs(new Set<string>())
+      })
+    return () => {
+      alive = false
+    }
+  }, [session?.id, stampedRefs])
+
   const revertCheckpoint = async (message: ChatMessage) => {
     if (!session || !message.checkpointRef || reverting) return
     setReverting(true)
@@ -1195,7 +1228,9 @@ export function ChatView({
                   <div className="turn-meta">
                     <span className="turn-role">You</span>
                     <span className="turn-time">{formatClock(m.createdAt)}</span>
-                    {m.checkpointRef && confirmRevertId !== m.id ? (
+                    {m.checkpointRef &&
+                    liveRefs.has(m.checkpointRef) &&
+                    confirmRevertId !== m.id ? (
                       <button
                         type="button"
                         className="checkpoint-btn"

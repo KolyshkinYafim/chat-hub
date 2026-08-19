@@ -103,9 +103,10 @@ function commentTargets(lines: string[]): (CommentTarget | null)[] {
     }
     if (!inHunk) return null
     if (i === lines.length - 1 && l === "") return null
-    if (l.startsWith("+++") || l.startsWith("---") || l.startsWith("\\")) {
-      return null
-    }
+    // Only `\ No newline` is a real marker inside a hunk: `+++`/`---` here are
+    // ordinary content (`-- sql comment`, `++i;`), and skipping them would both
+    // hide their comment affordance and desynchronise every later line number.
+    if (l.startsWith("\\")) return null
     if (l.startsWith("diff ") || l.startsWith("#")) {
       inHunk = false
       return null
@@ -141,15 +142,14 @@ function DiffPane({
     setCompose(null)
   }, [text, commenting?.file])
   const lines = useMemo(() => text.split("\n"), [text])
-  const targets = useMemo(
-    () => (commenting ? commentTargets(lines) : null),
-    [lines, commenting],
-  )
+  // Always parsed: it is the only reader that tells a hunk's `++i;` from a
+  // file header, so the counters and row styling below read it too.
+  const targets = useMemo(() => commentTargets(lines), [lines])
   const comments = commenting
     ? listComments(commenting.sessionId).filter((c) => c.file === commenting.file)
     : []
-  const added = lines.filter((l) => l.startsWith("+") && l[1] !== "+").length
-  const removed = lines.filter((l) => l.startsWith("-") && l[1] !== "-").length
+  const added = targets.filter((t) => t?.kind === "add").length
+  const removed = targets.filter((t) => t?.kind === "del").length
   const hunks = hunkAction ? displayedHunks(lines) : []
   let hunkIndex = -1
 
@@ -185,16 +185,13 @@ function DiffPane({
           {lines.map((l, i) => {
             const isHunkHead = l.startsWith("@@")
             if (isHunkHead) hunkIndex += 1
-            const cls =
-              isHunkHead || l.startsWith("diff ") || l.startsWith("#")
-                ? "hunk"
-                : l.startsWith("+") && !l.startsWith("+++")
-                  ? "add"
-                  : l.startsWith("-") && !l.startsWith("---")
-                    ? "del"
-                    : "ctx"
             const index = hunkIndex
-            const target = targets?.[i] ?? null
+            const target = targets[i] ?? null
+            const cls = target
+              ? target.kind
+              : isHunkHead || l.startsWith("diff ") || l.startsWith("#")
+                ? "hunk"
+                : "ctx"
             const lineComments = target
               ? comments.filter(
                   (c) => c.kind === target.kind && c.line === target.line,

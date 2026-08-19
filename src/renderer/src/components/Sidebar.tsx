@@ -182,15 +182,25 @@ export function Sidebar({
   const settledSessions = useMemo(
     () =>
       sessions
-        .filter((s) => !s.archived && s.settledAt !== undefined)
+        .filter(
+          (s) =>
+            !s.archived &&
+            s.settledAt !== undefined &&
+            // While searching, settled matches are promoted into the groups
+            // above, so listing them again here would double every hit.
+            query.trim() === "",
+        )
         .sort((a, b) => b.updatedAt - a.updatedAt),
-    [sessions],
+    [sessions, query],
   )
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase()
+    // Settled sessions leave the Active list only while it is a list. A search
+    // is a search of everything unarchived, or nearly all past work — which
+    // settles after every completed turn — becomes unfindable here.
     let filtered = sessions.filter(
-      (s) => !s.archived && s.settledAt === undefined,
+      (s) => !s.archived && (q !== "" || s.settledAt === undefined),
     )
     if (statusFilter === "waiting") {
       filtered = filtered.filter((s) => s.status === "waiting_input")

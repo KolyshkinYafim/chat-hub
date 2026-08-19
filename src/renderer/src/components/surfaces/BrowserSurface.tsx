@@ -73,6 +73,22 @@ function pickChipLabel(pick: { tag: string; text: string }): string {
   return `${pick.tag} · ${preview}`
 }
 
+/**
+ * `executeJavaScript` throws synchronously when the guest is not attached, and
+ * the renderer mounts no error boundary — an escaped throw would unmount the
+ * whole app, so every guest call is wrapped rather than only its promise.
+ */
+async function runInGuest(
+  view: WebviewElement,
+  script: string,
+): Promise<unknown> {
+  try {
+    return await view.executeJavaScript(script)
+  } catch {
+    return undefined
+  }
+}
+
 function looksLikePick(value: unknown): value is PickTarget {
   return (
     typeof value === "object" &&
@@ -112,20 +128,17 @@ export function BrowserSurface({ sessionId }: Props) {
 
   useEffect(() => {
     const view = viewRef.current
-    if (!picking || !embedded || !view) return
+    if (!picking || !embedded || !attached || !view) return
     const enable = () => {
-      void view.executeJavaScript(enablePickScript()).catch(() => {})
+      void runInGuest(view, enablePickScript())
     }
     enable()
     const timer = window.setInterval(() => {
-      void view
-        .executeJavaScript(readPickScript())
-        .then((result) => {
-          if (!looksLikePick(result)) return
-          setPendingPick(result)
-          setNote("")
-        })
-        .catch(() => {})
+      void runInGuest(view, readPickScript()).then((result) => {
+        if (!looksLikePick(result)) return
+        setPendingPick(result)
+        setNote("")
+      })
     }, PICK_POLL_MS)
     view.addEventListener("dom-ready", enable)
     view.addEventListener("did-navigate", enable)
@@ -133,9 +146,9 @@ export function BrowserSurface({ sessionId }: Props) {
       window.clearInterval(timer)
       view.removeEventListener("dom-ready", enable)
       view.removeEventListener("did-navigate", enable)
-      void view.executeJavaScript(disablePickScript()).catch(() => {})
+      void runInGuest(view, disablePickScript())
     }
-  }, [picking, embedded])
+  }, [picking, embedded, attached])
 
   const savePendingPick = useCallback(() => {
     if (pendingPick === null) return
@@ -295,14 +308,16 @@ export function BrowserSurface({ sessionId }: Props) {
         <button
           type="button"
           className={`surface-pick-toggle ${picking ? "on" : ""}`}
-          disabled={!embedded}
+          disabled={!embedded || !attached}
           aria-pressed={picking}
           title={
-            embedded
-              ? picking
-                ? "Stop picking elements"
-                : "Pick an element on the page to annotate"
-              : "Picking needs the embedded browser"
+            !embedded
+              ? "Picking needs the embedded browser"
+              : !attached
+                ? "Waiting for the page to load"
+                : picking
+                  ? "Stop picking elements"
+                  : "Pick an element on the page to annotate"
           }
           onClick={() => setPicking((v) => !v)}
         >

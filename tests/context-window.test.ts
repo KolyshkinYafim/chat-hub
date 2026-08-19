@@ -7,6 +7,7 @@ import {
   formatTokens,
 } from "../src/shared/context-window"
 import { readUsage } from "../src/main/adapters/usage"
+import { uncachedInput } from "../src/main/adapters/codex"
 
 describe("readUsage context window", () => {
   it("reads the window a Claude result envelope reports under modelUsage", () => {
@@ -179,5 +180,29 @@ describe("formatting", () => {
     const under = formatContextMeter(0, 200_000)
     expect(under.ratio).toBe(0)
     expect(under.label).toBe("0 / 200k · 0%")
+  })
+})
+
+describe("codex cached-input normalization", () => {
+  it("subtracts cached tokens that codex already counted inside input", () => {
+    expect(uncachedInput(155_023, 24_320)).toBe(130_703)
+  })
+
+  it("never goes negative when the two disagree", () => {
+    expect(uncachedInput(10, 40)).toBe(0)
+  })
+
+  it("leaves an unreported input alone", () => {
+    expect(uncachedInput(undefined, 500)).toBeUndefined()
+  })
+
+  it("keeps a codex turn under its window once normalized", () => {
+    const used = contextUsedTokens({
+      inputTokens: uncachedInput(155_023, 24_320),
+      outputTokens: 470,
+      cacheReadTokens: 24_320,
+    })
+    expect(used).toBe(155_023)
+    expect(used! / 272_000).toBeLessThan(0.9)
   })
 })
