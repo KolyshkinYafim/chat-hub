@@ -9,6 +9,7 @@ import {
   saveFileText,
 } from "./files"
 import { readBoard, writeBoard } from "./board"
+import { readScripts, writeScripts } from "./scripts"
 import { grantMediaUrl } from "./media"
 import { TerminalSessions } from "./terminal"
 
@@ -21,6 +22,13 @@ export {
   saveFileText,
 } from "./files"
 export { readBoard, writeBoard } from "./board"
+export {
+  readScripts,
+  runWorktreeCreateScripts,
+  writeScripts,
+  type ScriptExec,
+  type ScriptExecResult,
+} from "./scripts"
 export {
   registerMediaProtocol,
   registerMediaScheme,
@@ -43,6 +51,12 @@ export function registerSurfaceIpc(terminals: TerminalSessions): void {
 
   ipcMain.handle(IpcChannels.boardWrite, (_e, cwd: unknown, board: unknown) =>
     writeBoard(cwd, board),
+  )
+
+  ipcMain.handle(IpcChannels.scriptsList, (_e, cwd: unknown) => readScripts(cwd))
+
+  ipcMain.handle(IpcChannels.scriptsSave, (_e, cwd: unknown, scripts: unknown) =>
+    writeScripts(cwd, scripts),
   )
 
   ipcMain.handle(IpcChannels.listDir, (_e, cwd: unknown, relPath: unknown) =>

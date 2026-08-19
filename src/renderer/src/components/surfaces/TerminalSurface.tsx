@@ -5,6 +5,15 @@ import "@xterm/xterm/css/xterm.css"
 import type { HookRun } from "@shared/hooks"
 import { groupHookBanners } from "../../lib/hook-banners"
 import {
+  onPendingTerminalCommand,
+  takeTerminalCommand,
+} from "../../lib/pending-run"
+import {
+  isScriptTerminal,
+  registerScriptTerminal,
+  scriptTerminalFor,
+} from "../../lib/script-terminals"
+import {
   errorText,
   surfaceBridge,
   type TerminalChunk,
@@ -20,11 +29,13 @@ function cssVar(name: string, fallback: string): string {
 
 type Props = {
   cwd: string
+  /** Enables the project-script handoff (pending command + surviving pty). */
+  sessionId?: string
   /** Hook runs for the active session (oldest first). */
   hookRuns?: HookRun[]
 }
 
-export function TerminalSurface({ cwd, hookRuns = [] }: Props) {
+export function TerminalSurface({ cwd, sessionId, hookRuns = [] }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const banners = useMemo(() => groupHookBanners(hookRuns), [hookRuns])
@@ -87,23 +98,47 @@ export function TerminalSurface({ cwd, hookRuns = [] }: Props) {
     })
     observer.observe(host)
 
-    void bridge
-      .termStart(cwd, term.cols, term.rows)
-      .then((started) => {
-        if (disposed) {
-          bridge.termKill(started.ptyId)
-          return
-        }
-        ptyId = started.ptyId
-        for (const chunk of early) {
-          if (chunk.ptyId === ptyId) term.write(chunk.data)
-        }
-        early.length = 0
-        term.focus()
-      })
-      .catch((err: unknown) => {
-        if (!disposed) setStatus(errorText(err))
-      })
+    const drainPendingCommand = () => {
+      if (!sessionId || ptyId === null || exited || disposed) return
+      const command = takeTerminalCommand(sessionId)
+      if (command === null) return
+      registerScriptTerminal(sessionId, ptyId)
+      bridge.termWrite(ptyId, `${command}\r`)
+    }
+
+    const offPending = sessionId
+      ? onPendingTerminalCommand((id) => {
+          if (id === sessionId) drainPendingCommand()
+        })
+      : () => {}
+
+    const held = sessionId ? scriptTerminalFor(sessionId) : null
+    if (held) {
+      ptyId = held.ptyId
+      term.write(held.backlog)
+      bridge.termResize(ptyId, term.cols, term.rows)
+      term.focus()
+      drainPendingCommand()
+    } else {
+      void bridge
+        .termStart(cwd, term.cols, term.rows)
+        .then((started) => {
+          if (disposed) {
+            bridge.termKill(started.ptyId)
+            return
+          }
+          ptyId = started.ptyId
+          for (const chunk of early) {
+            if (chunk.ptyId === ptyId) term.write(chunk.data)
+          }
+          early.length = 0
+          term.focus()
+          drainPendingCommand()
+        })
+        .catch((err: unknown) => {
+          if (!disposed) setStatus(errorText(err))
+        })
+    }
 
     return () => {
       disposed = true
@@ -111,10 +146,13 @@ export function TerminalSurface({ cwd, hookRuns = [] }: Props) {
       onInput.dispose()
       offData()
       offExit()
-      if (ptyId !== null && !exited) bridge.termKill(ptyId)
+      offPending()
+      if (ptyId !== null && !exited && !isScriptTerminal(ptyId)) {
+        bridge.termKill(ptyId)
+      }
       term.dispose()
     }
-  }, [cwd])
+  }, [cwd, sessionId])
 
   return (
     <div className="surface-terminal">

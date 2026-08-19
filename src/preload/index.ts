@@ -51,6 +51,7 @@ import type {
   McpServerStatus,
 } from "@shared/mcp"
 import type { BrowserActivity } from "@shared/browser"
+import type { ProjectScript, ScriptsFile } from "@shared/scripts"
 
 const api = {
   getSnapshot: (): Promise<SessionSnapshot> =>
@@ -283,6 +284,11 @@ const api = {
     ipcRenderer.invoke(IpcChannels.boardRead, cwd),
   boardWrite: (cwd: string, board: Board): Promise<Board> =>
     ipcRenderer.invoke(IpcChannels.boardWrite, cwd, board),
+  /** Project scripts (.chathub/scripts.json) — named commands for the top bar. */
+  scriptsList: (cwd: string): Promise<ScriptsFile> =>
+    ipcRenderer.invoke(IpcChannels.scriptsList, cwd),
+  scriptsSave: (cwd: string, scripts: ProjectScript[]): Promise<ScriptsFile> =>
+    ipcRenderer.invoke(IpcChannels.scriptsSave, cwd, scripts),
   listProjects: (): Promise<Project[]> =>
     ipcRenderer.invoke(IpcChannels.listProjects),
   addProject: (
