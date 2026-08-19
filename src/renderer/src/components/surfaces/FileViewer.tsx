@@ -48,10 +48,11 @@ function svgDataUrl(source: string): string {
 type Props = {
   cwd: string
   path: string
+  focus?: { line: number; at: number } | null
   onDirtyChange: (dirty: boolean) => void
 }
 
-export function FileViewer({ cwd, path, onDirtyChange }: Props) {
+export function FileViewer({ cwd, path, focus = null, onDirtyChange }: Props) {
   const [file, setFile] = useState<OpenedFile | null>(null)
   const [draft, setDraft] = useState("")
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -96,6 +97,10 @@ export function FileViewer({ cwd, path, onDirtyChange }: Props) {
   const editable =
     file !== null && file.text !== null && !file.truncated && !conflict
   const dirty = file !== null && file.text !== null && draft !== file.text
+
+  useEffect(() => {
+    if (focus) setShowSource(true)
+  }, [focus?.at])
 
   useEffect(() => {
     onDirtyChange(dirty)
@@ -212,6 +217,7 @@ export function FileViewer({ cwd, path, onDirtyChange }: Props) {
             draft={draft}
             showSource={showSource}
             editable={editable}
+            focus={focus}
             onDraftChange={setDraft}
             onSave={requestSave}
             onOpenExternally={openExternally}
@@ -237,6 +243,7 @@ type BodyProps = {
   draft: string
   showSource: boolean
   editable: boolean
+  focus: { line: number; at: number } | null
   onDraftChange: (next: string) => void
   onSave: () => void
   onOpenExternally: () => void
@@ -249,6 +256,7 @@ function FileBody({
   draft,
   showSource,
   editable,
+  focus,
   onDraftChange,
   onSave,
   onOpenExternally,
@@ -258,6 +266,7 @@ function FileBody({
       doc={draft}
       language={language}
       readOnly={!editable}
+      focusLine={focus}
       onChange={onDraftChange}
       onSave={onSave}
     />

@@ -118,3 +118,18 @@ export const HIDDEN_FROM_LISTING: readonly string[] = [
   "node_modules",
   ".DS_Store",
 ]
+
+/** One content-search match: workspace-relative path, 1-based line, excerpt. */
+export type ProjectSearchHit = {
+  path: string
+  line: number
+  text: string
+}
+
+export const PROJECT_FILE_LIST_LIMIT = 20_000
+
+export const PROJECT_SEARCH_LIMIT = 300
+
+export const PROJECT_SEARCH_PER_FILE_LIMIT = 20
+
+export const PROJECT_SEARCH_EXCERPT_CHARS = 200

@@ -88,6 +88,8 @@ export const IpcChannels = {
   termExit: "surface:term-exit",
   boardRead: "surface:board-read",
   boardWrite: "surface:board-write",
+  projectFiles: "surface:project-files",
+  projectSearch: "surface:project-search",
   scriptsList: "scripts:list",
   scriptsSave: "scripts:save",
   browserAttach: "surface:browser-attach",

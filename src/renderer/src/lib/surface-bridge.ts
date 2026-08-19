@@ -8,6 +8,7 @@ import type {
   FileSaved,
   FileStamp,
   OpenedFile,
+  ProjectSearchHit,
   TerminalChunk,
   TerminalExit,
 } from "@shared/surfaces"
@@ -26,6 +27,7 @@ export type {
   FileStamp,
   MediaKind,
   OpenedFile,
+  ProjectSearchHit,
   SurfaceKind,
   TerminalChunk,
   TerminalExit,
@@ -36,6 +38,8 @@ export type { BrowserActivity } from "@shared/browser"
 export type GrokTrustStatus = { trusted: boolean; path: string }
 
 export type SurfaceBridge = {
+  projectFiles: (cwd: string) => Promise<string[]>
+  projectSearch: (cwd: string, query: string) => Promise<ProjectSearchHit[]>
   listDir: (cwd: string, relPath: string) => Promise<DirListing>
   readFileText: (cwd: string, relPath: string) => Promise<FileContents>
   openFile: (cwd: string, relPath: string) => Promise<OpenedFile>

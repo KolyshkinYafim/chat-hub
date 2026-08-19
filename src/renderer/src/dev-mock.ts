@@ -41,6 +41,7 @@ import type {
   Board,
   FileStamp,
   OpenedFile,
+  ProjectSearchHit,
   SurfaceBridge,
   TerminalChunk,
   TerminalExit,
@@ -634,6 +635,22 @@ let mockGrokTrusted = false
 function makeSurfaceBridge(): SurfaceBridge &
   Pick<ChatHubApi, "scriptsList" | "scriptsSave"> {
   return {
+    projectFiles: async () => Object.keys(mockFiles).sort(),
+    projectSearch: async (_cwd, query) => {
+      const needle = query.toLowerCase()
+      if (needle.trim().length === 0) return []
+      const hits: ProjectSearchHit[] = []
+      for (const [path, file] of Object.entries(mockFiles)) {
+        if (file.binary) continue
+        const lines = (mockEdits[path] ?? file.text).split("\n")
+        for (let i = 0; i < lines.length; i++) {
+          if (hits.length >= 300) return hits
+          if (!lines[i].toLowerCase().includes(needle)) continue
+          hits.push({ path, line: i + 1, text: lines[i].trim().slice(0, 200) })
+        }
+      }
+      return hits
+    },
     listDir: async (_cwd, relPath) => {
       const names = mockDirs[relPath]
       if (!names) throw new Error(`Not a directory: ${relPath || "."}`)
