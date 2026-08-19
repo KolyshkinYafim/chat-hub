@@ -1,5 +1,11 @@
 import { useEffect, useRef } from "react"
-import { EditorState, RangeSetBuilder, type Extension } from "@codemirror/state"
+import {
+  EditorState,
+  RangeSetBuilder,
+  StateEffect,
+  StateField,
+  type Extension,
+} from "@codemirror/state"
 import {
   Decoration,
   EditorView,
@@ -56,6 +62,30 @@ function buildDecorations(
   return builder.finish()
 }
 
+const revealLine = StateEffect.define<number | null>()
+
+const REVEAL_DECORATION = Decoration.line({ class: "cm-reveal-line" })
+
+const revealField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(value, tr) {
+    let next = value.map(tr.changes)
+    for (const effect of tr.effects) {
+      if (!effect.is(revealLine)) continue
+      next =
+        effect.value === null
+          ? Decoration.none
+          : Decoration.set([
+              REVEAL_DECORATION.range(tr.state.doc.line(effect.value).from),
+            ])
+    }
+    return next
+  },
+  provide: (field) => EditorView.decorations.from(field),
+})
+
+const REVEAL_FADE_MS = 1600
+
 function sharedHighlighter(language: string): Extension {
   return ViewPlugin.fromClass(
     class {
@@ -91,6 +121,7 @@ type Props = {
   doc: string
   language: string
   readOnly: boolean
+  focusLine?: { line: number; at: number } | null
   onChange: (next: string) => void
   onSave: () => void
 }
@@ -99,6 +130,7 @@ export function CodeEditor({
   doc,
   language,
   readOnly,
+  focusLine = null,
   onChange,
   onSave,
 }: Props) {
@@ -128,6 +160,7 @@ export function CodeEditor({
           drawSelection(),
           history(),
           EditorView.lineWrapping,
+          revealField,
           sharedHighlighter(language),
           keymap.of([
             {
@@ -168,6 +201,27 @@ export function CodeEditor({
       changes: { from: 0, to: view.state.doc.length, insert: doc },
     })
   }, [doc])
+
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view || !focusLine) return
+    const lineNo = Math.max(
+      1,
+      Math.min(Math.round(focusLine.line), view.state.doc.lines),
+    )
+    const line = view.state.doc.line(lineNo)
+    view.dispatch({
+      selection: { anchor: line.from },
+      effects: [
+        revealLine.of(lineNo),
+        EditorView.scrollIntoView(line.from, { y: "center" }),
+      ],
+    })
+    const timer = window.setTimeout(() => {
+      viewRef.current?.dispatch({ effects: revealLine.of(null) })
+    }, REVEAL_FADE_MS)
+    return () => window.clearTimeout(timer)
+  }, [focusLine?.at])
 
   return <div className="code-editor" ref={hostRef} />
 }

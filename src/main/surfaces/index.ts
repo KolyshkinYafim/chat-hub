@@ -9,6 +9,7 @@ import {
   saveFileText,
 } from "./files"
 import { readBoard, writeBoard } from "./board"
+import { listProjectFiles, searchProjectContent } from "./project-search"
 import { readScripts, writeScripts } from "./scripts"
 import { grantMediaUrl } from "./media"
 import { TerminalSessions } from "./terminal"
@@ -22,6 +23,7 @@ export {
   saveFileText,
 } from "./files"
 export { readBoard, writeBoard } from "./board"
+export { listProjectFiles, searchProjectContent } from "./project-search"
 export {
   readScripts,
   runWorktreeCreateScripts,
@@ -57,6 +59,14 @@ export function registerSurfaceIpc(terminals: TerminalSessions): void {
 
   ipcMain.handle(IpcChannels.scriptsSave, (_e, cwd: unknown, scripts: unknown) =>
     writeScripts(cwd, scripts),
+  )
+
+  ipcMain.handle(IpcChannels.projectFiles, (_e, cwd: unknown) =>
+    listProjectFiles(cwd),
+  )
+
+  ipcMain.handle(IpcChannels.projectSearch, (_e, cwd: unknown, query: unknown) =>
+    searchProjectContent(cwd, query),
   )
 
   ipcMain.handle(IpcChannels.listDir, (_e, cwd: unknown, relPath: unknown) =>

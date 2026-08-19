@@ -24,6 +24,8 @@ type Props = {
   gitRefreshKey: number
   /** File the transcript asked the Diff panel to show; `at` re-fires a repeat. */
   diffFocus: { path: string; at: number } | null
+  /** File (and optional line) project search asked the Files panel to show. */
+  filesFocus: { path: string; line: number | null; at: number } | null
   /** Project hooks that have fired for this session (terminal banner). */
   hookRuns?: HookRun[]
   /** Tool calls from the transcript for the Diff audit trail. */
@@ -41,6 +43,7 @@ export function SurfaceDock({
   width,
   gitRefreshKey,
   diffFocus,
+  filesFocus,
   hookRuns = [],
   agentActions = [],
   onGitChanged,
@@ -140,7 +143,7 @@ export function SurfaceDock({
           />
         ) : null}
         {kind === "files" ? (
-          <FilesSurface key={session.id} cwd={session.cwd} />
+          <FilesSurface key={session.id} cwd={session.cwd} focus={filesFocus} />
         ) : null}
         {kind === "history" ? (
           <HistorySurface

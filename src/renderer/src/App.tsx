@@ -59,6 +59,10 @@ import {
 } from "./components/NewSessionDialog"
 import { FirstRunWizard } from "./components/FirstRunWizard"
 import { CommandPalette } from "./components/CommandPalette"
+import {
+  ProjectSearch,
+  type ProjectSearchMode,
+} from "./components/ProjectSearch"
 import { ShortcutsOverlay } from "./components/ShortcutsOverlay"
 
 /**
@@ -118,6 +122,14 @@ export default function App() {
     path: string
     at: number
   } | null>(null)
+  const [filesFocus, setFilesFocus] = useState<{
+    path: string
+    line: number | null
+    at: number
+  } | null>(null)
+  const [projectSearch, setProjectSearch] = useState<ProjectSearchMode | null>(
+    null,
+  )
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [onboardDismissed, setOnboardDismissed] = useState(
     () => localStorage.getItem(AUTH_NAG_KEY) === "1",
@@ -667,6 +679,14 @@ export default function App() {
     [openSurface],
   )
 
+  const openProjectFile = useCallback(
+    (path: string, line?: number) => {
+      setFilesFocus({ path, line: line ?? null, at: Date.now() })
+      openSurface("files")
+    },
+    [openSurface],
+  )
+
   useEffect(() => {
     const cwd = activeSession?.cwd
     if (!cwd) {
@@ -1003,7 +1023,12 @@ export default function App() {
   }
 
   const anyOverlayOpen =
-    settingsOpen || wizardOpen || newSessionOpen || paletteOpen || shortcutsOpen
+    settingsOpen ||
+    wizardOpen ||
+    newSessionOpen ||
+    paletteOpen ||
+    shortcutsOpen ||
+    projectSearch !== null
 
   useEffect(() => {
     // Re-registered whenever the state it reads changes, so a binding never
@@ -1023,6 +1048,20 @@ export default function App() {
       if (meta && e.key.toLowerCase() === "n") {
         e.preventDefault()
         openNewSession()
+        return
+      }
+      if (meta && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "p") {
+        e.preventDefault()
+        if (activeSession) {
+          setProjectSearch((m) => (m === "files" ? null : "files"))
+        }
+        return
+      }
+      if (meta && e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") {
+        e.preventDefault()
+        if (activeSession) {
+          setProjectSearch((m) => (m === "content" ? null : "content"))
+        }
         return
       }
       if (meta && e.key === "/") {
@@ -1255,6 +1294,7 @@ export default function App() {
           width={dockWidth}
           gitRefreshKey={gitRefresh}
           diffFocus={diffFocus}
+          filesFocus={filesFocus}
           hookRuns={activeId ? (hooksBySession[activeId] ?? []) : []}
           agentActions={agentActions}
           onGitChanged={refreshGit}
@@ -1324,6 +1364,15 @@ export default function App() {
           activeId={activeId}
           onSelect={(id) => void selectSession(id)}
           onClose={() => setPaletteOpen(false)}
+        />
+      ) : null}
+      {projectSearch && activeSession ? (
+        <ProjectSearch
+          cwd={activeSession.cwd}
+          mode={projectSearch}
+          onModeChange={setProjectSearch}
+          onOpenFile={openProjectFile}
+          onClose={() => setProjectSearch(null)}
         />
       ) : null}
       {shortcutsOpen ? (
