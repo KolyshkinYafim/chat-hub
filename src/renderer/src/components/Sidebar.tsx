@@ -20,13 +20,13 @@ type Props = {
   messagesBySession: Record<string, ChatMessage[]>
   projects: Project[]
   activeId: string | null
-  archived: ReadonlySet<string>
   busy: boolean
   collapsed: boolean
   onToggleCollapsed: () => void
   onCreate: (hint?: { project?: string; cwd?: string }) => void
   onSelect: (id: string) => void
   onArchive: (id: string, archived: boolean) => void
+  onSettle: (id: string, settled: boolean) => void
   onDelete: (id: string) => void
   onJumpToMessage: (sessionId: string, messageId: string) => void
   onOpenSettings: () => void
@@ -54,13 +54,13 @@ export function Sidebar({
   messagesBySession,
   projects,
   activeId,
-  archived,
   busy,
   collapsed: railCollapsed,
   onToggleCollapsed,
   onCreate,
   onSelect,
   onArchive,
+  onSettle,
   onDelete,
   onJumpToMessage,
   onOpenSettings,
@@ -77,6 +77,7 @@ export function Sidebar({
   >("all")
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [showArchived, setShowArchived] = useState(false)
+  const [showSettled, setShowSettled] = useState(false)
 
   const [archiveHits, setArchiveHits] =
     useState<ArchiveSearchResult>(NO_ARCHIVE_HITS)
@@ -134,14 +135,24 @@ export function Sidebar({
   const archivedSessions = useMemo(
     () =>
       sessions
-        .filter((s) => archived.has(s.id))
+        .filter((s) => s.archived)
         .sort((a, b) => b.updatedAt - a.updatedAt),
-    [sessions, archived],
+    [sessions],
+  )
+
+  const settledSessions = useMemo(
+    () =>
+      sessions
+        .filter((s) => !s.archived && s.settledAt !== undefined)
+        .sort((a, b) => b.updatedAt - a.updatedAt),
+    [sessions],
   )
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase()
-    let filtered = sessions.filter((s) => !archived.has(s.id))
+    let filtered = sessions.filter(
+      (s) => !s.archived && s.settledAt === undefined,
+    )
     if (statusFilter === "waiting") {
       filtered = filtered.filter((s) => s.status === "waiting_input")
     } else if (statusFilter === "running") {
@@ -206,14 +217,14 @@ export function Sidebar({
       g.sessions.sort((a, b) => b.updatedAt - a.updatedAt)
     }
     return list.sort((a, b) => b.sortTs - a.sortTs)
-  }, [sessions, projects, query, collapsed, statusFilter, archived, hits])
+  }, [sessions, projects, query, collapsed, statusFilter, hits])
 
   const transcriptOnly = useMemo(
     () =>
       query.trim()
         ? [...hits.values()].filter((h) => {
             const s = sessions.find((x) => x.id === h.sessionId)
-            if (!s || archived.has(s.id)) return false
+            if (!s || s.archived) return false
             const q = query.trim().toLowerCase()
             return !(
               s.title.toLowerCase().includes(q) ||
@@ -221,7 +232,7 @@ export function Sidebar({
             )
           }).length
         : 0,
-    [hits, sessions, query, archived],
+    [hits, sessions, query],
   )
 
   function renderRow(s: SessionMeta, isArchived: boolean) {
@@ -265,6 +276,23 @@ export function Sidebar({
           </button>
         ) : null}
         <div className="session-row-actions">
+          {!isArchived ? (
+            <button
+              type="button"
+              className="row-act"
+              title={
+                s.settledAt !== undefined
+                  ? "Un-settle thread (back to Active)"
+                  : "Settle thread (moves it out of Active)"
+              }
+              onClick={(e) => {
+                e.stopPropagation()
+                onSettle(s.id, s.settledAt === undefined)
+              }}
+            >
+              {s.settledAt !== undefined ? "↺" : "✓"}
+            </button>
+          ) : null}
           <button
             type="button"
             className="row-act"
@@ -535,6 +563,28 @@ export function Sidebar({
             </div>
           ))
         )}
+
+        {settledSessions.length > 0 ? (
+          <div className="project-group settled-group" role="group">
+            <div className="project-head-row">
+              <button
+                type="button"
+                className="project-head"
+                onClick={() => setShowSettled((v) => !v)}
+              >
+                <span className={`chev ${showSettled ? "open" : ""}`}>▸</span>
+                <span className="folder-ico" aria-hidden>
+                  ✓
+                </span>
+                <span className="project-name">Settled</span>
+                <span className="project-count">{settledSessions.length}</span>
+              </button>
+            </div>
+            {showSettled
+              ? settledSessions.map((s) => renderRow(s, false))
+              : null}
+          </div>
+        ) : null}
 
         {archivedSessions.length > 0 ? (
           <div className="project-group archived-group" role="group">
