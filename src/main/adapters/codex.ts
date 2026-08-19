@@ -325,7 +325,7 @@ export class CodexAdapter implements AgentAdapter {
         const usage = event.params.tokenUsage.last
         const window = event.params.tokenUsage.modelContextWindow
         active.usage = {
-          inputTokens: usage.inputTokens,
+          inputTokens: uncachedInput(usage.inputTokens, usage.cachedInputTokens),
           outputTokens: usage.outputTokens,
           cacheReadTokens: usage.cachedInputTokens,
           cacheCreateTokens: usage.cacheWriteInputTokens,
@@ -560,6 +560,19 @@ type CodexSessionState = {
   modelEfforts?: Map<string, Set<string>>
   modelDefaults?: Map<string, string>
   defaultModelId?: string
+}
+
+/**
+ * Codex counts cached tokens inside `inputTokens`, while Claude reports them
+ * beside it. The shared TurnUsage shape follows Claude, so the cached part is
+ * subtracted here rather than teaching every consumer whose dialect it holds.
+ */
+export function uncachedInput(
+  input: number | undefined,
+  cached: number | undefined,
+): number | undefined {
+  if (input === undefined) return undefined
+  return Math.max(0, input - (cached ?? 0))
 }
 
 function buildUserInput(message: string, attachments: string[] | undefined): UserInput[] {

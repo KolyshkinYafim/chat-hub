@@ -294,3 +294,26 @@ describe("session-manager checkpoints", () => {
     expect(remaining.filter((m) => m.role === "user")).toHaveLength(1)
   })
 })
+
+describe("concurrent checkpoints", () => {
+  it("gives two racing snapshots of one session distinct refs", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "chat-hub-ckpt-race-"))
+    await exec("git", ["init", "-q"], { cwd: repo })
+    await exec("git", ["config", "user.email", "t@example.com"], { cwd: repo })
+    await exec("git", ["config", "user.name", "T"], { cwd: repo })
+    await writeFile(join(repo, "a.txt"), "one\n")
+    await exec("git", ["add", "-A"], { cwd: repo })
+    await exec("git", ["commit", "-qm", "base"], { cwd: repo })
+
+    const [first, second] = await Promise.all([
+      createCheckpoint(repo, "race", "turn one"),
+      createCheckpoint(repo, "race", "turn two"),
+    ])
+
+    expect(first?.ref).toBeTruthy()
+    expect(second?.ref).toBeTruthy()
+    expect(first!.ref).not.toBe(second!.ref)
+    const listed = await listCheckpoints(repo, "race")
+    expect(listed).toHaveLength(2)
+  })
+})

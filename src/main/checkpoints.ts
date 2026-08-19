@@ -11,6 +11,8 @@ const BUFFER = 8 * 1024 * 1024
 
 const REF_ROOT = "refs/chathub/checkpoints"
 
+const REF_CLAIM_ATTEMPTS = 8
+
 const IDENTITY_ENV = {
   GIT_AUTHOR_NAME: "Chat Hub",
   GIT_AUTHOR_EMAIL: "checkpoints@chathub.local",
@@ -142,15 +144,35 @@ export async function createCheckpoint(
       ["commit-tree", tree, ...(head ? ["-p", head] : []), "-m", message],
       { cwd: root, env: { ...env, ...IDENTITY_ENV }, timeout: 15_000 },
     )
-    const existing = await listRefs(root, prefix)
-    const n = (existing[existing.length - 1]?.n ?? 0) + 1
-    const ref = `${prefix}/${n}`
-    await execFileAsync("git", ["update-ref", ref, commitOut.trim()], {
-      cwd: root,
-      timeout: 8000,
-    })
+    const ref = await claimRef(root, prefix, commitOut.trim())
     return { ref, label: message, createdAt: Date.now() }
   })
+}
+
+/**
+ * An empty old-value makes `update-ref` refuse an existing ref, so two
+ * checkpoints racing for one session retry onto a free number instead of
+ * silently overwriting a snapshot that nothing else can recover.
+ */
+async function claimRef(
+  root: string,
+  prefix: string,
+  commit: string,
+): Promise<string> {
+  for (let attempt = 0; attempt < REF_CLAIM_ATTEMPTS; attempt += 1) {
+    const existing = await listRefs(root, prefix)
+    const ref = `${prefix}/${(existing[existing.length - 1]?.n ?? 0) + 1}`
+    try {
+      await execFileAsync("git", ["update-ref", ref, commit, ""], {
+        cwd: root,
+        timeout: 8000,
+      })
+      return ref
+    } catch {
+      continue
+    }
+  }
+  throw new Error("Could not claim a checkpoint ref")
 }
 
 export async function listCheckpoints(
@@ -191,12 +213,19 @@ export async function revertToCheckpoint(
   if (!/^\d+$/.test(suffix)) {
     throw new Error(`Not a checkpoint of this session: ${ref}`)
   }
-  const { stdout: shaOut } = await execFileAsync(
-    "git",
-    ["rev-parse", "--verify", `${ref}^{commit}`],
-    { cwd: root, timeout: 4000 },
-  )
-  const snapshot = shaOut.trim()
+  let snapshot: string
+  try {
+    const { stdout: shaOut } = await execFileAsync(
+      "git",
+      ["rev-parse", "--verify", `${ref}^{commit}`],
+      { cwd: root, timeout: 4000 },
+    )
+    snapshot = shaOut.trim()
+  } catch {
+    throw new Error(
+      "This checkpoint has been pruned — only the newest 20 per session are kept.",
+    )
+  }
 
   const currentTree = await withTempIndex(async (env) => {
     const { tree } = await writeWorkingTree(root, env)

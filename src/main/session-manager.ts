@@ -46,6 +46,8 @@ import {
 
 /** Retention window: how many per-turn checkpoints a session keeps. */
 export const MAX_CHECKPOINTS_PER_SESSION = 20
+
+const ARCHIVE_REFILL_LIMIT = 50
 import { runWorktreeCreateScripts } from "./surfaces/scripts"
 
 /** Live window size; older turns spill into MessageArchive, not the void. */
@@ -101,7 +103,8 @@ export class SessionManager {
   private saveTimer: ReturnType<typeof setTimeout> | null = null
   private started = false
   /** In-flight turns: presence means a live adapter process belongs to the id. */
-  private turns = new Map<string, { lastActivityAt: number }>()
+  private turns = new Map<string, { lastActivityAt: number; token: number }>()
+  private nextTurnToken = 1
   private queued = new Map<string, QueuedTurn[]>()
   private watchdogTimer: ReturnType<typeof setInterval> | null = null
   private usage = new Map<string, SessionUsage>()
@@ -430,6 +433,15 @@ export class SessionManager {
     if (!changed) return
     this.bus.emit({ type: "sessions.replaced", sessions: this.listSessions() })
     this.scheduleSave()
+  }
+
+  /**
+   * A turn that was stopped or superseded loses ownership the moment its
+   * registration is replaced, so its late resolution must touch nothing — the
+   * CLIs let a resend proceed while the killed process is still dying.
+   */
+  private ownsTurn(sessionId: string, token: number): boolean {
+    return this.turns.get(sessionId)?.token === token
   }
 
   private autoSettle(sessionId: string): void {
@@ -827,7 +839,8 @@ export class SessionManager {
     baseCwd: string,
     worktreeCwd: string,
   ): void {
-    this.turns.set(sessionId, { lastActivityAt: Date.now() })
+    const token = this.nextTurnToken++
+    this.turns.set(sessionId, { lastActivityAt: Date.now(), token })
     void this.worktreeSetup(baseCwd, worktreeCwd)
       .then((notes) => {
         if (!this.sessions.has(sessionId)) return
@@ -839,6 +852,7 @@ export class SessionManager {
         this.systemNote(sessionId, `Worktree setup failed — ${detail}.`)
       })
       .finally(() => {
+        if (!this.ownsTurn(sessionId, token)) return
         this.turns.delete(sessionId)
         this.flushQueued(sessionId)
       })
@@ -923,8 +937,9 @@ export class SessionManager {
       ...this.permissionEnv(session),
       ...this.hookIdentityEnv(session),
     }
-    this.turns.set(sessionId, { lastActivityAt: Date.now() })
-    this.snapshotTurn(session, content, userMessageId)
+    const token = this.nextTurnToken++
+    this.turns.set(sessionId, { lastActivityAt: Date.now(), token })
+    void this.snapshotTurn(session, content, userMessageId)
     // Fire-and-forget: stream/status arrive via event bus; UI stays responsive.
     void adapter
       .send(sessionId, content || "Please review the attached files.", this.callbacks(), {
@@ -937,17 +952,23 @@ export class SessionManager {
         env: Object.keys(env).length > 0 ? env : undefined,
       })
       .then(() => {
+        if (!this.ownsTurn(sessionId, token)) return
         this.turns.delete(sessionId)
-        if (this.sessions.get(sessionId)?.status === "running") {
+        // A CLI that dies non-zero resolves rather than rejects, so status is
+        // the only witness that this turn failed.
+        const failed = this.sessions.get(sessionId)?.status === "error"
+        if (!failed && this.sessions.get(sessionId)?.status === "running") {
           this.applyStatus(sessionId, "idle")
         }
-        this.userUnsettled.delete(sessionId)
         const hasQueued = (this.queued.get(sessionId)?.length ?? 0) > 0
         this.flushQueued(sessionId)
+        if (failed) return
+        this.userUnsettled.delete(sessionId)
         if (!hasQueued) this.autoSettle(sessionId)
         this.maybeRefineTitle(sessionId)
       })
       .catch((err) => {
+        if (!this.ownsTurn(sessionId, token)) return
         this.turns.delete(sessionId)
         console.error("[session-manager] send failed", err)
         this.unsettle(sessionId)
@@ -962,40 +983,50 @@ export class SessionManager {
   }
 
   /**
-   * Snapshot the working tree before the turn's first byte reaches the CLI.
-   * Best-effort by design: a failed or unavailable checkpoint (non-git folder)
-   * must never block or fail the turn, so nothing here is awaited by dispatch.
+   * Snapshot the working tree as the turn starts. Nothing awaits this, so on a
+   * large tree the scan can overlap the agent's first edits and the checkpoint
+   * captures a mix — the honest fix is to snapshot while the tree is quiescent
+   * at the end of the previous turn, which is a change of shape, not a guard.
+   * Best-effort otherwise: a failed or unavailable checkpoint (non-git folder)
+   * must never block or fail the turn.
    */
-  private snapshotTurn(
+  private async snapshotTurn(
     session: SessionMeta,
     content: string,
     userMessageId?: string,
-  ): void {
-    void createCheckpoint(session.cwd, session.id, content || "attachments")
-      .then((checkpoint) => {
-        if (!checkpoint) return
-        if (userMessageId) {
-          const list = this.messages.get(session.id)
-          const idx = list?.findIndex((m) => m.id === userMessageId) ?? -1
-          if (list && idx !== -1) {
-            list[idx] = { ...list[idx], checkpointRef: checkpoint.ref }
-            this.bus.emit({
-              type: "messages.replaced",
-              sessionId: session.id,
-              messages: [...list],
-            })
-            this.scheduleSave()
-          }
-        }
-        return pruneCheckpoints(
-          session.cwd,
-          session.id,
-          MAX_CHECKPOINTS_PER_SESSION,
-        )
-      })
-      .catch((err) => {
-        console.warn("[session-manager] checkpoint failed", session.id, err)
-      })
+  ): Promise<void> {
+    let checkpoint: Awaited<ReturnType<typeof createCheckpoint>> = null
+    try {
+      checkpoint = await createCheckpoint(
+        session.cwd,
+        session.id,
+        content || "attachments",
+      )
+    } catch (err) {
+      console.warn("[session-manager] checkpoint failed", session.id, err)
+      return
+    }
+    if (!checkpoint) return
+    if (userMessageId) {
+      const list = this.messages.get(session.id)
+      const idx = list?.findIndex((m) => m.id === userMessageId) ?? -1
+      if (list && idx !== -1) {
+        list[idx] = { ...list[idx], checkpointRef: checkpoint.ref }
+        this.bus.emit({
+          type: "messages.replaced",
+          sessionId: session.id,
+          messages: [...list],
+        })
+        this.scheduleSave()
+      }
+    }
+    void pruneCheckpoints(
+      session.cwd,
+      session.id,
+      MAX_CHECKPOINTS_PER_SESSION,
+    ).catch((err) => {
+      console.warn("[session-manager] checkpoint prune failed", session.id, err)
+    })
   }
 
   /**
@@ -1015,7 +1046,18 @@ export class SessionManager {
     const list = this.messages.get(sessionId) ?? []
     const idx = list.findIndex((m) => m.checkpointRef === ref)
     if (idx !== -1) {
-      const kept = list.slice(0, idx)
+      let kept = list.slice(0, idx)
+      // An empty window would tell the renderer to drop the archived head it
+      // scrolled in, though every archived turn predates the revert point and
+      // must survive it — so refill from the archive instead of sending [].
+      if (kept.length === 0 && idx === 0) {
+        const page = await this.loadArchivedMessages(
+          sessionId,
+          list[0]?.id ?? null,
+          ARCHIVE_REFILL_LIMIT,
+        ).catch(() => ({ messages: [] as ChatMessage[] }))
+        kept = page.messages
+      }
       this.messages.set(sessionId, kept)
       this.bus.emit({
         type: "messages.replaced",

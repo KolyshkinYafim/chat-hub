@@ -22,6 +22,7 @@ const { adapter, state } = vi.hoisted(() => {
       resolve: () => void
       reject: (err: unknown) => void
     } | null,
+    cb: null as AdapterCallbacks | null,
   }
   const adapter = {
     id: "mock" as const,
@@ -33,6 +34,7 @@ const { adapter, state } = vi.hoisted(() => {
       cb: AdapterCallbacks,
     ): Promise<void> {
       state.sent.push(message)
+      state.cb = cb
       cb.onSessionEvent({
         type: "session.status",
         id: sessionId,
@@ -238,5 +240,44 @@ describe("persistence", () => {
     expect(restored?.settledAt).toBe(saved?.settledAt)
     expect(restored?.settledBy).toBe("auto")
     expect(restored?.archived).toBe(true)
+  })
+})
+
+describe("failed and stopped turns", () => {
+  it("does not settle a turn whose CLI exited non-zero without rejecting", async () => {
+    const { sm, dir } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.sendMessage(session.id, "go")
+
+    state.cb?.onSessionEvent({
+      type: "session.status",
+      id: session.id,
+      status: "error",
+    })
+    state.pending?.resolve()
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(sm.getSession(session.id)?.settledAt).toBeUndefined()
+  })
+
+  it("a stopped turn's late resolution cannot settle or idle the resend", async () => {
+    const { sm, dir } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.sendMessage(session.id, "first")
+    const stale = state.pending
+
+    await sm.abortSession(session.id)
+    await sm.sendMessage(session.id, "second")
+    const live = state.pending
+    expect(live).not.toBe(stale)
+
+    stale?.resolve()
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(sm.getSession(session.id)?.settledAt).toBeUndefined()
+    live?.resolve()
+    await vi.waitFor(() =>
+      expect(sm.getSession(session.id)?.settledAt).toBeDefined(),
+    )
   })
 })
