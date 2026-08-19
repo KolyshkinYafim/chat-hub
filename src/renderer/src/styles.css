@@ -5488,3 +5488,190 @@ select:focus-visible {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ===== composer menu ===== */
+
+.composer-menu {
+  position: relative;
+  display: flex;
+}
+
+.composer-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--speed-fast) ease, border-color var(--speed-fast) ease;
+}
+
+.composer-pill:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.composer-pill-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.composer-pill.perm-yolo .composer-pill-dot {
+  background: var(--warn);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--warn) 55%, transparent);
+}
+
+.composer-pill.perm-acceptEdits .composer-pill-dot {
+  background: var(--accent-2);
+}
+
+.composer-pill-provider {
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.composer-pill-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-pill-mode {
+  color: var(--accent-2);
+  white-space: nowrap;
+}
+
+.composer-pill-caret {
+  color: var(--text-faint);
+  font-size: 9px;
+}
+
+.composer-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  min-width: 250px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg-elevated);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.composer-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.composer-pane-head {
+  padding: 6px 10px 7px;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.composer-pane-back {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px 7px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.composer-pane-back:hover {
+  color: var(--text);
+}
+
+.composer-menu-row,
+.composer-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: var(--radius-s);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--speed-fast) ease, color var(--speed-fast) ease;
+}
+
+.composer-menu-row:hover:not(:disabled),
+.composer-option:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.composer-menu-row:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.composer-menu-label {
+  flex: none;
+  color: var(--text);
+}
+
+.composer-menu-value {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  color: var(--text-muted);
+}
+
+.composer-menu-value.perm-yolo {
+  color: var(--warn);
+}
+
+.composer-menu-value.perm-acceptEdits {
+  color: var(--accent-2);
+}
+
+.composer-menu-chevron {
+  flex: none;
+  color: var(--text-faint);
+}
+
+.composer-option-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-option-check {
+  flex: none;
+  color: var(--accent-2);
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .composer-popover {
+    animation: rise-in 140ms ease-out;
+  }
+}
