@@ -5701,6 +5701,13 @@ select:focus-visible {
 }
 
 .settled-banner-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ===== project scripts ===== */
 
 .scripts-menu {
@@ -5755,6 +5762,8 @@ select:focus-visible {
   .settled-banner {
     animation: rise-in 140ms ease-out both;
   }
+}
+
 /* ===== auto titles ===== */
 
 .session-row-menu {
@@ -5832,6 +5841,8 @@ select:focus-visible {
 
 .session-row.active .session-row-title.title-regen {
   color: transparent;
+}
+
 /* ===== checkpoints ===== */
 
 .checkpoint-btn {
@@ -6054,6 +6065,8 @@ select:focus-visible {
 
 .context-meter.is-critical .context-meter-label {
   color: var(--danger);
+}
+
 /* ===== usage dashboard ===== */
 
 .usage-empty {
@@ -6124,6 +6137,8 @@ select:focus-visible {
 
 .usage-bar-label {
   color: var(--text-secondary);
+}
+
 /* ===== prompt stash ===== */
 
 .composer-shell {
@@ -6273,6 +6288,8 @@ select:focus-visible {
   border-radius: 2px 2px 0 0;
   background: var(--accent);
   opacity: 0.85;
+}
+
 .stash-meta {
   color: var(--text-faint);
   font-size: 10.5px;
@@ -6294,6 +6311,8 @@ select:focus-visible {
 .stash-delete:hover {
   background: var(--bg-hover);
   color: var(--danger);
+}
+
 /* ===== diff comments ===== */
 
 .scm-diff.dcm-enabled .diff-line {
