@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, type PointerEvent } from "react"
 import type { HookRun } from "@shared/hooks"
-import type { SessionMeta } from "@shared/types"
+import type {
+  ChatMessage,
+  QueuedMessage,
+  SessionMeta,
+  SessionUsage,
+} from "@shared/types"
 import type { AgentAction } from "../../lib/agent-actions"
 import type { SurfaceKind } from "../../lib/surface-bridge"
 import {
@@ -14,6 +19,7 @@ import { BoardSurface } from "./BoardSurface"
 import { BrowserSurface } from "./BrowserSurface"
 import { DiffSurface } from "./DiffSurface"
 import { FilesSurface } from "./FilesSurface"
+import { FleetSurface } from "./FleetSurface"
 import { HistorySurface } from "./HistorySurface"
 import { TerminalSurface } from "./TerminalSurface"
 
@@ -28,6 +34,12 @@ type Props = {
   hookRuns?: HookRun[]
   /** Tool calls from the transcript for the Diff audit trail. */
   agentActions?: AgentAction[]
+  /** Whole-app session state for the fleet surface. */
+  sessions: SessionMeta[]
+  messagesBySession: Record<string, ChatMessage[]>
+  usageBySession: Record<string, SessionUsage>
+  queuedBySession: Record<string, QueuedMessage[]>
+  onSelectSession: (id: string) => void
   onGitChanged: () => void
   onSelectKind: (kind: SurfaceKind | null) => void
   onWidthChange: (width: number) => void
@@ -43,6 +55,11 @@ export function SurfaceDock({
   diffFocus,
   hookRuns = [],
   agentActions = [],
+  sessions,
+  messagesBySession,
+  usageBySession,
+  queuedBySession,
+  onSelectSession,
   onGitChanged,
   onSelectKind,
   onWidthChange,
@@ -147,6 +164,16 @@ export function SurfaceDock({
             key={session.id}
             cwd={session.cwd}
             refreshKey={gitRefreshKey}
+          />
+        ) : null}
+        {kind === "fleet" ? (
+          <FleetSurface
+            sessions={sessions}
+            messagesBySession={messagesBySession}
+            usageBySession={usageBySession}
+            queuedBySession={queuedBySession}
+            activeSessionId={session.id}
+            onSelectSession={onSelectSession}
           />
         ) : null}
         {kind === "diff" ? (
