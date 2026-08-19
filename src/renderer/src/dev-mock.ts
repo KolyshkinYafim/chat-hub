@@ -735,6 +735,8 @@ export function installDevMock(): void {
     },
     hasArchivedMessages: async (sessionId) =>
       (archivedMessages[sessionId] ?? []).length > 0,
+    checkpointList: async () => [],
+    checkpointRevert: async () => undefined,
     loadArchiveThrough: async (sessionId, beforeMessageId, targetMessageId) => {
       const all = archivedMessages[sessionId] ?? []
       const end = mockArchiveEnd(all, beforeMessageId)

@@ -197,6 +197,13 @@ const api = {
     draft: boolean,
   ): Promise<{ ok: boolean; output: string }> =>
     ipcRenderer.invoke(IpcChannels.gitCreatePr, cwd, title, body, draft),
+  checkpointList: (
+    sessionId: string,
+  ): Promise<{ ref: string; label: string; createdAt: number }[]> =>
+    ipcRenderer.invoke(IpcChannels.checkpointList, sessionId),
+  /** Reverts workspace files + transcript; the CLI's own memory keeps the turns. */
+  checkpointRevert: (sessionId: string, ref: string): Promise<void> =>
+    ipcRenderer.invoke(IpcChannels.checkpointRevert, sessionId, ref),
   gitWorktrees: (cwd: string): Promise<GitWorktreeInfo[]> =>
     ipcRenderer.invoke(IpcChannels.gitWorktrees, cwd),
   gitRemoveWorktree: (
