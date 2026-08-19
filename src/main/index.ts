@@ -40,6 +40,7 @@ import {
 import { listCheckpoints } from "./checkpoints"
 import { SettingsStore } from "./settings"
 import type { PermissionMode } from "@shared/permission"
+import { parseThemeDef, type ThemeDef } from "@shared/theme"
 import type {
   DataPaths,
   GeneralConfig,
@@ -746,6 +747,24 @@ function registerIpc(
     if (p.onboarded !== undefined) {
       if (typeof p.onboarded !== "boolean") throw new Error("Invalid onboarded")
       clean.onboarded = p.onboarded
+    }
+    if (p.themeId !== undefined) {
+      if (typeof p.themeId !== "string" || p.themeId.length > 64) {
+        throw new Error("Invalid theme id")
+      }
+      clean.themeId = p.themeId
+    }
+    if (p.customThemes !== undefined) {
+      if (!Array.isArray(p.customThemes) || p.customThemes.length > 64) {
+        throw new Error("Invalid themes")
+      }
+      const themes: ThemeDef[] = []
+      for (const t of p.customThemes) {
+        const parsed = parseThemeDef(t)
+        if (!parsed) throw new Error("Invalid theme")
+        themes.push(parsed)
+      }
+      clean.customThemes = themes
     }
     const next = await settings.setGeneralConfig(clean)
     return { general: next.general }
