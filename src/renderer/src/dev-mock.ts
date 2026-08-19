@@ -783,8 +783,42 @@ function makeSurfaceBridge(): SurfaceBridge &
   }
 }
 
+async function mockGitStatus(cwd: string) {
+  return {
+    root: cwd,
+    branch: "main",
+    ahead: 2,
+    behind: 0,
+    files: [
+      { path: "src/middleware/auth.ts", index: " ", work: "M" },
+      // The busy mock turn edits this one; the changed-files row must be able
+      // to land on it from the absolute path the agent reported.
+      { path: "src/lib/jwt.ts", index: " ", work: "M" },
+      { path: "src/routes/session.ts", index: " ", work: "M" },
+      { path: "tests/auth.test.ts", index: "A", work: " " },
+      { path: "notes/scratch.md", index: " ", work: "?" },
+    ],
+  }
+}
+
+async function mockMcpList() {
+  return {
+    config: { version: 1 as const, servers: mockMcpServers },
+    statuses: mockMcpServers.map((s) => ({
+      id: s.id,
+      name: s.name,
+      enabled: s.enabled,
+      transport: s.transport,
+      state: s.enabled ? ("ok" as const) : ("disabled" as const),
+      detail: s.enabled ? "mock" : "disabled",
+      checkedAt: Date.now(),
+    })),
+    envKeysByServer: mockMcpEnvKeys,
+  }
+}
+
 export function installDevMock(): void {
-  const api: Partial<ChatHubApi> = {
+  const api = {
     getSnapshot: async () => snapshot,
     listSessions: async () => sessions,
     getMessages: async (id: string) => messages[id] ?? [],
@@ -883,6 +917,11 @@ export function installDevMock(): void {
       ms: 1240,
     }),
     setSessionModel: async (id) => sessions.find((s) => s.id === id)!,
+    applySessionMode: async (id, patch) => {
+      const s = sessions.find((x) => x.id === id)!
+      Object.assign(s, patch)
+      return s
+    },
     setSessionPermission: async (id, mode) => {
       const s = sessions.find((x) => x.id === id)!
       s.permissionMode = mode
@@ -946,21 +985,7 @@ export function installDevMock(): void {
     gitCommit: async () => ({ ok: true, output: "" }),
     // Source control has to be inspectable without Electron too — a panel that
     // only renders against a real repo is a panel nobody reviews.
-    gitStatus: async (cwd: string) => ({
-      root: cwd,
-      branch: "main",
-      ahead: 2,
-      behind: 0,
-      files: [
-        { path: "src/middleware/auth.ts", index: " ", work: "M" },
-        // The busy mock turn edits this one; the changed-files row must be able
-        // to land on it from the absolute path the agent reported.
-        { path: "src/lib/jwt.ts", index: " ", work: "M" },
-        { path: "src/routes/session.ts", index: " ", work: "M" },
-        { path: "tests/auth.test.ts", index: "A", work: " " },
-        { path: "notes/scratch.md", index: " ", work: "?" },
-      ],
-    }),
+    gitStatus: mockGitStatus,
     gitBranches: async () => ({
       current: "main",
       branches: ["main", "v2-multiuser", "hotfix/expiry"],
@@ -1005,9 +1030,12 @@ export function installDevMock(): void {
         "-if (!decoded) throw new Error('bad token')",
         "+const decoded = verifyJwt(token)",
       ].join("\n"),
-    gitStage: async (cwd: string) => api.gitStatus!(cwd),
-    gitUnstage: async (cwd: string) => api.gitStatus!(cwd),
+    gitStage: async (cwd: string) => mockGitStatus(cwd),
+    gitUnstage: async (cwd: string) => mockGitStatus(cwd),
     gitWorktrees: async () => [],
+    gitInit: async (cwd) => ({ branch: "main", dirty: false, root: cwd }),
+    gitRemoveWorktree: async () => ({ ok: true, output: "Worktree removed" }),
+    gitPruneWorktrees: async () => ({ ok: true, output: "No stale worktrees" }),
     // Counts matching gitStatus above, so the hunk badges and the publish-gate
     // warning ("3 hunks in 2 files …") render in the browser mock.
     gitHunkSummary: async () => ({
@@ -1022,35 +1050,25 @@ export function installDevMock(): void {
     gitPush: async () => ({ ok: true, output: "Everything up-to-date" }),
     gitCreatePr: async () => ({ ok: true, output: "https://github.com/example/chat-hub/pull/1" }),
     onHubEvent: () => () => {},
-    mcpList: async () => ({
-      config: { version: 1 as const, servers: mockMcpServers },
-      statuses: mockMcpServers.map((s) => ({
-        id: s.id,
-        name: s.name,
-        enabled: s.enabled,
-        transport: s.transport,
-        state: s.enabled ? ("ok" as const) : ("disabled" as const),
-        detail: s.enabled ? "mock" : "disabled",
-        checkedAt: Date.now(),
-      })),
-      envKeysByServer: mockMcpEnvKeys,
-    }),
+    listPermissions: async () => [],
+    resolvePermission: async () => true,
+    mcpList: mockMcpList,
     mcpUpsert: async (_cwd, server) => {
       const idx = mockMcpServers.findIndex((s) => s.id === server.id)
       if (idx === -1) mockMcpServers.push(server)
       else mockMcpServers[idx] = server
-      return api.mcpList!(".")
+      return mockMcpList()
     },
     mcpRemove: async (_cwd, id) => {
       mockMcpServers = mockMcpServers.filter((s) => s.id !== id)
       delete mockMcpEnvKeys[id]
-      return api.mcpList!(".")
+      return mockMcpList()
     },
     mcpSetEnabled: async (_cwd, id, enabled) => {
       mockMcpServers = mockMcpServers.map((s) =>
         s.id === id ? { ...s, enabled } : s,
       )
-      return api.mcpList!(".")
+      return mockMcpList()
     },
     mcpSetEnv: async (serverId, envPatch) => {
       const keys = new Set(mockMcpEnvKeys[serverId] ?? [])
@@ -1086,11 +1104,11 @@ export function installDevMock(): void {
     voiceAvailable: async () => true,
     voiceToggle: async () => true,
     voiceCancel: async () => true,
-  }
-  ;(window as unknown as { chatHub: ChatHubApi }).chatHub = {
-    ...api,
-    ...makeSurfaceBridge(),
-  } as ChatHubApi
+  } satisfies Partial<ChatHubApi>
+  // Typed, never cast: a preload method with no stub here is a compile error
+  // rather than a mock that crashes the moment a component calls it.
+  const chatHub: ChatHubApi = { ...api, ...makeSurfaceBridge() }
+  ;(window as unknown as { chatHub: ChatHubApi }).chatHub = chatHub
   // Stands in for `touch <file>` in a terminal, so the stale-write refusal can
   // be driven from the browser mock the same way it happens in the real app.
   ;(
