@@ -7372,3 +7372,67 @@ select:focus-visible {
 :root.theme-light .settled-banner {
   background: rgba(0, 0, 0, 0.035);
 }
+
+/* ===== crash screen ===== */
+
+.crash-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.crash-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 520px;
+  padding: 24px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.crash-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.crash-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.crash-detail {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-s);
+  background: var(--code-bg);
+  color: var(--danger);
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.crash-reload {
+  align-self: flex-start;
+  padding: 7px 14px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-active);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.crash-reload:hover {
+  background: var(--bg-row-active);
+}

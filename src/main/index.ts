@@ -1055,12 +1055,11 @@ function registerIpc(
     async (_e, bytes: unknown, ext: unknown) => {
       // A screenshot on the clipboard has no path on disk, but the adapters can
       // only pass an attachment the CLI can @-reference — so we materialise it.
-      const buf =
-        bytes instanceof Uint8Array
-          ? Buffer.from(bytes)
-          : ArrayBuffer.isView(bytes as ArrayBufferView)
-            ? Buffer.from((bytes as ArrayBufferView).buffer)
-            : null
+      // Through the view's own window, never the whole backing buffer: a typed
+      // array over a slice would otherwise write its neighbours' bytes too.
+      const buf = ArrayBuffer.isView(bytes)
+        ? Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+        : null
       if (!buf || buf.length === 0) throw new Error("Empty image payload")
       const safeExt = typeof ext === "string" && /^[a-z0-9]{1,5}$/i.test(ext)
         ? ext.toLowerCase()

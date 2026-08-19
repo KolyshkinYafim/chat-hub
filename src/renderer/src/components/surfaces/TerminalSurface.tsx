@@ -62,8 +62,18 @@ export function TerminalSurface({ cwd, sessionId, hookRuns = [] }: Props) {
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
-    term.open(host)
-    fit.fit()
+
+    const sized = (): boolean =>
+      host.clientWidth > 0 && host.clientHeight > 0
+
+    const safeFit = (): void => {
+      if (!sized()) return
+      try {
+        fit.fit()
+      } catch {
+        return
+      }
+    }
 
     const bridge = surfaceBridge()
     let ptyId: string | null = null
@@ -89,16 +99,44 @@ export function TerminalSurface({ cwd, sessionId, hookRuns = [] }: Props) {
       if (ptyId !== null && !exited) bridge.termWrite(ptyId, data)
     })
 
+    let starting = false
+    let opened = false
+
     const observer = new ResizeObserver(() => {
-      if (host.clientWidth === 0 || host.clientHeight === 0) return
-      fit.fit()
+      if (!sized()) return
+      if (!opened) {
+        attach()
+        return
+      }
+      safeFit()
       if (ptyId !== null && !exited) {
         bridge.termResize(ptyId, term.cols, term.rows)
       }
     })
     observer.observe(host)
 
-    let starting = false
+    /**
+     * xterm measures the DOM as it opens and its viewport keeps throwing from a
+     * later frame when the host had no box at that moment — and the dock mounts
+     * this surface while its panel is still opening. So the terminal waits for
+     * a real box, and the resize observer is what brings it up.
+     */
+    const attach = () => {
+      if (opened || disposed || !sized()) return
+      opened = true
+      term.open(host)
+      safeFit()
+      const held = sessionId ? scriptTerminalFor(sessionId) : null
+      if (held) {
+        ptyId = held.ptyId
+        term.write(held.backlog)
+        bridge.termResize(ptyId, term.cols, term.rows)
+        term.focus()
+        drainPendingCommand()
+        return
+      }
+      startShell()
+    }
 
     const startShell = () => {
       if (starting || disposed) return
@@ -150,16 +188,7 @@ export function TerminalSurface({ cwd, sessionId, hookRuns = [] }: Props) {
         })
       : () => {}
 
-    const held = sessionId ? scriptTerminalFor(sessionId) : null
-    if (held) {
-      ptyId = held.ptyId
-      term.write(held.backlog)
-      bridge.termResize(ptyId, term.cols, term.rows)
-      term.focus()
-      drainPendingCommand()
-    } else {
-      startShell()
-    }
+    attach()
 
     return () => {
       disposed = true
@@ -171,7 +200,10 @@ export function TerminalSurface({ cwd, sessionId, hookRuns = [] }: Props) {
       if (ptyId !== null && !exited && !isScriptTerminal(ptyId)) {
         bridge.termKill(ptyId)
       }
-      term.dispose()
+      // A frame late: xterm's viewport syncs itself from an animation frame and
+      // reads services that dispose() has already torn down, which throws out of
+      // a callback nothing owns. Letting that frame land first costs nothing.
+      requestAnimationFrame(() => term.dispose())
     }
   }, [cwd, sessionId])
 
