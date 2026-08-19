@@ -14,5 +14,9 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts", "tests/**/*.test.ts"],
     reporters: ["default"],
+    // Real-git tests spawn dozens of subprocesses; under a full parallel run
+    // they starve past the default 5s and flake. A generous ceiling keeps
+    // genuine hangs failing while ending the timeout lottery.
+    testTimeout: 30_000,
   },
 })

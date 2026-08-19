@@ -1,5 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { BrowserActivity } from "@shared/browser"
+import {
+  clearBrowserUrl,
+  onPendingBrowserUrl,
+  peekBrowserUrl,
+} from "../../lib/pending-run"
 
 const DEFAULT_URL = "http://localhost:5173"
 
@@ -46,8 +51,13 @@ type Props = {
 export function BrowserSurface({ sessionId }: Props) {
   const embedded = useMemo(supportsWebviewTag, [])
   const viewRef = useRef<WebviewElement | null>(null)
-  const [url, setUrl] = useState(DEFAULT_URL)
-  const [draft, setDraft] = useState(DEFAULT_URL)
+  const initialUrlRef = useRef<string | null>(null)
+  if (initialUrlRef.current === null) {
+    initialUrlRef.current = peekBrowserUrl(sessionId) ?? DEFAULT_URL
+  }
+  const initialUrl = initialUrlRef.current
+  const [url, setUrl] = useState(initialUrl)
+  const [draft, setDraft] = useState(initialUrl)
   const [loading, setLoading] = useState(false)
   const [canGoBack, setCanGoBack] = useState(false)
   const [canGoForward, setCanGoForward] = useState(false)
@@ -109,19 +119,35 @@ export function BrowserSurface({ sessionId }: Props) {
     return () => window.clearTimeout(timer)
   }, [activity])
 
-  function visit(raw: string) {
-    const next = normalizeUrl(raw)
-    if (next === null) return
-    setDraft(next)
-    const view = viewRef.current
-    if (embedded && view) {
-      if (next === view.getURL()) view.reload()
-      else void view.loadURL(next).catch(() => setLoading(false))
-      return
-    }
-    setUrl(next)
-    setFallbackNonce((n) => n + 1)
-  }
+  const visit = useCallback(
+    (raw: string) => {
+      const next = normalizeUrl(raw)
+      if (next === null) return
+      setDraft(next)
+      const view = viewRef.current
+      if (embedded && view) {
+        if (next === view.getURL()) view.reload()
+        else void view.loadURL(next).catch(() => setLoading(false))
+        return
+      }
+      setUrl(next)
+      setFallbackNonce((n) => n + 1)
+    },
+    [embedded],
+  )
+
+  useEffect(() => {
+    clearBrowserUrl(sessionId)
+  }, [sessionId])
+
+  useEffect(() => {
+    return onPendingBrowserUrl((id) => {
+      if (id !== sessionId) return
+      const next = peekBrowserUrl(sessionId)
+      clearBrowserUrl(sessionId)
+      if (next !== null) visit(next)
+    })
+  }, [sessionId, visit])
 
   return (
     <div className="surface-browser">
@@ -196,7 +222,7 @@ export function BrowserSurface({ sessionId }: Props) {
         {embedded ? (
           <webview
             ref={viewRef as unknown as React.Ref<HTMLElement>}
-            src={DEFAULT_URL}
+            src={initialUrl}
             partition="persist:chathub-browser"
             className={`surface-web ${loading ? "loading" : ""}`}
           />

@@ -1,6 +1,8 @@
 import { useState } from "react"
 import type { GitCheckoutInfo, SessionMeta } from "@shared/types"
+import type { ProjectScript } from "@shared/scripts"
 import { StatusDot } from "./StatusDot"
+import { ScriptsMenu } from "./ScriptsMenu"
 import { shortCwd, statusLabel } from "../lib/format"
 import { PanelIcon } from "./surfaces/SurfaceIcon"
 
@@ -8,6 +10,9 @@ type Props = {
   session: SessionMeta
   git: GitCheckoutInfo | null
   dockOpen: boolean
+  scripts: ProjectScript[]
+  onRunScript: (script: ProjectScript) => void
+  onSaveScripts: (scripts: ProjectScript[]) => Promise<void>
   onToggleDock: () => void
   onOpenFolder: () => void
   onOpenEditor: () => void
@@ -19,6 +24,9 @@ export function TopBar({
   session,
   git,
   dockOpen,
+  scripts,
+  onRunScript,
+  onSaveScripts,
   onToggleDock,
   onOpenFolder,
   onOpenEditor,
@@ -56,6 +64,11 @@ export function TopBar({
       </div>
       {/* No Stop here: the only Stop lives next to Send, where the hand is. */}
       <div className="topbar-actions">
+        <ScriptsMenu
+          scripts={scripts}
+          onRun={onRunScript}
+          onSave={onSaveScripts}
+        />
         <div className="tb-split">
           <button
             type="button"

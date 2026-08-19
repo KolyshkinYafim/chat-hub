@@ -45,6 +45,7 @@ import {
 
 /** Retention window: how many per-turn checkpoints a session keeps. */
 export const MAX_CHECKPOINTS_PER_SESSION = 20
+import { runWorktreeCreateScripts } from "./surfaces/scripts"
 
 /** Live window size; older turns spill into MessageArchive, not the void. */
 export const MAX_MESSAGES_PER_SESSION = 200
@@ -86,6 +87,12 @@ export type TitleGenerator = (
   assistantExcerpt: string,
 ) => Promise<string | null>
 
+/** Runs a fresh worktree's setup scripts; returns transcript notice lines. */
+export type WorktreeSetupRunner = (
+  baseCwd: string,
+  worktreeCwd: string,
+) => Promise<string[]>
+
 export class SessionManager {
   private sessions = new Map<string, SessionMeta>()
   private messages = new Map<string, ChatMessage[]>()
@@ -112,6 +119,7 @@ export class SessionManager {
   private readonly generateTitleFn: TitleGenerator
   /** Sessions whose one automatic LLM refinement already ran (or is running). */
   private titleRefined = new Set<string>()
+  private readonly worktreeSetup: WorktreeSetupRunner
 
   constructor(
     private readonly bus: EventBus,
@@ -124,6 +132,7 @@ export class SessionManager {
       archive?: MessageArchive
       maxMessages?: number
       titleGenerator?: TitleGenerator
+      worktreeSetup?: WorktreeSetupRunner
     },
   ) {
     // Prompt hooks re-enter sendMessage so they share the normal queue (never
@@ -138,6 +147,7 @@ export class SessionManager {
     this.maxMessages = opts?.maxMessages ?? MAX_MESSAGES_PER_SESSION
     this.generateTitleFn =
       opts?.titleGenerator ?? ((user, assistant) => generateTitle(user, assistant))
+    this.worktreeSetup = opts?.worktreeSetup ?? runWorktreeCreateScripts
   }
 
   /**
@@ -803,7 +813,31 @@ export class SessionManager {
       .then(() => this.hooks.run(id, "session_start"))
       .catch((err) => console.error("[hooks] session_start failed", err))
 
+    if (worktree) this.beginWorktreeSetup(id, baseCwd, session.cwd)
+
     return session
+  }
+
+  private beginWorktreeSetup(
+    sessionId: string,
+    baseCwd: string,
+    worktreeCwd: string,
+  ): void {
+    this.turns.set(sessionId, { lastActivityAt: Date.now() })
+    void this.worktreeSetup(baseCwd, worktreeCwd)
+      .then((notes) => {
+        if (!this.sessions.has(sessionId)) return
+        for (const note of notes) this.systemNote(sessionId, note)
+      })
+      .catch((err) => {
+        if (!this.sessions.has(sessionId)) return
+        const detail = err instanceof Error ? err.message : String(err)
+        this.systemNote(sessionId, `Worktree setup failed — ${detail}.`)
+      })
+      .finally(() => {
+        this.turns.delete(sessionId)
+        this.flushQueued(sessionId)
+      })
   }
 
   async sendMessage(

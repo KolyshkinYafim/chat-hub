@@ -31,6 +31,9 @@ import type {
 import { DEFAULT_MODES } from "@shared/settings-types"
 import { projectFromCwd } from "@shared/project"
 import { clearMigratedArchive, readArchivedForMigration } from "./lib/archive"
+import type { ProjectScript } from "@shared/scripts"
+import { prunePendingRuns, stashBrowserUrl, stashTerminalCommand } from "./lib/pending-run"
+import { pruneScriptTerminals } from "./lib/script-terminals"
 import { mergeReplacedMessages } from "./lib/transcript-window"
 import { Sidebar } from "./components/Sidebar"
 import { ChatView } from "./components/ChatView"
@@ -61,6 +64,9 @@ import { ShortcutsOverlay } from "./components/ShortcutsOverlay"
  * dismissal that dies with the window is worse than no button at all.
  */
 const AUTH_NAG_KEY = "chat-hub.authNagDismissed"
+
+/** The terminal needs one mounted beat to start the script before the browser takes the dock. */
+const SCRIPT_PREVIEW_SWITCH_MS = 800
 
 export default function App() {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
@@ -126,6 +132,7 @@ export default function App() {
   const [hooksBySession, setHooksBySession] = useState<
     Record<string, HookRun[]>
   >({})
+  const [scripts, setScripts] = useState<ProjectScript[]>([])
   const [highlight, setHighlight] = useState<{
     sessionId: string
     messageId: string
@@ -590,8 +597,10 @@ export default function App() {
 
   useEffect(() => {
     if (sessions.length === 0) return
+    const live = new Set(sessions.map((s) => s.id))
+    prunePendingRuns(live)
+    pruneScriptTerminals(live)
     setSurfaceBySession((curr) => {
-      const live = new Set(sessions.map((s) => s.id))
       const next = Object.fromEntries(
         Object.entries(curr).filter(([id]) => live.has(id)),
       )
@@ -650,6 +659,54 @@ export default function App() {
     (path: string) => {
       setDiffFocus({ path, at: Date.now() })
       openSurface("diff")
+    },
+    [openSurface],
+  )
+
+  useEffect(() => {
+    const cwd = activeSession?.cwd
+    if (!cwd) {
+      setScripts([])
+      return
+    }
+    let cancelled = false
+    void window.chatHub
+      .scriptsList(cwd)
+      .then((file) => {
+        if (!cancelled) setScripts(file.scripts)
+      })
+      .catch(() => {
+        if (!cancelled) setScripts([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeSession?.id, activeSession?.cwd])
+
+  const saveScripts = useCallback(
+    async (next: ProjectScript[]) => {
+      const cwd = activeSession?.cwd
+      if (!cwd) return
+      const saved = await window.chatHub.scriptsSave(cwd, next)
+      setScripts(saved.scripts)
+    },
+    [activeSession?.cwd],
+  )
+
+  const runScript = useCallback(
+    (script: ProjectScript) => {
+      const sessionId = activeIdRef.current
+      if (!sessionId) return
+      stashTerminalCommand(sessionId, script.command)
+      openSurface("terminal")
+      if (script.autoOpenPreview && script.previewUrl) {
+        const url = script.previewUrl
+        window.setTimeout(() => {
+          if (activeIdRef.current !== sessionId) return
+          stashBrowserUrl(sessionId, url)
+          openSurface("browser")
+        }, SCRIPT_PREVIEW_SWITCH_MS)
+      }
     },
     [openSurface],
   )
@@ -984,6 +1041,14 @@ export default function App() {
         if (activeSession) setDock(!dockOpen)
         return
       }
+      if (meta && e.altKey && e.code.startsWith("Digit")) {
+        const script = scripts.find((s) => s.hotkey === e.code.slice(5))
+        if (script && activeSession) {
+          e.preventDefault()
+          runScript(script)
+        }
+        return
+      }
       // Overlays own their own Escape; only a bare Escape stops the agent.
       if (e.key === "Escape" && !anyOverlayOpen) {
         if (activeSession?.status === "running") {
@@ -999,6 +1064,8 @@ export default function App() {
     activeSession?.id,
     activeSession?.status,
     dockOpen,
+    scripts,
+    runScript,
     setDock,
     toggleDiffSurface,
     toggleHistorySurface,
@@ -1168,6 +1235,9 @@ export default function App() {
           onUnsettle={() => {
             if (activeId) setSessionSettled(activeId, false)
           }}
+          scripts={scripts}
+          onRunScript={runScript}
+          onSaveScripts={saveScripts}
           onOpenDiff={openDiffForPath}
           dockOpen={showDock}
           onToggleDock={() => setDock(!dockOpen)}

@@ -24,6 +24,7 @@ import type {
 } from "@shared/types"
 import type { PermissionMode } from "@shared/permission"
 import { PERMISSION_LABELS } from "@shared/permission"
+import type { ProjectScript } from "@shared/scripts"
 import type { Mode, ModelInfo } from "@shared/settings-types"
 import { formatClock } from "../lib/format"
 import {
@@ -97,6 +98,9 @@ type Props = {
   onCommit: () => void
   onRename: () => void
   onUnsettle: () => void
+  scripts: ProjectScript[]
+  onRunScript: (script: ProjectScript) => void
+  onSaveScripts: (scripts: ProjectScript[]) => Promise<void>
   /** A path from a turn's changed-files row — opens it in the Diff surface. */
   onOpenDiff: (path: string) => void
   dockOpen: boolean
@@ -424,6 +428,9 @@ export function ChatView({
   onCommit,
   onRename,
   onUnsettle,
+  scripts,
+  onRunScript,
+  onSaveScripts,
   onOpenDiff,
   dockOpen,
   onToggleDock,
@@ -919,6 +926,9 @@ export function ChatView({
         session={session}
         git={git}
         dockOpen={dockOpen}
+        scripts={scripts}
+        onRunScript={onRunScript}
+        onSaveScripts={onSaveScripts}
         onToggleDock={onToggleDock}
         onOpenFolder={onOpenFolder}
         onOpenEditor={onOpenEditor}
