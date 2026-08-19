@@ -8,6 +8,10 @@ import {
   type TranscriptHit,
 } from "@shared/search"
 import { formatRelative, statusLabel } from "../lib/format"
+import {
+  belongsInProjectGroups,
+  belongsInSettledGroup,
+} from "../lib/sidebar-rows"
 import { StatusDot } from "./StatusDot"
 
 /** Long enough that a typed word is one archive scan, not one per keystroke. */
@@ -179,28 +183,17 @@ export function Sidebar({
     [sessions],
   )
 
-  const settledSessions = useMemo(
-    () =>
-      sessions
-        .filter(
-          (s) =>
-            !s.archived &&
-            s.settledAt !== undefined &&
-            // While searching, settled matches are promoted into the groups
-            // above, so listing them again here would double every hit.
-            query.trim() === "",
-        )
-        .sort((a, b) => b.updatedAt - a.updatedAt),
-    [sessions, query],
-  )
+  const settledSessions = useMemo(() => {
+    const ctx = { searching: query.trim() !== "", activeId }
+    return sessions
+      .filter((s) => belongsInSettledGroup(s, ctx))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+  }, [sessions, query, activeId])
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase()
-    // Settled sessions leave the Active list only while it is a list. A search
-    // is a search of everything unarchived, or nearly all past work — which
-    // settles after every completed turn — becomes unfindable here.
-    let filtered = sessions.filter(
-      (s) => !s.archived && (q !== "" || s.settledAt === undefined),
+    let filtered = sessions.filter((s) =>
+      belongsInProjectGroups(s, { searching: q !== "", activeId }),
     )
     if (statusFilter === "waiting") {
       filtered = filtered.filter((s) => s.status === "waiting_input")
@@ -266,7 +259,7 @@ export function Sidebar({
       g.sessions.sort((a, b) => b.updatedAt - a.updatedAt)
     }
     return list.sort((a, b) => b.sortTs - a.sortTs)
-  }, [sessions, projects, query, collapsed, statusFilter, hits])
+  }, [sessions, projects, query, collapsed, statusFilter, hits, activeId])
 
   const transcriptOnly = useMemo(
     () =>
