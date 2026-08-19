@@ -22,6 +22,12 @@
   --code-bg: #12141a;
   --composer-bg: #14151a;
   --radius: 12px;
+  --radius-s: 8px;
+  --radius-m: 10px;
+  --border-strong: #3d4150;
+  --warn: var(--waiting);
+  --success: var(--ok);
+  --speed-fast: 110ms;
   --sidebar-w: 268px;
   --dock-w: 460px;
   --font: "SF Pro Text", "Inter", system-ui, -apple-system, sans-serif;
@@ -66,6 +72,49 @@ button {
   cursor: pointer;
   border: none;
   background: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+}
+
+input:not([type="checkbox"], [type="radio"]):focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: var(--accent-2);
+}
+
+::selection {
+  background: rgba(124, 140, 255, 0.32);
+  color: var(--text);
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .app {
@@ -215,6 +264,10 @@ button {
   color: var(--text-faint);
 }
 
+.search-wrap:focus-within {
+  border-color: var(--accent-2);
+}
+
 .kbd {
   font-family: var(--mono);
   font-size: 10px;
@@ -250,10 +303,11 @@ button {
 }
 
 .sidebar-empty {
-  padding: 16px 10px;
+  padding: 20px 12px;
   color: var(--text-muted);
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.5;
+  text-align: center;
 }
 
 .project-group {
@@ -316,13 +370,14 @@ button {
   gap: 4px;
   margin: 1px 0 1px 8px;
   padding: 7px 8px 7px 10px;
-  border-radius: 7px;
+  border-radius: var(--radius-s);
   cursor: pointer;
   border: 1px solid transparent;
 }
 
 .session-row:hover {
   background: var(--bg-hover);
+  border-color: var(--border-soft);
 }
 
 .session-row.active {
@@ -649,14 +704,17 @@ button {
 }
 
 .transcript-empty {
-  margin: 20vh auto 0;
+  margin: 24vh auto 0;
+  max-width: 44ch;
   text-align: center;
   color: var(--text-muted);
+  line-height: 1.55;
 }
 
 .transcript-empty p {
-  margin: 0 0 4px;
+  margin: 0 0 6px;
   color: var(--text-secondary);
+  font-size: 14px;
   font-weight: 560;
 }
 
@@ -731,7 +789,7 @@ button {
   min-width: 0;
   padding: 7px 10px;
   border: 1px solid var(--border-soft);
-  border-radius: 9px;
+  border-radius: var(--radius-m);
   background: rgba(18, 20, 26, 0.5);
   font-size: 11px;
 }
@@ -744,7 +802,7 @@ button {
   padding: 9px 10px;
   border: 1px solid color-mix(in srgb, var(--working) 42%, var(--border));
   border-left: 3px solid var(--working);
-  border-radius: 9px;
+  border-radius: var(--radius-m);
   background: color-mix(in srgb, var(--working) 8%, var(--bg-elevated));
   font-size: 11px;
 }
@@ -754,7 +812,7 @@ button {
   color: var(--working);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.055em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
@@ -777,7 +835,7 @@ button {
 
 .activity-item {
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radius-m);
   background: rgba(18, 20, 26, 0.78);
   overflow: hidden;
 }
@@ -793,6 +851,8 @@ button {
 }
 
 .activity-item > summary::-webkit-details-marker { display: none; }
+.activity-item > summary:hover { background: var(--bg-hover); }
+.activity-item:has(> summary:hover) { border-color: var(--border-strong); }
 .activity-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
 .activity-state { margin-left: auto; color: var(--text-faint); font-size: 10px; text-transform: uppercase; }
 .activity-status { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; background: var(--text-faint); }
@@ -839,7 +899,7 @@ button {
 .turn-role {
   font-size: 11px;
   font-weight: 650;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
@@ -872,7 +932,7 @@ button {
   font-weight: 600;
   color: var(--working);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   animation: pulse-dot 1.2s ease-in-out infinite;
 }
 
@@ -1008,6 +1068,7 @@ button {
   right: 10px;
   font-size: 10px;
   color: var(--text-faint);
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
@@ -1118,6 +1179,13 @@ button {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
 }
 
+.composer-shell:focus-within {
+  border-color: var(--accent-2);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.35),
+    0 0 0 3px rgba(91, 141, 239, 0.16);
+}
+
 .composer-shell textarea {
   width: 100%;
   border: none;
@@ -1171,7 +1239,7 @@ button {
 .chip.select-chip {
   padding-right: 6px;
   color: var(--text-secondary);
-  border-color: #3d4150;
+  border-color: var(--border-strong);
 }
 
 .select-chip.mode-on {
@@ -1355,7 +1423,7 @@ button {
   gap: 4px;
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--text-faint);
   min-width: 160px;
 }
@@ -1431,7 +1499,7 @@ button {
   margin-bottom: 12px;
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--text-faint);
 }
 
@@ -1543,7 +1611,7 @@ button {
   gap: 5px;
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: var(--text-faint);
 }
 
@@ -1572,7 +1640,7 @@ button {
 .md-diff {
   margin: 6px 0 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-m);
   overflow: hidden;
   background: #0f1014;
 }
@@ -2514,7 +2582,7 @@ button {
   justify-content: space-between;
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--text-faint);
   margin-bottom: 6px;
 }
@@ -3162,10 +3230,11 @@ button {
 }
 
 .palette-empty {
-  padding: 18px;
+  padding: 26px 18px;
   text-align: center;
   color: var(--text-faint);
   font-size: 12px;
+  line-height: 1.5;
 }
 
 .palette-foot {
@@ -3230,7 +3299,7 @@ button {
   display: block;
   font-size: 9.5px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: var(--text-faint);
   margin-bottom: 2px;
 }
@@ -4004,7 +4073,7 @@ button {
   font-size: 12px;
   font-weight: 650;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--text-secondary);
 }
 
@@ -4145,7 +4214,7 @@ button {
 
 .tb-icon.panel-toggle.is-on {
   background: var(--bg-active);
-  border-color: #3d4150;
+  border-color: var(--border-strong);
   color: var(--text);
 }
 
@@ -4195,7 +4264,7 @@ button {
 
 .surface-tile:hover {
   background: var(--bg-hover);
-  border-color: #3d4150;
+  border-color: var(--border-strong);
 }
 
 .surface-tile-glyph {
@@ -5201,4 +5270,113 @@ button {
   align-items: center;
   gap: 6px;
   margin-top: 2px;
+}
+
+/* ===== Motion ===== */
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes shimmer-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.activity-live {
+  position: relative;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .turn:last-of-type,
+  .turn:last-of-type .tool-card,
+  .turn:last-of-type .tool-run,
+  .turn:last-of-type .plan-card,
+  .turn:last-of-type .activity-item,
+  .turn:last-of-type .activity-live,
+  .permission-banner,
+  .grok-trust-banner,
+  .agent-input-card,
+  .queued-chip {
+    animation: rise-in 140ms ease-out both;
+  }
+
+  .activity-live::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      105deg,
+      transparent 30%,
+      rgba(255, 255, 255, 0.06) 50%,
+      transparent 70%
+    );
+    transform: translateX(-100%);
+    animation: shimmer-sweep 2.4s ease-in-out 0.4s infinite;
+  }
+
+  .session-row,
+  .project-head,
+  .new-in-project,
+  .project-empty-row,
+  .icon-chip,
+  .row-act,
+  .tb-btn,
+  .tb-icon,
+  .tb-menu button,
+  .modal-tabs button,
+  .settings-nav nav button,
+  .settings-back,
+  .surface-tab,
+  .surface-tile,
+  .surface-nav,
+  .tree-row,
+  .scm-files li,
+  .history-row,
+  .palette-row,
+  .board-todo,
+  .board-note,
+  .composer-action,
+  .chip,
+  .jump-latest,
+  .file-toggle,
+  .file-save,
+  .file-action,
+  .link-btn,
+  .tool-head,
+  .plan-head,
+  .tool-card,
+  .tool-run,
+  .plan-card,
+  .activity-item {
+    transition:
+      background-color var(--speed-fast) ease,
+      border-color var(--speed-fast) ease,
+      color var(--speed-fast) ease;
+  }
+
+  .composer-shell {
+    transition:
+      border-color var(--speed-fast) ease,
+      box-shadow var(--speed-fast) ease;
+  }
+
+  .search-wrap {
+    transition: border-color var(--speed-fast) ease;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

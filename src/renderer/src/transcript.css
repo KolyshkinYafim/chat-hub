@@ -60,6 +60,11 @@
   background: var(--bg-hover);
 }
 
+.tool-card:not(.failed):has(> .tool-head:hover),
+.tool-run:not(:has(.tool-row.failed)):has(.tool-head:hover) {
+  border-color: var(--border-strong);
+}
+
 .tool-card > .tool-head {
   border-bottom: 1px solid transparent;
 }
@@ -99,7 +104,7 @@
   flex-shrink: 0;
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: var(--text-faint);
 }
 
@@ -223,7 +228,7 @@
   flex-shrink: 0;
   font-size: 9.5px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--text-faint);
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -455,6 +460,10 @@
   background: var(--bg-hover);
 }
 
+.plan-card:has(> .plan-head:hover) {
+  border-color: var(--border-strong);
+}
+
 .plan-card.open > .plan-head {
   border-bottom: 1px solid var(--border-soft);
 }
@@ -486,7 +495,7 @@
   flex-shrink: 0;
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: var(--text-faint);
 }
 
