@@ -1,4 +1,5 @@
 import type { BrowserActivity } from "@shared/browser"
+import type { ProjectScript, ScriptsFile } from "@shared/scripts"
 import type {
   Board,
   DirEntry,
@@ -58,6 +59,8 @@ export type SurfaceBridge = {
   onTerminalExit: (cb: (exit: TerminalExit) => void) => () => void
   boardRead: (cwd: string) => Promise<Board>
   boardWrite: (cwd: string, board: Board) => Promise<Board>
+  scriptsList: (cwd: string) => Promise<ScriptsFile>
+  scriptsSave: (cwd: string, scripts: ProjectScript[]) => Promise<ScriptsFile>
   browserAttach: (sessionId: string, webContentsId: number) => Promise<boolean>
   browserDetach: (sessionId: string) => Promise<boolean>
   onBrowserActivity: (cb: (event: BrowserActivity) => void) => () => void

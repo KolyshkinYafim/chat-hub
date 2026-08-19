@@ -1,10 +1,7 @@
 import type { SessionUsage, TurnUsage } from "@shared/types"
+import { formatTokens } from "@shared/context-window"
 
-export function formatTokens(n: number): string {
-  if (n < 1000) return String(n)
-  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`
-  return `${(n / 1_000_000).toFixed(1)}M`
-}
+export { formatTokens }
 
 export function formatUsd(n: number): string {
   // Most single turns land under a cent, where two decimals read as free.

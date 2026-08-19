@@ -48,7 +48,34 @@ export function readUsage(ev: Record<string, unknown>): TurnUsage | null {
   assign(out, "costUsd", pickNumber(ev, COST_KEYS) ?? pickNumber(usage, COST_KEYS))
   assign(out, "durationMs", pickNumber(ev, DURATION_KEYS))
 
-  return Object.keys(out).length > 0 ? out : null
+  if (Object.keys(out).length === 0) return null
+  assign(out, "contextWindow", modelContextWindow(ev))
+  return out
+}
+
+const CONTEXT_WINDOW_KEYS = ["contextWindow", "context_window"]
+
+/**
+ * The claude CLI reports the window per model under `modelUsage`; when a turn
+ * touched several models, the one that occupied the most context is the one
+ * whose window the meter must be honest about.
+ */
+function modelContextWindow(ev: Record<string, unknown>): number | undefined {
+  const models = record(ev.modelUsage)
+  if (!models) return undefined
+  let best: { occupied: number; window: number } | undefined
+  for (const key of Object.keys(models)) {
+    const m = record(models[key])
+    if (!m) continue
+    const window = pickNumber(m, CONTEXT_WINDOW_KEYS)
+    if (window === undefined || window <= 0) continue
+    const occupied =
+      (pickNumber(m, INPUT_KEYS) ?? 0) +
+      (pickNumber(m, CACHE_READ_KEYS) ?? 0) +
+      (pickNumber(m, CACHE_CREATE_KEYS) ?? 0)
+    if (!best || occupied > best.occupied) best = { occupied, window }
+  }
+  return best?.window
 }
 
 /**
@@ -69,6 +96,9 @@ export function addUsage(total: SessionUsage | undefined, turn: TurnUsage): Sess
     const sum = (base[key] ?? 0) + (turn[key] ?? 0)
     if (base[key] !== undefined || turn[key] !== undefined) next[key] = sum
   }
+  const window = turn.contextWindow ?? base.contextWindow
+  if (window !== undefined) next.contextWindow = window
+  next.lastTurn = { ...turn }
   return next
 }
 

@@ -19,6 +19,7 @@ import type {
   SettingsSnapshot,
 } from "@shared/settings-types"
 import type { McpServerDef } from "@shared/mcp"
+import type { ProjectScript } from "@shared/scripts"
 import {
   ARCHIVE_JUMP_LIMIT,
   ARCHIVE_SEARCH_SCAN_LIMIT,
@@ -326,7 +327,7 @@ const queued: Record<string, QueuedMessage[]> = {
 // Only Claude reports usage in the mock — the point is that a session without
 // it (s3, grok) shows no cost chip at all rather than a zero.
 const usage: Record<string, SessionUsage> = {
-  s1: { turns: 2, inputTokens: 18400, outputTokens: 2260, cacheReadTokens: 96000, costUsd: 0.42, durationMs: 31200 },
+  s1: { turns: 2, inputTokens: 18400, outputTokens: 2260, cacheReadTokens: 96000, costUsd: 0.42, durationMs: 31200, contextWindow: 200000, lastTurn: { inputTokens: 5100, outputTokens: 890, cacheReadTokens: 62100, cacheCreateTokens: 2400, durationMs: 9400, contextWindow: 200000 } },
   s2: { turns: 1, inputTokens: 5100, outputTokens: 890, costUsd: 0.06, durationMs: 9400 },
 }
 
@@ -699,8 +700,11 @@ function makeSurfaceBridge(): SurfaceBridge {
       mockBoard = { ...board, updatedAt: Date.now() }
       return mockBoard
     },
-    scriptsList: async () => [],
-    scriptsSave: async (_cwd, scripts) => scripts,
+    scriptsList: async () => ({ scripts: [], updatedAt: Date.now() }),
+    scriptsSave: async (_cwd: string, scripts: ProjectScript[]) => ({
+      scripts,
+      updatedAt: Date.now(),
+    }),
     browserAttach: async () => false,
     browserDetach: async () => false,
     onBrowserActivity: () => () => {},

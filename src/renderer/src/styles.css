@@ -6004,3 +6004,54 @@ select:focus-visible {
 .scripts-editor-spacer {
   flex: 1;
 }
+
+/* ===== context meter ===== */
+
+.context-meter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 2px 6px;
+  min-width: 0;
+}
+
+.context-meter-bar {
+  flex: 1;
+  min-width: 40px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--bg-active);
+  overflow: hidden;
+}
+
+.context-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent-2);
+  transition: width var(--speed-fast) ease;
+}
+
+.context-meter-label {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.context-meter.is-warning .context-meter-fill {
+  background: var(--warn);
+}
+
+.context-meter.is-warning .context-meter-label {
+  color: var(--warn);
+}
+
+.context-meter.is-critical .context-meter-fill {
+  background: var(--danger);
+}
+
+.context-meter.is-critical .context-meter-label {
+  color: var(--danger);
+}
