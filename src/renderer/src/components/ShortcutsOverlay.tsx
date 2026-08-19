@@ -6,6 +6,8 @@ type Props = {
 
 const SHORTCUTS: { keys: string; what: string }[] = [
   { keys: "⌘K", what: "Switch session — fuzzy over title / project / agent" },
+  { keys: "⌘P", what: "Go to file — fuzzy over the project tree" },
+  { keys: "⇧⌘F", what: "Search in project — content matches, jump to the line" },
   { keys: "⌘N", what: "New session" },
   { keys: "⌘,", what: "Settings" },
   { keys: "⌘/", what: "This list" },

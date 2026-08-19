@@ -27,11 +27,14 @@ function childOf(dir: string, name: string): string {
   return dir === ROOT ? name : `${dir}/${name}`
 }
 
+export type FilesFocus = { path: string; line: number | null; at: number }
+
 type Props = {
   cwd: string
+  focus?: FilesFocus | null
 }
 
-export function FilesSurface({ cwd }: Props) {
+export function FilesSurface({ cwd, focus = null }: Props) {
   const [listings, setListings] = useState<Record<string, DirEntry[]>>({})
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([ROOT]))
   const [pendingDirs, setPendingDirs] = useState<Set<string>>(() => new Set())
@@ -98,6 +101,23 @@ export function FilesSurface({ cwd }: Props) {
     dirtyRef.current = next
     setDirty(next)
   }, [])
+
+  useEffect(() => {
+    if (!focus) return
+    const ancestors: string[] = []
+    for (let dir = parentOf(focus.path); dir !== ROOT; dir = parentOf(dir)) {
+      ancestors.unshift(dir)
+    }
+    setExpanded((curr) => {
+      const next = new Set(curr)
+      for (const dir of ancestors) next.add(dir)
+      return next
+    })
+    for (const dir of ancestors) {
+      if (!listings[dir]) void loadDir(dir)
+    }
+    selectFile(focus.path)
+  }, [focus?.at])
 
   function toggleDir(path: string) {
     setActiveDir(path)
@@ -311,6 +331,11 @@ export function FilesSurface({ cwd }: Props) {
           key={selectedPath}
           cwd={cwd}
           path={selectedPath}
+          focus={
+            focus && focus.path === selectedPath && focus.line !== null
+              ? { line: focus.line, at: focus.at }
+              : null
+          }
           onDirtyChange={onDirtyChange}
         />
       )}
