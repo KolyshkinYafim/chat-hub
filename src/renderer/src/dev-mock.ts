@@ -854,7 +854,10 @@ export function installDevMock(): void {
     addInstance: async () => ({ instances: mockInstances, statuses }),
     updateInstance: async () => ({ instances: mockInstances, statuses }),
     removeInstance: async () => ({ instances: mockInstances, statuses }),
-    setGeneralConfig: async (patch) => ({ general: { ...settings.general, ...patch } }),
+    setGeneralConfig: async (patch) => {
+      Object.assign(settings.general, patch)
+      return { general: { ...settings.general } }
+    },
     revealPath: async () => true,
     wipeSessions: async () => ({ sessions: [], messages: {}, queued: {}, usage: {}, permissions: [], inputRequests: [], activeSessionId: null }),
     resolveInput: async () => true,

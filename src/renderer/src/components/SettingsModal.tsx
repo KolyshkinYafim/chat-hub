@@ -18,6 +18,17 @@ import type {
   SettingsSnapshot,
 } from "@shared/settings-types"
 import { DEFAULT_MODES } from "@shared/settings-types"
+import {
+  BASE_TOKENS,
+  BUILTIN_THEMES,
+  DEFAULT_THEME_ID,
+  isThemeColor,
+  parseThemeDef,
+  resolveTheme,
+  THEME_TOKENS,
+} from "@shared/theme"
+import type { ThemeDef, ThemeToken } from "@shared/theme"
+import { applyTheme } from "../lib/theme-apply"
 import type {
   McpServerDef,
   McpServerStatus,
@@ -35,6 +46,35 @@ function fmtBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
+const SWATCH_TOKENS: ThemeToken[] = [
+  "--bg",
+  "--bg-elevated",
+  "--user-bg",
+  "--text",
+  "--accent",
+  "--danger",
+]
+
+function themeColor(def: ThemeDef, token: ThemeToken): string {
+  return def.tokens[token] ?? BASE_TOKENS[token]
+}
+
+function toHex6(value: string): string {
+  const v = value.trim()
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) return v.toLowerCase()
+  if (/^#[0-9a-fA-F]{8}$/.test(v)) return v.slice(0, 7).toLowerCase()
+  if (/^#[0-9a-fA-F]{3,4}$/.test(v)) {
+    return `#${v[1]}${v[1]}${v[2]}${v[2]}${v[3]}${v[3]}`.toLowerCase()
+  }
+  const m = v.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/)
+  if (m) {
+    const hex = (n: string): string =>
+      Math.min(255, Number(n)).toString(16).padStart(2, "0")
+    return `#${hex(m[1])}${hex(m[2])}${hex(m[3])}`
+  }
+  return "#000000"
+}
+
 function fmtAgo(ms: number | null): string {
   if (!ms) return "never"
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000))
@@ -45,6 +85,7 @@ function fmtAgo(ms: number | null): string {
 
 type Tab =
   | "general"
+  | "appearance"
   | "providers"
   | "usage"
   | "connections"
@@ -118,6 +159,7 @@ function authBadge(auth: ProviderStatus["auth"]): { text: string; cls: string } 
 
 const NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "general", label: "General", icon: "◎" },
+  { id: "appearance", label: "Appearance", icon: "◐" },
   { id: "providers", label: "Providers", icon: "⬡" },
   { id: "usage", label: "Usage", icon: "◔" },
   { id: "connections", label: "Connections", icon: "⚭" },
@@ -392,6 +434,13 @@ export function SettingsModal({
   )
   const [mcpForm, setMcpForm] = useState<McpFormState | null>(null)
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null)
+  const [themeDraft, setThemeDraft] = useState<Record<string, string> | null>(
+    null,
+  )
+  const [hexDrafts, setHexDrafts] = useState<Record<string, string>>({})
+  const [saveAsName, setSaveAsName] = useState("")
+  const [importText, setImportText] = useState("")
+  const [themeNotice, setThemeNotice] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open || tab !== "usage") return
@@ -736,6 +785,122 @@ export function SettingsModal({
     }
   }
 
+  const customThemes = general.customThemes ?? []
+  const activeTheme = resolveTheme(general.themeId, customThemes)
+  const draftTheme: ThemeDef = themeDraft
+    ? { ...activeTheme, tokens: themeDraft }
+    : activeTheme
+  const themeDirty = themeDraft !== null
+
+  function selectTheme(def: ThemeDef) {
+    setThemeDraft(null)
+    setHexDrafts({})
+    setThemeNotice(null)
+    applyTheme(def)
+    void patchGeneral({ themeId: def.id })
+  }
+
+  function editThemeToken(token: ThemeToken, value: string) {
+    const nextTokens = { ...(themeDraft ?? activeTheme.tokens) }
+    nextTokens[token] = value
+    setThemeDraft(nextTokens)
+    applyTheme({ ...activeTheme, tokens: nextTokens })
+  }
+
+  function discardThemeEdits() {
+    setThemeDraft(null)
+    setHexDrafts({})
+    applyTheme(activeTheme)
+  }
+
+  async function saveThemeAs() {
+    const name = saveAsName.trim()
+    if (!name) return
+    const id = `custom-${crypto.randomUUID().slice(0, 8)}`
+    const def: ThemeDef = {
+      id,
+      name,
+      tokens: { ...(themeDraft ?? activeTheme.tokens) },
+    }
+    setThemeDraft(null)
+    setHexDrafts({})
+    setSaveAsName("")
+    applyTheme(def)
+    await patchGeneral({ customThemes: [...customThemes, def], themeId: id })
+    setThemeNotice(`Saved "${name}"`)
+  }
+
+  async function saveThemeEdits() {
+    if (!themeDraft || activeTheme.builtin) return
+    const updated: ThemeDef = { ...activeTheme, tokens: { ...themeDraft } }
+    const next = customThemes.map((t) =>
+      t.id === activeTheme.id ? updated : t,
+    )
+    setThemeDraft(null)
+    setHexDrafts({})
+    applyTheme(updated)
+    await patchGeneral({ customThemes: next })
+    setThemeNotice(`Saved "${updated.name}"`)
+  }
+
+  async function deleteTheme(def: ThemeDef) {
+    if (!window.confirm(`Delete theme "${def.name}"?`)) return
+    const patch: GeneralConfig = {
+      customThemes: customThemes.filter((t) => t.id !== def.id),
+    }
+    if (general.themeId === def.id) {
+      patch.themeId = DEFAULT_THEME_ID
+      setThemeDraft(null)
+      setHexDrafts({})
+      applyTheme(BUILTIN_THEMES[0])
+    }
+    await patchGeneral(patch)
+  }
+
+  async function exportTheme() {
+    const payload = {
+      id: draftTheme.id,
+      name: draftTheme.name,
+      tokens: draftTheme.tokens,
+    }
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
+      setThemeNotice("Theme JSON copied to clipboard")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function importTheme() {
+    let raw: unknown
+    try {
+      raw = JSON.parse(importText)
+    } catch {
+      setError("Import failed: not valid JSON")
+      return
+    }
+    const parsed = parseThemeDef(raw)
+    if (!parsed) {
+      setError("Import failed: not a valid theme")
+      return
+    }
+    const taken =
+      BUILTIN_THEMES.some((t) => t.id === parsed.id) ||
+      customThemes.some((t) => t.id === parsed.id)
+    const def: ThemeDef = taken
+      ? { ...parsed, id: `custom-${crypto.randomUUID().slice(0, 8)}` }
+      : parsed
+    setImportText("")
+    setThemeDraft(null)
+    setHexDrafts({})
+    applyTheme(def)
+    await patchGeneral({
+      customThemes: [...customThemes, def],
+      themeId: def.id,
+    })
+    setThemeNotice(`Imported "${def.name}"`)
+  }
+
   /** Live text edits stay local; callers persist on blur / structural change. */
   function editMode(id: string, patch: Partial<Mode>) {
     setModesDraft((curr) =>
@@ -825,11 +990,13 @@ export function SettingsModal({
               ? "Providers"
               : tab === "general"
                 ? "General"
-                : tab === "usage"
-                  ? "Usage"
-                  : tab === "connections"
-                    ? "Connections"
-                    : "Advanced"}
+                : tab === "appearance"
+                  ? "Appearance"
+                  : tab === "usage"
+                    ? "Usage"
+                    : tab === "connections"
+                      ? "Connections"
+                      : "Advanced"}
           </h1>
           {tab === "providers" ? (
             <button
@@ -1052,6 +1219,174 @@ export function SettingsModal({
               >
                 + Add mode
               </button>
+            </div>
+          ) : null}
+
+          {tab === "appearance" ? (
+            <div className="settings-section">
+              <h2 className="section-label">Theme</h2>
+              <div className="theme-grid">
+                {[...BUILTIN_THEMES, ...customThemes].map((t) => (
+                  <div
+                    key={t.id}
+                    role="button"
+                    tabIndex={0}
+                    className={
+                      t.id === activeTheme.id ? "theme-card active" : "theme-card"
+                    }
+                    onClick={() => selectTheme(t)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") selectTheme(t)
+                    }}
+                  >
+                    <span
+                      className="theme-swatches"
+                      style={{ background: themeColor(t, "--bg") }}
+                    >
+                      {SWATCH_TOKENS.map((tok) => (
+                        <span
+                          key={tok}
+                          className="theme-swatch"
+                          style={{ background: themeColor(t, tok) }}
+                        />
+                      ))}
+                    </span>
+                    <span className="theme-card-name">
+                      {t.name}
+                      {!t.builtin ? (
+                        <button
+                          type="button"
+                          className="theme-del"
+                          title="Delete theme"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void deleteTheme(t)
+                          }}
+                        >
+                          ×
+                        </button>
+                      ) : null}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <h2 className="section-label">Customize</h2>
+              <p className="modes-intro">
+                Edits preview instantly. Save as a new theme to keep them —
+                switching presets or closing Settings discards unsaved tweaks.
+              </p>
+              <div className="theme-editor">
+                {THEME_TOKENS.map((token) => {
+                  const value = draftTheme.tokens[token] ?? BASE_TOKENS[token]
+                  return (
+                    <div key={token} className="theme-token-row">
+                      <code className="theme-token-name">{token}</code>
+                      <span
+                        className="theme-token-swatch"
+                        style={{ background: value }}
+                      />
+                      <input
+                        type="color"
+                        aria-label={`${token} color picker`}
+                        value={toHex6(value)}
+                        onChange={(e) => editThemeToken(token, e.target.value)}
+                      />
+                      <input
+                        className="theme-token-hex"
+                        spellCheck={false}
+                        value={hexDrafts[token] ?? value}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setHexDrafts((d) => ({ ...d, [token]: v }))
+                          if (isThemeColor(v.trim())) {
+                            editThemeToken(token, v.trim())
+                          }
+                        }}
+                        onBlur={() =>
+                          setHexDrafts((d) => {
+                            const { [token]: _gone, ...rest } = d
+                            return rest
+                          })
+                        }
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="theme-actions">
+                {themeDirty && !activeTheme.builtin ? (
+                  <button
+                    type="button"
+                    className="tb-btn"
+                    onClick={() => void saveThemeEdits()}
+                  >
+                    Save changes
+                  </button>
+                ) : null}
+                {themeDirty ? (
+                  <button
+                    type="button"
+                    className="tb-btn"
+                    onClick={discardThemeEdits}
+                  >
+                    Discard changes
+                  </button>
+                ) : null}
+                <input
+                  className="theme-name-input"
+                  placeholder="New theme name"
+                  value={saveAsName}
+                  onChange={(e) => setSaveAsName(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="tb-btn"
+                  disabled={!saveAsName.trim()}
+                  onClick={() => void saveThemeAs()}
+                >
+                  Save as
+                </button>
+                <button
+                  type="button"
+                  className="tb-btn"
+                  onClick={() => void exportTheme()}
+                >
+                  Export JSON
+                </button>
+                <button
+                  type="button"
+                  className="tb-btn"
+                  onClick={() => selectTheme(BUILTIN_THEMES[0])}
+                >
+                  Reset to Midnight
+                </button>
+              </div>
+              {themeNotice ? (
+                <div className="path-status">
+                  <span className="auth-dot ok" />
+                  {themeNotice}
+                </div>
+              ) : null}
+
+              <h2 className="section-label">Import</h2>
+              <div className="theme-import">
+                <textarea
+                  rows={3}
+                  placeholder='Paste theme JSON — {"id": "...", "name": "...", "tokens": {"--bg": "#101014"}}'
+                  value={importText}
+                  onChange={(e) => setImportText(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="tb-btn"
+                  disabled={!importText.trim()}
+                  onClick={() => void importTheme()}
+                >
+                  Import
+                </button>
+              </div>
             </div>
           ) : null}
 
