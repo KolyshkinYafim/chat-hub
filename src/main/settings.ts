@@ -9,6 +9,7 @@ import { PROVIDERS, type ProviderId } from "@shared/types"
 import type {
   GeneralConfig,
   HubSettings,
+  Mode,
   ProviderConfig,
   ProviderInstance,
   RedactedProviderConfig,
@@ -366,6 +367,61 @@ export class SettingsStore {
 
 function isMode(v: unknown): v is PermissionMode {
   return v === "yolo" || v === "acceptEdits" || v === "default"
+}
+
+const EFFORT_LEVELS = new Set<string>(["low", "medium", "high", "xhigh", "max", "ultra"])
+const EDITOR_PREFS = new Set<string>(["auto", "cursor", "code", "finder"])
+
+export function sanitizeGeneralPatch(patch: unknown): GeneralConfig {
+  if (!patch || typeof patch !== "object") throw new Error("Invalid general")
+  const p = patch as GeneralConfig
+  const clean: GeneralConfig = {}
+  if (p.defaultProvider !== undefined) {
+    if (!PROVIDER_IDS.has(p.defaultProvider)) throw new Error("Unknown provider")
+    clean.defaultProvider = p.defaultProvider
+  }
+  if (p.defaultEffort !== undefined) {
+    if (!EFFORT_LEVELS.has(p.defaultEffort)) throw new Error("Invalid effort")
+    clean.defaultEffort = p.defaultEffort
+  }
+  if (p.editor !== undefined) {
+    if (!EDITOR_PREFS.has(p.editor)) throw new Error("Invalid editor")
+    clean.editor = p.editor
+  }
+  if (p.onboarded !== undefined) {
+    if (typeof p.onboarded !== "boolean") throw new Error("Invalid onboarded")
+    clean.onboarded = p.onboarded
+  }
+  if (p.modes !== undefined) {
+    if (!Array.isArray(p.modes)) throw new Error("Invalid modes")
+    clean.modes = p.modes.map(sanitizeMode)
+  }
+  return clean
+}
+
+function sanitizeMode(raw: unknown): Mode {
+  if (!raw || typeof raw !== "object") throw new Error("Invalid mode")
+  const m = raw as Mode
+  if (typeof m.id !== "string" || !m.id) throw new Error("Invalid mode id")
+  if (typeof m.name !== "string" || !m.name.trim()) throw new Error("Invalid mode name")
+  const clean: Mode = { id: m.id, name: m.name }
+  if (m.systemPrompt !== undefined) {
+    if (typeof m.systemPrompt !== "string") throw new Error("Invalid mode prompt")
+    clean.systemPrompt = m.systemPrompt
+  }
+  if (m.model !== undefined) {
+    if (typeof m.model !== "string") throw new Error("Invalid mode model")
+    clean.model = m.model
+  }
+  if (m.effort !== undefined) {
+    if (!EFFORT_LEVELS.has(m.effort)) throw new Error("Invalid mode effort")
+    clean.effort = m.effort
+  }
+  if (m.permissionMode !== undefined) {
+    if (!isMode(m.permissionMode)) throw new Error("Invalid mode permission")
+    clean.permissionMode = m.permissionMode
+  }
+  return clean
 }
 
 function coerceMcpEnv(

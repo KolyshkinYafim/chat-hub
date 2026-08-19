@@ -14,7 +14,7 @@ vi.mock("electron", () => ({
   },
 }))
 
-const { SettingsStore } = await import("../src/main/settings")
+const { SettingsStore, sanitizeGeneralPatch } = await import("../src/main/settings")
 const { openSecret, sealSecret } = await import("../src/main/secret")
 
 async function store() {
@@ -150,6 +150,70 @@ describe("SettingsStore persistence", () => {
     expect(s.permissionMode).toBe("yolo")
     expect(s.listInstances().map((i) => i.id)).toEqual(["ok"])
     expect(s.redactedProviders()).toEqual({})
+  })
+})
+
+describe("sanitizeGeneralPatch", () => {
+  it("round-trips modes through the store, like the IPC handler does", async () => {
+    const { s, file } = await store()
+    const modes = [
+      {
+        id: "reviewer",
+        name: "Reviewer",
+        systemPrompt: "Review carefully.",
+        model: "opus",
+        effort: "high",
+        permissionMode: "default",
+      },
+      { id: "blank", name: "Blank" },
+    ]
+    await s.setGeneralConfig(sanitizeGeneralPatch({ modes }))
+    expect(s.general.modes).toEqual(modes)
+
+    const reloaded = new SettingsStore(file)
+    await reloaded.load()
+    expect(reloaded.general.modes).toEqual(modes)
+  })
+
+  it("keeps the other whitelisted fields alongside modes", () => {
+    expect(
+      sanitizeGeneralPatch({
+        defaultProvider: "grok",
+        defaultEffort: "max",
+        editor: "code",
+        onboarded: true,
+        modes: [],
+      }),
+    ).toEqual({
+      defaultProvider: "grok",
+      defaultEffort: "max",
+      editor: "code",
+      onboarded: true,
+      modes: [],
+    })
+  })
+
+  it("drops fields outside the whitelist", () => {
+    expect(sanitizeGeneralPatch({ editor: "code", evil: "x" })).toEqual({
+      editor: "code",
+    })
+  })
+
+  it("rejects malformed modes instead of persisting them", () => {
+    expect(() => sanitizeGeneralPatch({ modes: "nope" })).toThrow("Invalid modes")
+    expect(() => sanitizeGeneralPatch({ modes: [null] })).toThrow("Invalid mode")
+    expect(() => sanitizeGeneralPatch({ modes: [{ id: "a", name: "  " }] })).toThrow(
+      "Invalid mode name",
+    )
+    expect(() =>
+      sanitizeGeneralPatch({ modes: [{ id: "a", name: "A", effort: "chaos" }] }),
+    ).toThrow("Invalid mode effort")
+    expect(() =>
+      sanitizeGeneralPatch({ modes: [{ id: "a", name: "A", permissionMode: "root" }] }),
+    ).toThrow("Invalid mode permission")
+    expect(() =>
+      sanitizeGeneralPatch({ modes: [{ id: "a", name: "A", systemPrompt: 7 }] }),
+    ).toThrow("Invalid mode prompt")
   })
 })
 
