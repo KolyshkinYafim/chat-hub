@@ -107,6 +107,7 @@ export const IpcChannels = {
   voiceAvailable: "voice:available",
   voiceToggle: "voice:toggle",
   voiceCancel: "voice:cancel",
+  usageSummary: "usage:summary",
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]

@@ -13,6 +13,7 @@ import { Persistence } from "./persistence"
 import { ProjectStore } from "./project-store"
 import { SessionManager, type SendOpts } from "./session-manager"
 import { PermissionBroker } from "./permission-broker"
+import { seedFromSessions, UsageLedger } from "./usage-ledger"
 import {
   checkoutBranch,
   getFileDiff,
@@ -295,8 +296,10 @@ function registerIpc(
   settings: SettingsStore,
   projects: ProjectStore,
   userData: string,
+  usageLedger: UsageLedger,
 ): void {
   ipcMain.handle(IpcChannels.getSnapshot, () => sm.getSnapshot())
+  ipcMain.handle(IpcChannels.usageSummary, () => usageLedger.summary())
   ipcMain.handle(IpcChannels.listSessions, () => sm.listSessions())
   ipcMain.handle(IpcChannels.getMessages, (_e, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) {
@@ -1395,14 +1398,20 @@ async function bootstrap(): Promise<void> {
   const notifications = new NotificationService((id) =>
     manager?.getSession(id),
   )
+  const usageLedger = new UsageLedger(UsageLedger.defaultPath(userData))
   manager = new SessionManager(
     bus,
     persistence,
     bridge,
     notifications,
     settings,
+    undefined,
+    { usageLedger },
   )
   await manager.init()
+  await usageLedger.init(
+    seedFromSessions(manager.listSessions(), manager.getSnapshot().usage),
+  )
 
   // Before the first turn can spawn: dispatch() reads the socket path to point
   // the CLI's hook at us, so a broker that starts late loses that session's
@@ -1444,7 +1453,7 @@ async function bootstrap(): Promise<void> {
   )
   await browserService.start()
 
-  registerIpc(manager, bridge, settings, projects, userData)
+  registerIpc(manager, bridge, settings, projects, userData, usageLedger)
   registerSurfaceIpc(terminals)
   registerBrowserIpc()
   registerMediaProtocol()

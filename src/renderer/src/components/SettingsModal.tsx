@@ -1,5 +1,11 @@
 import { Fragment, useCallback, useEffect, useState } from "react"
-import type { ProviderId } from "@shared/types"
+import type {
+  ProviderId,
+  UsageLedgerEntry,
+  UsageSummary,
+  UsageWindowTotals,
+} from "@shared/types"
+import { formatTokens, formatUsage, formatUsd } from "../lib/usage"
 import type { PermissionMode } from "@shared/permission"
 import type {
   DataPaths,
@@ -40,6 +46,7 @@ function fmtAgo(ms: number | null): string {
 type Tab =
   | "general"
   | "providers"
+  | "usage"
   | "connections"
   | "advanced"
 
@@ -112,9 +119,175 @@ function authBadge(auth: ProviderStatus["auth"]): { text: string; cls: string } 
 const NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "general", label: "General", icon: "◎" },
   { id: "providers", label: "Providers", icon: "⬡" },
+  { id: "usage", label: "Usage", icon: "◔" },
   { id: "connections", label: "Connections", icon: "⚭" },
   { id: "advanced", label: "Advanced", icon: "…" },
 ]
+
+const DAY_MS = 86_400_000
+
+function localDay(ts: number): string {
+  const d = new Date(ts)
+  const month = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${d.getFullYear()}-${month}-${day}`
+}
+
+type UsageGroup = {
+  label: string
+  inputTokens: number
+  outputTokens: number
+  costUsd: number
+  turns: number
+}
+
+function usageMetric(g: UsageGroup, useCost: boolean): number {
+  return useCost ? g.costUsd : g.inputTokens + g.outputTokens
+}
+
+function turnsLabel(turns: number): string {
+  return `${turns} ${turns === 1 ? "turn" : "turns"}`
+}
+
+/** Sums entries per key, sorted descending; overflow past `limit` becomes "other". */
+function groupUsage(
+  entries: UsageLedgerEntry[],
+  key: (e: UsageLedgerEntry) => string,
+  limit: number,
+): UsageGroup[] {
+  const map = new Map<string, UsageGroup>()
+  for (const e of entries) {
+    const label = key(e)
+    const g =
+      map.get(label) ??
+      { label, inputTokens: 0, outputTokens: 0, costUsd: 0, turns: 0 }
+    g.inputTokens += e.inputTokens
+    g.outputTokens += e.outputTokens
+    g.costUsd += e.costUsd
+    g.turns += e.turns
+    map.set(label, g)
+  }
+  const useCost = [...map.values()].some((g) => g.costUsd > 0)
+  const groups = [...map.values()].sort(
+    (a, b) => usageMetric(b, useCost) - usageMetric(a, useCost),
+  )
+  if (groups.length <= limit) return groups
+  const other = groups.slice(limit).reduce(
+    (acc, g) => ({
+      ...acc,
+      inputTokens: acc.inputTokens + g.inputTokens,
+      outputTokens: acc.outputTokens + g.outputTokens,
+      costUsd: acc.costUsd + g.costUsd,
+      turns: acc.turns + g.turns,
+    }),
+    { label: "other", inputTokens: 0, outputTokens: 0, costUsd: 0, turns: 0 },
+  )
+  return [...groups.slice(0, limit), other]
+}
+
+function UsageTile({
+  label,
+  totals,
+}: {
+  label: string
+  totals: UsageWindowTotals
+}) {
+  return (
+    <div className="usage-tile">
+      <div className="usage-tile-label">{label}</div>
+      <div className="usage-tile-cost">{formatUsd(totals.costUsd)}</div>
+      <div className="usage-tile-sub">
+        {formatTokens(totals.inputTokens + totals.outputTokens)} tok ·{" "}
+        {turnsLabel(totals.turns)}
+      </div>
+    </div>
+  )
+}
+
+function UsageBarList({
+  title,
+  groups,
+}: {
+  title: string
+  groups: UsageGroup[]
+}) {
+  const useCost = groups.some((g) => g.costUsd > 0)
+  const max = Math.max(...groups.map((g) => usageMetric(g, useCost)), 1e-9)
+  return (
+    <div>
+      <h3 className="usage-sub-label">{title}</h3>
+      {groups.map((g) => (
+        <div key={g.label} className="usage-bar-row" title={turnsLabel(g.turns)}>
+          <span className="usage-bar-label">{g.label}</span>
+          <span className="usage-bar-track">
+            <span
+              className="usage-bar-fill"
+              style={{
+                width: `${Math.max(2, (usageMetric(g, useCost) / max) * 100)}%`,
+              }}
+            />
+          </span>
+          <span className="usage-bar-value">
+            {formatUsage({
+              costUsd: g.costUsd > 0 ? g.costUsd : undefined,
+              inputTokens: g.inputTokens,
+              outputTokens: g.outputTokens,
+            }) ?? "—"}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function UsageDayStrip({ entries }: { entries: UsageLedgerEntry[] }) {
+  const nowTs = Date.now()
+  const totals = Array.from({ length: 14 }, (_, i) => {
+    const day = localDay(nowTs - (13 - i) * DAY_MS)
+    let costUsd = 0
+    let tokens = 0
+    let turns = 0
+    for (const e of entries) {
+      if (e.day !== day) continue
+      costUsd += e.costUsd
+      tokens += e.inputTokens + e.outputTokens
+      turns += e.turns
+    }
+    return { day, costUsd, tokens, turns }
+  })
+  const useCost = totals.some((t) => t.costUsd > 0)
+  const max = Math.max(
+    ...totals.map((t) => (useCost ? t.costUsd : t.tokens)),
+    1e-9,
+  )
+  return (
+    <div>
+      <h3 className="usage-sub-label">Last 14 days</h3>
+      <div className="usage-strip">
+        {totals.map((t) => (
+          <div
+            key={t.day}
+            className="usage-strip-col"
+            title={`${t.day} · ${
+              useCost ? formatUsd(t.costUsd) : `${formatTokens(t.tokens)} tok`
+            } · ${turnsLabel(t.turns)}`}
+          >
+            <div
+              className="usage-strip-bar"
+              style={{
+                height: `${
+                  t.turns === 0
+                    ? 0
+                    : Math.max(4, ((useCost ? t.costUsd : t.tokens) / max) * 100)
+                }%`,
+              }}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 /** Single env-var / API-key field. Values are write-only (never read back). */
 function EnvField({
@@ -218,6 +391,21 @@ export function SettingsModal({
     null,
   )
   const [mcpForm, setMcpForm] = useState<McpFormState | null>(null)
+  const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null)
+
+  useEffect(() => {
+    if (!open || tab !== "usage") return
+    let cancelled = false
+    window.chatHub
+      .usageSummary()
+      .then((summary) => {
+        if (!cancelled) setUsageSummary(summary)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [open, tab])
 
   const refreshMcp = useCallback(async () => {
     if (!projectCwd) {
@@ -637,9 +825,11 @@ export function SettingsModal({
               ? "Providers"
               : tab === "general"
                 ? "General"
-                : tab === "connections"
-                  ? "Connections"
-                  : "Advanced"}
+                : tab === "usage"
+                  ? "Usage"
+                  : tab === "connections"
+                    ? "Connections"
+                    : "Advanced"}
           </h1>
           {tab === "providers" ? (
             <button
@@ -1592,6 +1782,52 @@ export function SettingsModal({
                   </div>
                 ) : null}
               </div>
+            </div>
+          ) : null}
+
+          {tab === "usage" ? (
+            <div className="settings-section">
+              <h2 className="section-label">Usage</h2>
+              {!usageSummary || usageSummary.entries.length === 0 ? (
+                <p className="usage-empty">
+                  No usage recorded yet — cost and token totals appear here
+                  after the first completed agent turn.
+                </p>
+              ) : (
+                <>
+                  <div className="usage-tiles">
+                    <UsageTile label="Today" totals={usageSummary.today} />
+                    <UsageTile label="Last 7 days" totals={usageSummary.last7d} />
+                    <UsageTile
+                      label="Last 30 days"
+                      totals={usageSummary.last30d}
+                    />
+                  </div>
+                  <div className="usage-breakdowns">
+                    <UsageBarList
+                      title="By provider · 30 days"
+                      groups={groupUsage(
+                        usageSummary.entries.filter(
+                          (e) => e.day >= localDay(Date.now() - 29 * DAY_MS),
+                        ),
+                        (e) => e.provider,
+                        8,
+                      )}
+                    />
+                    <UsageBarList
+                      title="By model · 30 days"
+                      groups={groupUsage(
+                        usageSummary.entries.filter(
+                          (e) => e.day >= localDay(Date.now() - 29 * DAY_MS),
+                        ),
+                        (e) => e.model,
+                        8,
+                      )}
+                    />
+                  </div>
+                  <UsageDayStrip entries={usageSummary.entries} />
+                </>
+              )}
             </div>
           ) : null}
 
