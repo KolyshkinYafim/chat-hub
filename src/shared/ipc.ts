@@ -51,6 +51,8 @@ export const IpcChannels = {
   sessionSetSettled: "session:set-settled",
   sessionSetArchived: "session:set-archived",
   sessionMigrateArchived: "session:migrate-archived",
+  sessionRename: "session:rename",
+  sessionRegenerateTitle: "session:regenerate-title",
   pickFiles: "dialog:pick-files",
   inspectAttachments: "fs:inspect-attachments",
   savePastedImage: "clipboard:save-image",

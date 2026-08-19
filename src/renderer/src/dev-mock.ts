@@ -839,6 +839,19 @@ export function installDevMock(): void {
       return s
     },
     migrateArchived: async () => {},
+    renameSession: async (id, title) => {
+      const s = sessions.find((x) => x.id === id)!
+      s.title = title
+      s.titleOrigin = "user"
+      return s
+    },
+    regenerateTitle: async (id) => {
+      const s = sessions.find((x) => x.id === id)!
+      await new Promise((r) => setTimeout(r, 900))
+      s.title = "Regenerated mock title"
+      s.titleOrigin = "auto"
+      return s
+    },
     addProject: async () => ({ project: projects[0], projects }),
     renameProject: async () => projects,
     removeProject: async () => projects,

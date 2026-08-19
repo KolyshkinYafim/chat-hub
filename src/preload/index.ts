@@ -276,6 +276,12 @@ const api = {
   /** One-shot push of the legacy localStorage archive ids into main. */
   migrateArchived: (ids: string[]): Promise<void> =>
     ipcRenderer.invoke(IpcChannels.sessionMigrateArchived, ids),
+  /** Marks the title user-owned so auto-titling never overwrites it. */
+  renameSession: (sessionId: string, title: string): Promise<SessionMeta> =>
+    ipcRenderer.invoke(IpcChannels.sessionRename, sessionId, title),
+  /** Fresh LLM title pass; resolves with the (possibly unchanged) session. */
+  regenerateTitle: (sessionId: string): Promise<SessionMeta> =>
+    ipcRenderer.invoke(IpcChannels.sessionRegenerateTitle, sessionId),
   pickFiles: (): Promise<string[]> =>
     ipcRenderer.invoke(IpcChannels.pickFiles),
   inspectAttachments: (paths: string[]): Promise<MessageAttachment[]> =>

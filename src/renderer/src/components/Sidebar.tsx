@@ -78,6 +78,45 @@ export function Sidebar({
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [showArchived, setShowArchived] = useState(false)
   const [showSettled, setShowSettled] = useState(false)
+  const [rowMenuFor, setRowMenuFor] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draftTitle, setDraftTitle] = useState("")
+  const [regenerating, setRegenerating] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  )
+
+  useEffect(() => {
+    if (!rowMenuFor) return
+    const close = () => setRowMenuFor(null)
+    window.addEventListener("click", close)
+    return () => window.removeEventListener("click", close)
+  }, [rowMenuFor])
+
+  async function commitRename(id: string) {
+    const next = draftTitle.trim()
+    setEditingId(null)
+    if (!next) return
+    try {
+      await window.chatHub.renameSession(id, next)
+    } catch {
+      // The row keeps its previous title; nothing to clean up.
+    }
+  }
+
+  async function regenerateTitle(id: string) {
+    setRegenerating((curr) => new Set(curr).add(id))
+    try {
+      await window.chatHub.regenerateTitle(id)
+    } catch {
+      // Best-effort: a failed pass keeps the current title.
+    } finally {
+      setRegenerating((curr) => {
+        const next = new Set(curr)
+        next.delete(id)
+        return next
+      })
+    }
+  }
 
   const [archiveHits, setArchiveHits] =
     useState<ArchiveSearchResult>(NO_ARCHIVE_HITS)
@@ -238,6 +277,8 @@ export function Sidebar({
   function renderRow(s: SessionMeta, isArchived: boolean) {
     const live = s.status === "running" || s.status === "waiting_input"
     const hit = hits.get(s.id)
+    const editing = editingId === s.id
+    const regen = regenerating.has(s.id)
     return (
       <div
         key={s.id}
@@ -246,15 +287,36 @@ export function Sidebar({
         className={`session-row ${s.id === activeId ? "active" : ""} ${live ? "live" : ""}`}
         onClick={() => onSelect(s.id)}
         onKeyDown={(e) => {
+          if (editing) return
           if (e.key === "Enter" || e.key === " ") onSelect(s.id)
         }}
         tabIndex={0}
       >
         <div className="session-row-main t3">
           {live ? <StatusDot status={s.status} showLabel /> : null}
-          <span className="session-row-title" title={s.title}>
-            {s.title}
-          </span>
+          {editing ? (
+            <input
+              className="session-title-input"
+              value={draftTitle}
+              autoFocus
+              aria-label="Rename session"
+              onChange={(e) => setDraftTitle(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                if (e.key === "Enter") void commitRename(s.id)
+                if (e.key === "Escape") setEditingId(null)
+              }}
+              onBlur={() => setEditingId(null)}
+            />
+          ) : (
+            <span
+              className={`session-row-title ${regen ? "title-regen" : ""}`}
+              title={s.title}
+            >
+              {s.title}
+            </span>
+          )}
           <span className="session-row-time">{formatRelative(s.updatedAt)}</span>
         </div>
         {hit ? (
@@ -296,6 +358,17 @@ export function Sidebar({
           <button
             type="button"
             className="row-act"
+            title="Session menu"
+            onClick={(e) => {
+              e.stopPropagation()
+              setRowMenuFor((m) => (m === s.id ? null : s.id))
+            }}
+          >
+            ⋯
+          </button>
+          <button
+            type="button"
+            className="row-act"
             title={
               isArchived
                 ? "Unarchive session"
@@ -320,6 +393,38 @@ export function Sidebar({
             ×
           </button>
         </div>
+        {rowMenuFor === s.id ? (
+          <div
+            className="session-row-menu"
+            role="menu"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              className="session-row-menu-item"
+              onClick={() => {
+                setRowMenuFor(null)
+                setDraftTitle(s.title)
+                setEditingId(s.id)
+              }}
+            >
+              Rename
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="session-row-menu-item"
+              disabled={regen}
+              onClick={() => {
+                setRowMenuFor(null)
+                void regenerateTitle(s.id)
+              }}
+            >
+              Regenerate title
+            </button>
+          </div>
+        ) : null}
       </div>
     )
   }
