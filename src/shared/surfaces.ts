@@ -1,5 +1,7 @@
 import type { MediaKind } from "./file-kind"
 
+export type { MediaKind } from "./file-kind"
+
 export type SurfaceKind =
   | "browser"
   | "terminal"

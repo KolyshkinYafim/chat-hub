@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto"
 import type {
   ChatMessage,
   CreateSessionInput,
-  PermissionRequestInfo,
   ProviderId,
   QueuedMessage,
   SessionMeta,
@@ -1271,6 +1270,7 @@ function resolveSessionCwd(input?: string): string {
   } catch (err) {
     throw new Error(
       `Invalid project folder: ${raw} (${err instanceof Error ? err.message : String(err)})`,
+      { cause: err },
     )
   }
 }

@@ -50,7 +50,7 @@ export function redactSensitive(value: string): string {
 }
 
 function rotateIfNeeded(path: string, incomingBytes: number, maxBytes: number): void {
-  let currentBytes = 0
+  let currentBytes: number
   try {
     currentBytes = statSync(path).size
   } catch {

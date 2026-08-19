@@ -25,7 +25,6 @@ import type { PermissionMode } from "@shared/permission"
 import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
 import type {
   EffortLevel,
-  GeneralConfig,
   Mode,
   ProviderStatus,
 } from "@shared/settings-types"
@@ -333,7 +332,7 @@ export default function App() {
 
   useEffect(() => {
     let unsub = () => {}
-    ;(async () => {
+    void (async () => {
       try {
         const [snap, prov, settings, pinned] = await Promise.all([
           window.chatHub.getSnapshot(),
@@ -1090,7 +1089,9 @@ export default function App() {
         onCreate={(hint) => openNewSession(hint)}
         onSelect={(id) => void selectSession(id)}
         onArchive={setSessionArchived}
-        onJumpToMessage={jumpToMessage}
+        onJumpToMessage={(sessionId, messageId) =>
+          void jumpToMessage(sessionId, messageId)
+        }
         onDelete={(id) => void deleteSession(id)}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenSwitcher={() => setPaletteOpen(true)}
