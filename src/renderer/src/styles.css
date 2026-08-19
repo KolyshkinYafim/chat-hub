@@ -5684,3 +5684,43 @@ select:focus-visible {
     animation: rise-in 140ms ease-out;
   }
 }
+
+/* ===== settled lifecycle ===== */
+
+.settled-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 20px 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.settled-banner-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settled-group {
+  margin-top: 10px;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 8px;
+  opacity: 0.85;
+}
+
+.settled-group:hover {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .settled-banner {
+    animation: rise-in 140ms ease-out both;
+  }
+}

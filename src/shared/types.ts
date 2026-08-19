@@ -47,6 +47,10 @@ export type SessionMeta = {
   /** Absolute worktree path, retained for safe cleanup on session deletion. */
   worktreePath?: string
   status: SessionStatus
+  /** Set when the thread settled (turn done, nothing pending); cleared on activity. */
+  settledAt?: number
+  settledBy?: "auto" | "user"
+  archived?: boolean
   /**
    * Who owns this session's card on the island: "hub" for one we spawned,
    * "terminal" for one a Claude Code hook reported. The island labels the host

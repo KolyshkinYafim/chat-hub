@@ -814,6 +814,31 @@ export function installDevMock(): void {
       return s
     },
     setSessionTitle: async (id) => sessions.find((s) => s.id === id)!,
+    setSessionSettled: async (id, settled) => {
+      const s = sessions.find((x) => x.id === id)!
+      if (settled) {
+        s.settledAt = Date.now()
+        s.settledBy = "user"
+      } else {
+        delete s.settledAt
+        delete s.settledBy
+      }
+      return s
+    },
+    setSessionArchived: async (id, archived) => {
+      const s = sessions.find((x) => x.id === id)!
+      if (archived) {
+        s.archived = true
+        if (s.settledAt === undefined) {
+          s.settledAt = Date.now()
+          s.settledBy = "user"
+        }
+      } else {
+        delete s.archived
+      }
+      return s
+    },
+    migrateArchived: async () => {},
     addProject: async () => ({ project: projects[0], projects }),
     renameProject: async () => projects,
     removeProject: async () => projects,
