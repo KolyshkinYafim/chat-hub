@@ -112,10 +112,10 @@ const authDiff = [
 ]
 
 const suitePass = [
-  "> proxy-flash-admin@0.1.0 test",
+  "> orbit-api@0.1.0 test",
   "> vitest run --reporter verbose",
   "",
-  " RUN  v3.2.7 /Users/lic/ProxyFlash/proxy-flash-admin",
+  " RUN  v3.2.7 /Users/dev/code/orbit-api",
   "",
   " ✓ tests/auth.test.ts (4 tests) 21ms",
   "   ✓ verifyJwt > rejects an expired token",
@@ -168,7 +168,7 @@ const busyTurn =
     desc: "Reproduce the expiry failure",
   }) +
   result("Bash", suiteFail, { id: "t2", exitCode: 1, error: true }) +
-  call("Read", "/Users/lic/ProxyFlash/proxy-flash-admin/src/lib/jwt.ts", {
+  call("Read", "/Users/dev/code/orbit-api/src/lib/jwt.ts", {
     id: "t3",
   }) +
   result(
@@ -184,19 +184,19 @@ const busyTurn =
     { id: "t3" },
   ) +
   "\nThere it is: the guard compares `iat` (issued-at) instead of `exp`, so every token looks expired the moment it is issued. Three files need touching — the check itself, a small clock helper, and the middleware that duplicates the guard.\n\n" +
-  call("Edit", "/Users/lic/ProxyFlash/proxy-flash-admin/src/lib/jwt.ts", {
+  call("Edit", "/Users/dev/code/orbit-api/src/lib/jwt.ts", {
     id: "t4",
     desc: "Compare exp, not iat",
-    paths: ["/Users/lic/ProxyFlash/proxy-flash-admin/src/lib/jwt.ts"],
+    paths: ["/Users/dev/code/orbit-api/src/lib/jwt.ts"],
     added: 3,
     removed: 2,
     absLines: true,
   }) +
   diff(jwtDiff) +
   result("Edit", "The file has been updated.", { id: "t4" }) +
-  call("Write", "/Users/lic/ProxyFlash/proxy-flash-admin/src/lib/clock.ts", {
+  call("Write", "/Users/dev/code/orbit-api/src/lib/clock.ts", {
     id: "t5",
-    paths: ["/Users/lic/ProxyFlash/proxy-flash-admin/src/lib/clock.ts"],
+    paths: ["/Users/dev/code/orbit-api/src/lib/clock.ts"],
     added: 9,
     removed: 0,
     absLines: true,
@@ -205,12 +205,12 @@ const busyTurn =
   result("Write", "File created successfully.", { id: "t5" }) +
   call(
     "MultiEdit",
-    "/Users/lic/ProxyFlash/proxy-flash-admin/src/middleware/auth.ts · 2 edits",
+    "/Users/dev/code/orbit-api/src/middleware/auth.ts · 2 edits",
     {
       id: "t7",
       desc: "Route the middleware through the shared clock",
       paths: [
-        "/Users/lic/ProxyFlash/proxy-flash-admin/src/middleware/auth.ts",
+        "/Users/dev/code/orbit-api/src/middleware/auth.ts",
       ],
       added: 2,
       removed: 2,
@@ -230,15 +230,15 @@ const busyTurn =
   "\nFixed. `verifyJwt` now compares `exp` against the current second, and the middleware no longer re-implements the same check with the wrong claim. Both suites are green."
 
 const projects: Project[] = [
-  { id: "p1", name: "proxy-flash-admin", cwd: "/Users/lic/ProxyFlash/proxy-flash-admin", createdAt: now - 5e6 },
-  { id: "p2", name: "GiftArena", cwd: "/Users/lic/GiftArena", createdAt: now - 4e6 },
-  { id: "p3", name: "landing-site", cwd: "/Users/lic/code/landing-site", createdAt: now - 1e6 },
+  { id: "p1", name: "orbit-api", cwd: "/Users/dev/code/orbit-api", createdAt: now - 5e6 },
+  { id: "p2", name: "aurora-shop", cwd: "/Users/dev/code/aurora-shop", createdAt: now - 4e6 },
+  { id: "p3", name: "landing-site", cwd: "/Users/dev/code/landing-site", createdAt: now - 1e6 },
 ]
 
 const sessions: SessionMeta[] = [
-  { id: "s1", title: "Refactor auth middleware", project: "proxy-flash-admin", provider: "claude", model: "opus", cwd: projects[0].cwd, status: "running", createdAt: now - 3e5, updatedAt: now - 2e4 },
-  { id: "s2", title: "Fix webhook retries", project: "proxy-flash-admin", provider: "codex", model: "gpt-5.6-sol", cwd: projects[0].cwd, status: "waiting_input", createdAt: now - 6e5, updatedAt: now - 9e4 },
-  { id: "s3", title: "Tune reward curve", project: "GiftArena", provider: "grok", model: "grok-4", cwd: projects[1].cwd, status: "idle", createdAt: now - 8e5, updatedAt: now - 3e5 },
+  { id: "s1", title: "Refactor auth middleware", project: "orbit-api", provider: "claude", model: "opus", cwd: projects[0].cwd, status: "running", createdAt: now - 3e5, updatedAt: now - 2e4 },
+  { id: "s2", title: "Fix webhook retries", project: "orbit-api", provider: "codex", model: "gpt-5.6-sol", cwd: projects[0].cwd, status: "waiting_input", createdAt: now - 6e5, updatedAt: now - 9e4 },
+  { id: "s3", title: "Tune reward curve", project: "aurora-shop", provider: "grok", model: "grok-4", cwd: projects[1].cwd, status: "idle", createdAt: now - 8e5, updatedAt: now - 3e5 },
 ]
 
 const mockAttachments: MessageAttachment[] = [
@@ -337,14 +337,14 @@ const permissions: PermissionRequestInfo[] = [
 const base = { instanceId: "", homeDir: null as string | null, isExtra: false }
 const statuses: ProviderStatus[] = [
   { ...base, id: "claude", instanceId: "claude", label: "Claude Code", installed: true, binaryPath: "/opt/homebrew/bin/claude", version: "1.0.44", auth: "connected", authDetail: "ANTHROPIC_API_KEY set", models: [{ id: "opus", label: "Opus (latest)" }, { id: "sonnet", label: "Sonnet (latest)" }, { id: "haiku", label: "Haiku (latest)" }], defaultModel: "opus", loginCommand: "claude auth login", docsUrl: "https://docs.anthropic.com/en/docs/claude-code", enabled: true, envKeys: ["ANTHROPIC_API_KEY"], envHints: [{ key: "ANTHROPIC_API_KEY", label: "Anthropic API key" }] },
-  { ...base, id: "claude", instanceId: "inst-work", isExtra: true, homeDir: "/Users/lic/.claude-work", label: "Claude (work)", installed: true, binaryPath: "/opt/homebrew/bin/claude", version: "1.0.44", auth: "connected", authDetail: "Signed in (/Users/lic/.claude-work)", models: [{ id: "opus", label: "Opus (latest)" }, { id: "sonnet", label: "Sonnet (latest)" }], defaultModel: "sonnet", loginCommand: "claude auth login", docsUrl: null, enabled: true, envKeys: [], envHints: [{ key: "ANTHROPIC_API_KEY", label: "Anthropic API key" }] },
+  { ...base, id: "claude", instanceId: "inst-work", isExtra: true, homeDir: "/Users/dev/.claude-work", label: "Claude (work)", installed: true, binaryPath: "/opt/homebrew/bin/claude", version: "1.0.44", auth: "connected", authDetail: "Signed in (/Users/dev/.claude-work)", models: [{ id: "opus", label: "Opus (latest)" }, { id: "sonnet", label: "Sonnet (latest)" }], defaultModel: "sonnet", loginCommand: "claude auth login", docsUrl: null, enabled: true, envKeys: [], envHints: [{ key: "ANTHROPIC_API_KEY", label: "Anthropic API key" }] },
   { ...base, id: "codex", instanceId: "codex", label: "Codex CLI", installed: true, binaryPath: "/Applications/ChatGPT.app/Contents/Resources/codex", version: "codex 0.146.0", auth: "connected", authDetail: "Signed in (~/.codex)", models: [{ id: "gpt-5.6-sol", label: "GPT-5.6 Sol" }, { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" }, { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" }], defaultModel: "gpt-5.6-sol", loginCommand: "codex login", docsUrl: "https://learn.chatgpt.com/docs/codex", enabled: true, envKeys: [], envHints: [{ key: "OPENAI_API_KEY", label: "OpenAI API key" }] },
-  { ...base, id: "grok", instanceId: "grok", label: "Grok Build", installed: true, binaryPath: "/Users/lic/.grok/bin/grok", version: "grok 0.9.1", auth: "connected", authDetail: "Signed in (~/.grok)", models: [{ id: "grok-4", label: "Grok 4" }, { id: "grok-3", label: "Grok 3" }], defaultModel: "grok-4", loginCommand: "grok login", docsUrl: null, enabled: false, envKeys: [], envHints: [{ key: "XAI_API_KEY", label: "xAI API key" }, { key: "GROK_API_KEY", label: "Grok API key (alt)" }] },
+  { ...base, id: "grok", instanceId: "grok", label: "Grok Build", installed: true, binaryPath: "/Users/dev/.grok/bin/grok", version: "grok 0.9.1", auth: "connected", authDetail: "Signed in (~/.grok)", models: [{ id: "grok-4", label: "Grok 4" }, { id: "grok-3", label: "Grok 3" }], defaultModel: "grok-4", loginCommand: "grok login", docsUrl: null, enabled: false, envKeys: [], envHints: [{ key: "XAI_API_KEY", label: "xAI API key" }, { key: "GROK_API_KEY", label: "Grok API key (alt)" }] },
   { ...base, id: "opencode", instanceId: "opencode", label: "OpenCode", installed: true, binaryPath: "/opt/homebrew/bin/opencode", version: "opencode 0.3.2", auth: "needs_login", authDetail: "0 credentials — run opencode auth login (or use free models)", models: [{ id: "anthropic/claude-sonnet", label: "anthropic/claude-sonnet" }], defaultModel: "anthropic/claude-sonnet", loginCommand: "opencode auth login", docsUrl: "https://opencode.ai", enabled: true, envKeys: [], envHints: [{ key: "OPENAI_API_KEY", label: "OpenAI API key" }, { key: "ANTHROPIC_API_KEY", label: "Anthropic API key" }] },
 ]
 
 const mockInstances: ProviderInstance[] = [
-  { id: "inst-work", provider: "claude", label: "Claude (work)", homeDir: "/Users/lic/.claude-work", defaultModel: "sonnet" },
+  { id: "inst-work", provider: "claude", label: "Claude (work)", homeDir: "/Users/dev/.claude-work", defaultModel: "sonnet" },
 ]
 
 const wantWizard =
@@ -365,11 +365,11 @@ const settings: SettingsSnapshot = {
 }
 
 const dataPaths = {
-  dataDir: "/Users/lic/Library/Application Support/chat-hub/data",
-  settingsPath: "/Users/lic/Library/Application Support/chat-hub/data/settings.json",
-  statePath: "/Users/lic/Library/Application Support/chat-hub/data/state.json",
-  projectsPath: "/Users/lic/Library/Application Support/chat-hub/data/projects.json",
-  bridgePath: "/Users/lic/Library/Application Support/agent-desktop/events.jsonl",
+  dataDir: "/Users/dev/Library/Application Support/chat-hub/data",
+  settingsPath: "/Users/dev/Library/Application Support/chat-hub/data/settings.json",
+  statePath: "/Users/dev/Library/Application Support/chat-hub/data/state.json",
+  projectsPath: "/Users/dev/Library/Application Support/chat-hub/data/projects.json",
+  bridgePath: "/Users/dev/Library/Application Support/agent-desktop/events.jsonl",
   bridgeExists: true,
   bridgeSize: 20480,
   bridgeMtime: now - 20000,
@@ -437,10 +437,10 @@ type MockFile = { text: string; truncated?: boolean; binary?: boolean }
 
 const mockFiles: Record<string, MockFile> = {
   "README.md": {
-    text: "# proxy-flash-admin\n\nAdmin console for the ProxyFlash fleet.\n\n## Running\n\n    pnpm install\n    pnpm dev\n",
+    text: "# orbit-api\n\nAdmin console for the ProxyFlash fleet.\n\n## Running\n\n    pnpm install\n    pnpm dev\n",
   },
   "package.json": {
-    text: '{\n  "name": "proxy-flash-admin",\n  "private": true,\n  "scripts": {\n    "dev": "vite",\n    "test": "vitest run"\n  }\n}\n',
+    text: '{\n  "name": "orbit-api",\n  "private": true,\n  "scripts": {\n    "dev": "vite",\n    "test": "vitest run"\n  }\n}\n',
   },
   "huge.log": {
     text: Array.from(
@@ -699,6 +699,8 @@ function makeSurfaceBridge(): SurfaceBridge {
       mockBoard = { ...board, updatedAt: Date.now() }
       return mockBoard
     },
+    scriptsList: async () => [],
+    scriptsSave: async (_cwd, scripts) => scripts,
     browserAttach: async () => false,
     browserDetach: async () => false,
     onBrowserActivity: () => () => {},
@@ -857,7 +859,7 @@ export function installDevMock(): void {
     addProject: async () => ({ project: projects[0], projects }),
     renameProject: async () => projects,
     removeProject: async () => projects,
-    pickFolder: async () => "/Users/lic/code/landing-site",
+    pickFolder: async () => "/Users/dev/code/landing-site",
     pickFiles: async () => mockAttachments.map((item) => item.path),
     inspectAttachments: async (paths) => mockAttachments.filter((item) => paths.includes(item.path)),
     getPathForDroppedFile: (file) => `/mock/${file.name}`,
