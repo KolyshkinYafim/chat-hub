@@ -87,8 +87,9 @@ const META: Record<
 }
 
 const CLAUDE_MODELS: ModelInfo[] = [
-  { id: "sonnet", label: "Sonnet (latest)" },
+  { id: "fable", label: "Fable (latest)" },
   { id: "opus", label: "Opus (latest)" },
+  { id: "sonnet", label: "Sonnet (latest)" },
   { id: "haiku", label: "Haiku (latest)" },
 ]
 
