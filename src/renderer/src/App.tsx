@@ -35,6 +35,7 @@ import type { ProjectScript } from "@shared/scripts"
 import { pruneDiffComments } from "./lib/diff-comments"
 import { prunePendingRuns, stashBrowserUrl, stashTerminalCommand } from "./lib/pending-run"
 import { prunePendingPrompts } from "./lib/pending-prompt"
+import { prunePreviewPicks } from "./lib/preview-picks"
 import { pruneScriptTerminals } from "./lib/script-terminals"
 import { mergeReplacedMessages } from "./lib/transcript-window"
 import { Sidebar } from "./components/Sidebar"
@@ -603,6 +604,7 @@ export default function App() {
     prunePendingRuns(live)
     prunePendingPrompts(live)
     pruneDiffComments(live)
+    prunePreviewPicks(live)
     pruneScriptTerminals(live)
     setSurfaceBySession((curr) => {
       const next = Object.fromEntries(
