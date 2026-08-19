@@ -37,6 +37,9 @@ import {
   type VoicePhase,
 } from "../lib/voice-state"
 import { PlanSteps, toPlanSteps } from "./PlanSteps"
+import { LiveStepTicker } from "./LiveStepTicker"
+import { buildTranscript } from "../lib/tool-runs"
+import { currentStep, planProgress } from "../lib/live-step"
 import { formatSessionUsage, formatUsage, usageDetail } from "../lib/usage"
 import { MarkdownBody } from "./MarkdownBody"
 import { TopBar } from "./TopBar"
@@ -465,6 +468,19 @@ export function ChatView({
     [messages],
   )
 
+  const lastMessage = messages[messages.length - 1]
+  const liveMessage =
+    session?.status === "running" &&
+    lastMessage?.role === "assistant" &&
+    lastMessage.streaming === true
+      ? lastMessage
+      : null
+  const liveTicker = useMemo(() => {
+    if (!liveMessage) return null
+    const { blocks } = buildTranscript(liveMessage.content, liveMessage.id)
+    return { step: currentStep(blocks), plan: planProgress(blocks) }
+  }, [liveMessage])
+
   useEffect(() => {
     draftRef.current = draft
   }, [draft])
@@ -587,6 +603,14 @@ export function ChatView({
     atBottomRef.current = true
     setAtBottom(true)
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
+  }
+
+  function jumpToLiveCard() {
+    if (!liveMessage) return
+    const card = transcriptRef.current?.querySelector(
+      `[data-mid="${CSS.escape(liveMessage.id)}"]`,
+    )
+    card?.scrollIntoView({ behavior: "smooth", block: "nearest" })
   }
 
   async function submit() {
@@ -1111,6 +1135,13 @@ export function ChatView({
               path: attachment.path,
               returnFocus: trigger,
             })}
+          />
+        ) : null}
+        {liveTicker ? (
+          <LiveStepTicker
+            step={liveTicker.step}
+            plan={liveTicker.plan}
+            onJump={jumpToLiveCard}
           />
         ) : null}
         <div className="composer-shell">
