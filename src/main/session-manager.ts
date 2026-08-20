@@ -1288,6 +1288,12 @@ export class SessionManager {
     }
   }
 
+  /** A line in the transcript from the Hub itself, not from any agent. */
+  note(sessionId: string, content: string): void {
+    if (!this.sessions.has(sessionId)) return
+    this.systemNote(sessionId, content)
+  }
+
   private systemNote(sessionId: string, content: string): void {
     this.appendMessage({
       id: randomUUID(),

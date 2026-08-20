@@ -389,7 +389,23 @@ function registerIpc(
     // Keep CLI-native MCP files in sync for this project (non-blocking).
     void materializeMcpForProject(session.cwd, (serverId) =>
       settings.getMcpEnv(serverId),
-    ).catch((err) => console.error("[mcp] materialize on create failed", err))
+    )
+      .then((res) => {
+        // These files carry this machine's absolute paths, and writing them into
+        // someone's repo silently is how they end up committed. Settings has the
+        // same warning behind a button nobody presses — say it where it happens.
+        const unignored = res.unignoredNative ?? []
+        if (unignored.length === 0) return
+        sm.note(
+          session.id,
+          `Wrote ${unignored.join(", ")} for the CLI. Git does not ignore ${
+            unignored.length === 1 ? "it" : "them"
+          } — Settings › MCP can add ${
+            unignored.length === 1 ? "it" : "them"
+          } to .gitignore.`,
+        )
+      })
+      .catch((err) => console.error("[mcp] materialize on create failed", err))
     return session
   })
   ipcMain.handle(
