@@ -1,5 +1,6 @@
 import type { BrowserActivity } from "@shared/browser"
 import type { ProjectScript, ScriptsFile } from "@shared/scripts"
+import type { ContextDocId, ProjectContext } from "@shared/project-context"
 import type {
   Board,
   DirEntry,
@@ -16,6 +17,11 @@ import type {
 // The canonical surface types live in @shared/surfaces (shared with main and
 // preload); this module only re-exports them so renderer callers keep their
 // existing import paths.
+export type {
+  ContextDoc,
+  ContextDocId,
+  ProjectContext,
+} from "@shared/project-context"
 export type {
   Board,
   BoardNote,
@@ -64,6 +70,14 @@ export type SurfaceBridge = {
   onTerminalExit: (cb: (exit: TerminalExit) => void) => () => void
   boardRead: (cwd: string) => Promise<Board>
   boardWrite: (cwd: string, board: Board) => Promise<Board>
+  contextRead: (cwd: string) => Promise<ProjectContext>
+  contextWriteDoc: (
+    cwd: string,
+    id: ContextDocId,
+    text: string,
+  ) => Promise<ProjectContext>
+  contextSeed: (cwd: string, id?: ContextDocId) => Promise<ProjectContext>
+  contextSetShare: (cwd: string, share: boolean) => Promise<ProjectContext>
   scriptsList: (cwd: string) => Promise<ScriptsFile>
   scriptsSave: (cwd: string, scripts: ProjectScript[]) => Promise<ScriptsFile>
   browserAttach: (sessionId: string, webContentsId: number) => Promise<boolean>

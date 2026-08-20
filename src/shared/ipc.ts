@@ -110,6 +110,10 @@ export const IpcChannels = {
   voiceToggle: "voice:toggle",
   voiceCancel: "voice:cancel",
   usageSummary: "usage:summary",
+  contextRead: "surface:context-read",
+  contextWriteDoc: "surface:context-write-doc",
+  contextSeed: "surface:context-seed",
+  contextSetShare: "surface:context-set-share",
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]

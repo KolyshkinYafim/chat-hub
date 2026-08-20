@@ -3,6 +3,7 @@ import { SurfaceIcon } from "./SurfaceIcon"
 
 export const SURFACE_LABEL: Record<SurfaceKind, string> = {
   board: "Board",
+  context: "Context",
   browser: "Browser",
   terminal: "Terminal",
   files: "Files",
@@ -13,6 +14,7 @@ export const SURFACE_LABEL: Record<SurfaceKind, string> = {
 
 const SURFACE_HINT: Record<SurfaceKind, string> = {
   board: "Todos and the agent's notes for this project.",
+  context: "What this project is, and what it is built with.",
   browser: "Open a local app or URL.",
   terminal: "Start a shell in this workspace.",
   files: "Browse and read workspace files.",
@@ -23,6 +25,7 @@ const SURFACE_HINT: Record<SurfaceKind, string> = {
 
 const TILE_ORDER: SurfaceKind[] = [
   "board",
+  "context",
   "browser",
   "terminal",
   "files",

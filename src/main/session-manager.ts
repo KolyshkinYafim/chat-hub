@@ -57,6 +57,7 @@ export const CHECKPOINT_GATE_MS = 2500
 
 const ARCHIVE_REFILL_LIMIT = 50
 import { runWorktreeCreateScripts } from "./surfaces/scripts"
+import { projectContextBrief } from "./surfaces/project-context"
 
 /** Live window size; older turns spill into MessageArchive, not the void. */
 export const MAX_MESSAGES_PER_SESSION = 200
@@ -990,7 +991,12 @@ export class SessionManager {
     }
     const token = this.nextTurnToken++
     this.turns.set(sessionId, { lastActivityAt: Date.now(), token })
-    await this.snapshotGate(session, content, userMessageId)
+    // Independent of each other, so reading `.chathub/context` costs the turn
+    // no latency of its own — it overlaps the snapshot gate.
+    const [systemPrompt] = await Promise.all([
+      this.turnSystemPrompt(session),
+      this.snapshotGate(session, content, userMessageId),
+    ])
     // Stopping during the gate must not resurrect the turn it just killed.
     if (!this.ownsTurn(sessionId, token)) return
     // Fire-and-forget: stream/status arrive via event bus; UI stays responsive.
@@ -999,7 +1005,7 @@ export class SessionManager {
         permissionMode,
         model: session.model,
         effort: opts?.effort,
-        systemPrompt: session.systemPrompt,
+        systemPrompt,
         attachments: opts?.attachments,
         binaryPath: resolved?.binaryPath,
         env: Object.keys(env).length > 0 ? env : undefined,
@@ -1030,6 +1036,23 @@ export class SessionManager {
         })
         this.dropQueued(sessionId, "the turn failed")
       })
+  }
+
+  /**
+   * The mode's prompt plus the project's `.chathub/context` brief, when the
+   * project shares it. Read per turn rather than cached on the session: the
+   * owner (or the agent itself) edits those files mid-session, and the next send
+   * should carry what the files say now. `projectContextBrief` never throws, so
+   * an unreadable context costs the turn nothing.
+   */
+  private async turnSystemPrompt(
+    session: SessionMeta,
+  ): Promise<string | undefined> {
+    const brief = await projectContextBrief(session.cwd)
+    const parts = [session.systemPrompt, brief]
+      .map((part) => part?.trim() ?? "")
+      .filter((part) => part !== "")
+    return parts.length > 0 ? parts.join("\n\n") : undefined
   }
 
   /**
