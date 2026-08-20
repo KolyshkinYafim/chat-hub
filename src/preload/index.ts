@@ -276,6 +276,11 @@ const api = {
     settled: boolean,
   ): Promise<SessionMeta> =>
     ipcRenderer.invoke(IpcChannels.sessionSetSettled, sessionId, settled),
+  setSessionFavorite: (
+    sessionId: string,
+    favorite: boolean,
+  ): Promise<SessionMeta> =>
+    ipcRenderer.invoke(IpcChannels.sessionSetFavorite, sessionId, favorite),
   setSessionArchived: (
     sessionId: string,
     archived: boolean,

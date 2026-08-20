@@ -9,6 +9,7 @@ import {
 } from "@shared/search"
 import { formatRelative, statusLabel } from "../lib/format"
 import {
+  belongsInFavoritesGroup,
   belongsInProjectGroups,
   belongsInSettledGroup,
 } from "../lib/sidebar-rows"
@@ -31,6 +32,7 @@ type Props = {
   onSelect: (id: string) => void
   onArchive: (id: string, archived: boolean) => void
   onSettle: (id: string, settled: boolean) => void
+  onFavorite: (id: string, favorite: boolean) => void
   onDelete: (id: string) => void
   onJumpToMessage: (sessionId: string, messageId: string) => void
   onOpenSettings: () => void
@@ -65,6 +67,7 @@ export function Sidebar({
   onSelect,
   onArchive,
   onSettle,
+  onFavorite,
   onDelete,
   onJumpToMessage,
   onOpenSettings,
@@ -82,6 +85,7 @@ export function Sidebar({
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [showArchived, setShowArchived] = useState(false)
   const [showSettled, setShowSettled] = useState(false)
+  const [showFavorites, setShowFavorites] = useState(true)
   const [rowMenuFor, setRowMenuFor] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftTitle, setDraftTitle] = useState("")
@@ -182,6 +186,13 @@ export function Sidebar({
         .sort((a, b) => b.updatedAt - a.updatedAt),
     [sessions],
   )
+
+  const favoriteSessions = useMemo(() => {
+    const ctx = { searching: query.trim() !== "", activeId }
+    return sessions
+      .filter((s) => belongsInFavoritesGroup(s, ctx))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+  }, [sessions, query, activeId])
 
   const settledSessions = useMemo(() => {
     const ctx = { searching: query.trim() !== "", activeId }
@@ -341,6 +352,23 @@ export function Sidebar({
           </button>
         ) : null}
         <div className="session-row-actions">
+          {!isArchived ? (
+            <button
+              type="button"
+              className={`row-act row-fav ${s.favorite ? "on" : ""}`}
+              title={
+                s.favorite
+                  ? "Remove from Favorites"
+                  : "Favorite thread (pins it to the top of the sidebar)"
+              }
+              onClick={(e) => {
+                e.stopPropagation()
+                onFavorite(s.id, !s.favorite)
+              }}
+            >
+              {s.favorite ? "★" : "☆"}
+            </button>
+          ) : null}
           {!isArchived ? (
             <button
               type="button"
@@ -539,7 +567,7 @@ export function Sidebar({
           <span>Projects</span>
           <button
             type="button"
-            className="icon-chip xs"
+            className="icon-chip"
             title="Add project folder"
             onClick={onAddProject}
           >
@@ -580,6 +608,30 @@ export function Sidebar({
       ) : null}
 
       <div className="session-scroll" role="tree">
+        {favoriteSessions.length > 0 ? (
+          <div className="project-group favorites-group" role="group">
+            <div className="project-head-row">
+              <button
+                type="button"
+                className="project-head"
+                onClick={() => setShowFavorites((v) => !v)}
+              >
+                <span className={`chev ${showFavorites ? "open" : ""}`}>
+                  ▸
+                </span>
+                <span className="folder-ico" aria-hidden>
+                  ★
+                </span>
+                <span className="project-name">Favorites</span>
+                <span className="project-count">{favoriteSessions.length}</span>
+              </button>
+            </div>
+            {showFavorites
+              ? favoriteSessions.map((s) => renderRow(s, false))
+              : null}
+          </div>
+        ) : null}
+
         {groups.length === 0 ? (
           <div className="sidebar-empty">
             {query ? (

@@ -219,14 +219,25 @@ select:focus-visible {
   margin-left: 4px;
 }
 
+/* One icon button: a glyph centred in a square. A variant sets --chip-size and
+   --chip-glyph and nothing else, so no chip drifts out of the set. The browser's
+   own button padding has to go: at the small sizes it left a content box
+   narrower than the glyph, which then hung off to one side. */
 .icon-chip {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
+  --chip-size: 28px;
+  --chip-glyph: 16px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--chip-size);
+  height: var(--chip-size);
+  padding: 0;
+  border-radius: var(--radius-s);
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   color: var(--text-secondary);
-  font-size: 16px;
+  font-size: var(--chip-glyph);
   line-height: 1;
 }
 
@@ -443,6 +454,36 @@ select:focus-visible {
 
 .row-delete:hover {
   color: var(--danger);
+}
+
+/* ===== sidebar favorites ===== */
+
+.favorites-group {
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.favorites-group .folder-ico {
+  color: var(--accent);
+  opacity: 1;
+}
+
+.row-act.row-fav:hover,
+.row-fav.on {
+  color: var(--accent);
+}
+
+/* A favourite says so without waiting for a hover, while the row's destructive
+   neighbours keep hiding until the cursor asks for them. */
+.session-row-actions:has(.row-fav.on) {
+  opacity: 1;
+}
+
+.session-row:not(:hover):not(:focus-within)
+  .session-row-actions:has(.row-fav.on)
+  > :not(.row-fav) {
+  opacity: 0;
 }
 
 .new-in-project {
@@ -1987,9 +2028,8 @@ select:focus-visible {
 }
 
 .sidebar.rail-collapsed .icon-chip {
-  width: 36px;
-  height: 36px;
-  font-size: 17px;
+  --chip-size: 36px;
+  --chip-glyph: 17px;
   -webkit-app-region: no-drag;
 }
 
@@ -2036,18 +2076,8 @@ select:focus-visible {
 }
 
 .icon-chip.sm {
-  width: 22px;
-  height: 22px;
-  font-size: 12px;
-}
-
-.icon-chip.xs {
-  width: 18px;
-  height: 18px;
-  font-size: 13px;
-  border-radius: 6px;
-  display: inline-grid;
-  place-items: center;
+  --chip-size: 22px;
+  --chip-glyph: 12px;
 }
 
 .projects-label-left {
