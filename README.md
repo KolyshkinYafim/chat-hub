@@ -15,6 +15,7 @@ Electron · TypeScript · React · pnpm — macOS first.
 - **Agent browser control** — any of the four CLIs can drive the Browser surface over MCP: open pages, read them as ref-tagged trees, click, type, screenshot, read console and network logs — in the same webview the user is watching. See [docs/browser-control.md](./docs/browser-control.md).
 - **MCP manager** — Settings → Connections edits a per-project server list (`.chathub/mcp.json`) and materializes it into each provider's native config format.
 - **Voice dictation** — hands-free composer input through [Handy](https://handy.computer), a local dictation app; Chat Hub never touches audio.
+- **Project context** — four checked-in markdown files (`.chathub/context/`: overview, stack, conventions, current focus) seeded from what the repo already says about itself, edited in the Context surface, and optionally appended to every turn's system prompt together with the board's open todos — with a preview of the exact text and its token cost.
 - **Hooks** — per-project automation on `session_start`, `turn_done`, `file_save`, `pre_tool_use`, `post_tool_use`; an action is a follow-up prompt or a shell command.
 - **Session Monitor integration** — appends `SessionEvent` lines to a shared JSONL bridge and mirrors CLI permission requests onto the island, so either surface can answer; first decision wins. Contract in [docs/bridge.md](./docs/bridge.md).
 - **Worktree-per-session** — a session can start on an isolated branch/worktree under `~/.chathub/worktrees`, keeping parallel agents out of each other's way.
@@ -71,6 +72,7 @@ packaging/           macOS build/install scripts
 | Settings | `~/Library/Application Support/chat-hub/data/settings.json` |
 | Session Monitor bridge (JSONL) | `~/Library/Application Support/agent-desktop/events.jsonl` (override: `AGENT_DESKTOP_EVENTS`) |
 | Per-project MCP servers | `<project>/.chathub/mcp.json` |
+| Per-project context | `<project>/.chathub/context/*.md` (switch in `.chathub/context.json`) |
 | Session worktrees | `~/.chathub/worktrees/` |
 
 ## Env knobs

@@ -5,7 +5,13 @@ import {
   useState,
   type KeyboardEvent,
 } from "react"
-import { surfaceBridge, errorText, type Board } from "../../lib/surface-bridge"
+import { contextHeadline } from "@shared/project-context"
+import {
+  surfaceBridge,
+  errorText,
+  type Board,
+  type SurfaceKind,
+} from "../../lib/surface-bridge"
 
 /**
  * Per-project board: todos + the agent's running notes, persisted at
@@ -23,8 +29,15 @@ function touch<T extends object>(item: T): T {
   return { ...item, updatedAt: Date.now() } as T
 }
 
-export function BoardSurface({ cwd }: { cwd: string }) {
+type Props = {
+  cwd: string
+  /** Present in the dock; lets the strip hand off to the context surface. */
+  onOpenSurface?: (kind: SurfaceKind) => void
+}
+
+export function BoardSurface({ cwd, onOpenSurface }: Props) {
   const [board, setBoard] = useState<Board>({ todos: [], notes: [] })
+  const [head, setHead] = useState<{ line: string; share: boolean } | null>(null)
   const [todoDraft, setTodoDraft] = useState("")
   const [noteDraft, setNoteDraft] = useState("")
   const [err, setErr] = useState<string | null>(null)
@@ -60,6 +73,27 @@ export function BoardSurface({ cwd }: { cwd: string }) {
       clearInterval(timer)
     }
   }, [cwd, bridge, adopt])
+
+  // The other half of the same folder: one line of `.chathub/context/overview.md`
+  // so the board says which project it belongs to, and whether the agent is
+  // being told about it. Read once — context changes far slower than todos.
+  useEffect(() => {
+    let alive = true
+    void bridge
+      .contextRead(cwd)
+      .then((ctx) => {
+        if (!alive || !ctx.seeded) return
+        const overview = ctx.docs.find((d) => d.id === "overview")
+        setHead({
+          line: contextHeadline(overview?.text ?? ""),
+          share: ctx.share,
+        })
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [cwd, bridge])
 
   const persist = useCallback(
     (next: Board) => {
@@ -112,6 +146,20 @@ export function BoardSurface({ cwd }: { cwd: string }) {
   return (
     <div className="board-surface">
       {err ? <div className="board-error">{err}</div> : null}
+
+      <button
+        type="button"
+        className="board-context"
+        title="Project context — overview, stack, conventions, current focus"
+        onClick={() => onOpenSurface?.("context")}
+      >
+        <span className="board-context-line">
+          {head?.line || "Context — what this project is and what we are doing"}
+        </span>
+        {head?.share ? (
+          <span className="board-context-share">sent to the agent</span>
+        ) : null}
+      </button>
 
       <section className="board-section">
         <div className="board-section-head">
