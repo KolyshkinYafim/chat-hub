@@ -7311,6 +7311,14 @@ select:focus-visible {
 
 :root.theme-light {
   color-scheme: light;
+  /* Readable syntax on a pale background for any light theme, not just the
+     built-in one. A theme that sets these tokens wins: applyTheme puts them
+     inline on the root element, and inline beats a class rule. */
+  --syntax-keyword: #8a3fc4;
+  --syntax-type: #12758f;
+  --syntax-string: #47761c;
+  --syntax-number: #a85f12;
+  --syntax-punct: #6f7280;
 }
 
 :root.theme-light .md-inline-code,
