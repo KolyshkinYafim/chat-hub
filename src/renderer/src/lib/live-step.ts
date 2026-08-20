@@ -27,7 +27,10 @@ export function itemStep(items: AgentTurnItem[] | undefined): LiveStep | null {
   const open = items.filter(
     (item) => item.status === "running" || item.status === "pending",
   )
-  const action = [...open].reverse().find((item) => item.kind !== "reasoning")
+  const actions = open.filter((item) => item.kind !== "reasoning")
+  const action =
+    [...actions].reverse().find((item) => item.status === "running") ??
+    actions.find((item) => item.status === "pending")
   if (action) {
     const { label, detail, server } = describeItem(action)
     return {

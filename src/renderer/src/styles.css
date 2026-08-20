@@ -740,6 +740,14 @@ select:focus-visible {
   max-width: var(--column-w);
   width: 100%;
   margin: 0 auto;
+  /* Hold the reader's place when a turn above them changes size. */
+  overflow-anchor: auto;
+}
+
+/* The streaming tail is the one thing that must never be picked as the anchor:
+   it is where the growth happens. */
+.transcript-tail {
+  overflow-anchor: none;
 }
 
 .transcript-load-older {
@@ -820,49 +828,75 @@ select:focus-visible {
   contain-intrinsic-size: auto 180px;
 }
 
+/* Measured: with `content-visibility` on, a card collapsing above the reader
+   moves the transcript by its whole height, because Chromium does not run
+   scroll anchoring across a content-visibility subtree. The last turn is the
+   one that changes size while it streams, so it keeps its layout. */
+.turn:last-of-type {
+  content-visibility: visible;
+}
+
 .turn-activity {
   display: grid;
   gap: 7px;
   margin: 0 0 10px;
 }
 
-/* A turn reads top-to-bottom as: safe reasoning summary → work done → result.
-   The individual cards remain available for command output and diffs. */
-.activity-overview {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 7px 10px;
+/* ——— Turn timeline ———
+   A turn reads top-to-bottom as: why it ran → every step in order → the
+   result. The header holds still while the turn streams: rows are a fixed
+   height, the list scrolls inside its own box past `--timeline-rows`, and
+   nothing here opens or closes on its own. */
+
+.turn-timeline {
+  --timeline-row-h: 24px;
+  --timeline-rows: 8;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  gap: 5px;
+  padding: 8px 10px 6px;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-m);
-  background: rgba(18, 20, 26, 0.5);
-  font-size: 11px;
+  background: var(--bg-elevated);
+  /* The header is pinned, so its box says nothing about where content sits. */
+  overflow-anchor: none;
 }
 
-.activity-live {
+.turn-timeline.is-running {
+  border-color: color-mix(in srgb, var(--working) 42%, var(--border));
+  background: color-mix(in srgb, var(--working) 8%, var(--bg-elevated));
+}
+
+.turn-timeline.is-failed {
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--border));
+}
+
+.turn-timeline-head {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 9px 10px;
-  border: 1px solid color-mix(in srgb, var(--working) 42%, var(--border));
-  border-left: 3px solid var(--working);
-  border-radius: var(--radius-m);
-  background: color-mix(in srgb, var(--working) 8%, var(--bg-elevated));
+  height: 18px;
   font-size: 11px;
 }
 
-.activity-live-kicker {
+.turn-timeline-kicker {
   flex: 0 0 auto;
-  color: var(--working);
+  color: var(--text-faint);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-.activity-live-label {
+.turn-timeline.is-running .turn-timeline-kicker {
+  color: var(--working);
+}
+
+.turn-timeline-now {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--text);
@@ -871,18 +905,197 @@ select:focus-visible {
   white-space: nowrap;
 }
 
-.activity-overview-summary {
-  min-width: 0;
+.turn-timeline-elapsed {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.turn-timeline-failed {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.turn-timeline-count {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent-2) 16%, transparent);
+  color: var(--accent-2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Two lines, reserved whether the summary fills them or not. */
+.turn-timeline-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  height: calc(2 * 1.45em);
+  padding: 0;
   overflow: hidden;
   color: var(--text-muted);
-  text-overflow: ellipsis;
+  font-size: 11.5px;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.turn-timeline-summary:hover {
+  color: var(--text-secondary);
+}
+
+.turn-timeline-summary.is-open {
+  display: block;
+  height: auto;
+  max-height: 40vh;
+  overflow: auto;
+}
+
+/* Every reasoning update the provider sent, once the reader asks for them. */
+.turn-timeline-reasoning {
+  display: grid;
+  gap: 6px;
+  counter-reset: reasoning;
+}
+
+.turn-timeline-reasoning > span {
+  position: relative;
+  padding-left: 18px;
+}
+
+.turn-timeline-reasoning > span::before {
+  content: counter(reasoning) ".";
+  counter-increment: reasoning;
+  position: absolute;
+  left: 0;
+  color: var(--text-faint);
+  font-family: var(--mono);
+}
+
+.turn-timeline-list {
+  max-height: min(calc(var(--timeline-rows) * var(--timeline-row-h)), 30vh);
+  margin: 0;
+  padding: 2px 0 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--border-soft);
+  list-style: none;
+}
+
+.turn-timeline-list.is-expanded {
+  max-height: 50vh;
+}
+
+.turn-timeline-row {
+  height: var(--timeline-row-h);
+}
+
+.turn-timeline-row-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 0 5px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: left;
   white-space: nowrap;
+}
+
+.turn-timeline-row-btn:hover {
+  background: var(--bg-hover);
+}
+
+.turn-timeline-num {
+  flex: 0 0 auto;
+  width: 15px;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.turn-timeline-label {
+  flex: 0 0 auto;
+  max-width: 14ch;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-weight: 560;
+  text-overflow: ellipsis;
+}
+
+.turn-timeline-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+}
+
+.turn-timeline-timing {
+  flex: 0 0 auto;
+  width: 5ch;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.turn-timeline-state {
+  flex: 0 0 auto;
+  width: 8ch;
+  color: var(--text-faint);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-align: right;
+  text-transform: uppercase;
+}
+
+.turn-timeline-row.is-running .turn-timeline-label,
+.turn-timeline-row.is-running .turn-timeline-state {
+  color: var(--working);
+}
+
+.turn-timeline-row.is-failed .turn-timeline-state,
+.turn-timeline-row.is-declined .turn-timeline-state,
+.turn-timeline-row.is-interrupted .turn-timeline-state {
+  color: var(--danger);
+}
+
+.turn-timeline-row.is-pending .turn-timeline-label,
+.turn-timeline-row.is-pending .turn-timeline-detail {
+  color: var(--text-faint);
+}
+
+.turn-timeline-more {
+  justify-self: start;
+  padding: 2px 4px;
+  color: var(--text-faint);
+  font-size: 10.5px;
+}
+
+.turn-timeline-more:hover {
+  color: var(--accent-2);
 }
 
 .activity-item {
   border: 1px solid var(--border);
   border-radius: var(--radius-m);
-  background: rgba(18, 20, 26, 0.78);
+  background: var(--code-bg);
   overflow: hidden;
 }
 
@@ -899,19 +1112,18 @@ select:focus-visible {
 .activity-item > summary::-webkit-details-marker { display: none; }
 .activity-item > summary:hover { background: var(--bg-hover); }
 .activity-item:has(> summary:hover) { border-color: var(--border-strong); }
+.activity-index { flex: 0 0 auto; min-width: 14px; color: var(--text-faint); font-family: var(--mono); font-size: 10px; font-variant-numeric: tabular-nums; text-align: right; }
 .activity-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
 .activity-state { margin-left: auto; color: var(--text-faint); font-size: 10px; text-transform: uppercase; }
 .activity-status { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; background: var(--text-faint); }
 .activity-status.status-running { background: var(--working); box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.12); }
 .activity-status.status-completed { background: var(--success); }
-.activity-status.status-failed, .activity-status.status-declined { background: var(--danger); }
+.activity-status.status-failed, .activity-status.status-declined, .activity-status.status-interrupted { background: var(--danger); }
 .activity-text, .activity-error, .activity-files { padding: 0 10px 9px; color: var(--text-muted); font-size: 12px; white-space: pre-wrap; }
 .activity-error { color: var(--danger); }
 .activity-files { display: grid; gap: 3px; font-family: var(--mono); font-size: 11px; }
-.activity-reasoning-list { display: grid; gap: 6px; margin: 0; padding: 0 16px 10px 31px; color: var(--text-muted); font-size: 12px; }
-.activity-reasoning-list li::marker { color: var(--text-faint); font-family: var(--mono); }
-.activity-plan { margin: 0; padding: 0 12px 9px 30px; color: var(--text-muted); font-size: 12px; }
-.activity-plan li[data-status="completed"] { color: var(--text-faint); text-decoration: line-through; }
+ol.activity-plan { margin: 0; padding: 0 12px 9px 30px; color: var(--text-muted); font-size: 12px; }
+ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-decoration: line-through; }
 .activity-code, .activity-output, .activity-diff { max-height: 260px; margin: 0; padding: 9px 10px; overflow: auto; border-top: 1px solid var(--border); background: #0d0f14; color: var(--text-secondary); font: 11px/1.5 var(--mono); white-space: pre-wrap; }
 .activity-output { color: var(--text-muted); }
 .activity-diff { color: #b8c5a3; white-space: pre; }
@@ -3431,9 +3643,18 @@ select:focus-visible {
 }
 
 /* Landing on a search hit mid-scrollback: say where it is, then get out. */
-.turn.hit-flash {
+.turn.hit-flash,
+.activity-item.hit-flash {
   animation: hit-flash 1.6s ease-out;
   border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turn.hit-flash,
+  .activity-item.hit-flash {
+    animation: none;
+    box-shadow: 0 0 0 2px var(--accent-2);
+  }
 }
 
 @keyframes hit-flash {
@@ -5626,43 +5847,16 @@ select:focus-visible {
   }
 }
 
-@keyframes shimmer-sweep {
-  to {
-    transform: translateX(100%);
-  }
-}
-
-.activity-live {
-  position: relative;
-  overflow: hidden;
-}
-
 @media (prefers-reduced-motion: no-preference) {
   .turn:last-of-type,
   .turn:last-of-type .tool-card,
   .turn:last-of-type .tool-run,
   .turn:last-of-type .plan-card,
-  .turn:last-of-type .activity-item,
-  .turn:last-of-type .activity-live,
   .permission-banner,
   .grok-trust-banner,
   .agent-input-card,
   .queued-chip {
     animation: rise-in 140ms ease-out both;
-  }
-
-  .activity-live::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-      105deg,
-      transparent 30%,
-      rgba(255, 255, 255, 0.06) 50%,
-      transparent 70%
-    );
-    transform: translateX(-100%);
-    animation: shimmer-sweep 2.4s ease-in-out 0.4s infinite;
   }
 
   .session-row,
@@ -7579,6 +7773,12 @@ select:focus-visible {
   color: #b23842;
 }
 
+:root.theme-light .activity-code,
+:root.theme-light .activity-output,
+:root.theme-light .activity-diff {
+  background: var(--code-bg);
+}
+
 :root.theme-light .activity-diff {
   color: #5a7040;
 }
@@ -8315,27 +8515,7 @@ select:focus-visible {
   letter-spacing: 0.02em;
 }
 
-/* --- Live step line and tool cards (stream fidelity) ------------------- */
-
-.activity-live-detail {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-family: var(--mono);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.activity-live-elapsed {
-  flex: 0 0 auto;
-  margin-left: auto;
-  padding-left: 8px;
-  color: var(--text-faint);
-  font-family: var(--mono);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
+/* --- Tool cards (stream fidelity) -------------------------------------- */
 
 .activity-exit {
   flex: 0 0 auto;

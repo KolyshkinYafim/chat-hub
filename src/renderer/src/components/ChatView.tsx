@@ -49,14 +49,13 @@ import {
 import { PlanSteps, toPlanSteps } from "./PlanSteps"
 import { ComposerMenu } from "./ComposerMenu"
 import { LiveStepTicker } from "./LiveStepTicker"
+import { TurnTimeline } from "./TurnTimeline"
 import { buildTranscript } from "../lib/tool-runs"
 import {
   currentStep,
-  formatElapsed,
   itemPlanProgress,
   itemStep,
   planProgress,
-  type LiveStep,
 } from "../lib/live-step"
 import { formatSessionUsage, formatUsage, usageDetail } from "../lib/usage"
 import {
@@ -209,15 +208,6 @@ function itemLabel(item: AgentTurnItem): string {
   }
 }
 
-
-function itemHasDetail(item: AgentTurnItem): boolean {
-  if (item.kind === "command") return Boolean(item.command || item.output)
-  if (item.kind === "file_change") return item.changes.length > 0 || Boolean(item.aggregateDiff)
-  if (item.kind === "tool") return Boolean(item.result ?? item.arguments ?? item.error)
-  if (item.kind === "plan") return Boolean(item.text || item.steps?.length)
-  return item.kind === "review" || item.kind === "error" || item.kind === "reasoning"
-}
-
 function ItemBody({ item }: { item: AgentTurnItem }) {
   switch (item.kind) {
     case "reasoning":
@@ -266,30 +256,37 @@ function ItemBody({ item }: { item: AgentTurnItem }) {
 
 function TurnItems({
   items,
+  content,
   streaming = false,
+  onJumpToItem,
 }: {
   items: AgentTurnItem[] | undefined
+  content: string
   streaming?: boolean
+  onJumpToItem: (itemId: string) => void
 }) {
-  const step = itemStep(items)
-  if (!items?.length) return streaming ? <LiveActivityLine step={null} /> : null
-  const reasoning = items.filter((item) => item.kind === "reasoning")
-  const activity = items.filter((item) => item.kind !== "reasoning")
+  if (!items?.length && !streaming) return null
+  const activity = (items ?? []).filter((item) => item.kind !== "reasoning")
   return (
     <div className="turn-activity">
-      {reasoning.length ? <ReasoningGroup items={reasoning} /> : null}
-      {/* One live line, then the cards themselves. The old roll-up row said the
-          same thing a third time, which is what made a single tool call read as
-          three stacked boxes. */}
-      {streaming ? <LiveActivityLine step={step} /> : null}
-      {!streaming && activity.length > 1 ? <ActivityOverview items={activity} /> : null}
-      {activity.map((item) => (
+      {/* The header is the whole sequence, at a height that does not move. The
+          cards below it are the detail behind each of its rows, and none of
+          them opens or closes on its own while the turn streams. */}
+      <TurnTimeline
+        items={items}
+        content={content}
+        streaming={streaming}
+        onJump={onJumpToItem}
+      />
+      {activity.map((item, index) => (
         <details
           key={item.id}
+          data-item-id={item.id}
           className={`activity-item activity-${item.kind}`}
-          open={item.kind === "error" || (item.status === "running" && itemHasDetail(item))}
+          open={item.kind === "error"}
         >
           <summary>
+            <span className="activity-index">{index + 1}</span>
             <span className={`activity-status status-${item.status}`} aria-label={item.status} />
             <span className="activity-label">{itemLabel(item)}</span>
             {item.kind === "command" && typeof item.exitCode === "number" ? (
@@ -304,100 +301,10 @@ function TurnItems({
   )
 }
 
-/** Which tool, on what, for how long — the single live line of a turn. */
-function LiveActivityLine({ step }: { step: LiveStep | null }) {
-  const [elapsedMs, setElapsedMs] = useState(0)
-  const key = step?.key ?? "starting"
-
-  useEffect(() => {
-    const startedAt = Date.now()
-    setElapsedMs(0)
-    const timer = window.setInterval(() => setElapsedMs(Date.now() - startedAt), 1000)
-    return () => window.clearInterval(timer)
-  }, [key])
-
-  return (
-    <div className="activity-live" aria-live="polite">
-      <span className="activity-status status-running" aria-label="running" />
-      <span className="activity-live-kicker">Working now</span>
-      <strong className="activity-live-label" title={step?.server ?? undefined}>
-        {step?.label ?? "Preparing the next step"}
-      </strong>
-      {step?.detail ? (
-        <span className="activity-live-detail">{step.detail}</span>
-      ) : null}
-      <span className="activity-live-elapsed">{formatElapsed(elapsedMs)}</span>
-    </div>
-  )
-}
-
-/** A readable outcome over a finished turn's chronological cards. */
-function ActivityOverview({
-  items,
-}: {
-  items: Exclude<AgentTurnItem, { kind: "reasoning" }>[]
-}) {
-  const commands = items.filter((item) => item.kind === "command").length
-  const files = items
-    .filter((item): item is Extract<AgentTurnItem, { kind: "file_change" }> => item.kind === "file_change")
-    .reduce((total, item) => total + item.changes.length, 0)
-  const tools = items.filter((item) => item.kind === "tool" || item.kind === "web_search" || item.kind === "image").length
-  const plans = items.filter((item) => item.kind === "plan" || item.kind === "review").length
-  const failed = items.filter((item) => item.status === "failed" || item.status === "declined" || item.status === "interrupted").length
-  const running = items.some((item) => item.status === "running" || item.status === "pending")
-  const parts = [
-    commands ? `${commands} ${commands === 1 ? "command" : "commands"}` : "",
-    files ? `${files} ${files === 1 ? "file" : "files"}` : "",
-    tools ? `${tools} ${tools === 1 ? "tool" : "tools"}` : "",
-    plans ? `${plans} ${plans === 1 ? "plan update" : "plan updates"}` : "",
-  ].filter(Boolean)
-  const status = failed ? "failed" : running ? "running" : "completed"
-  return (
-    <div className="activity-overview">
-      <span className={`activity-status status-${status}`} aria-label={status} />
-      <span className="activity-label">Technical activity</span>
-      <span className="activity-overview-summary">{parts.join(" · ") || `${items.length} updates`}</span>
-      <span className="activity-state">{failed ? `${failed} failed` : status}</span>
-    </div>
-  )
-}
-
 /** Arguments and results are provider JSON; a string stays a string. */
 function stringifyPayload(value: unknown): string {
   if (typeof value === "string") return value
   return JSON.stringify(value, null, 2) ?? String(value)
-}
-
-/** Keep a long Codex turn readable: it streams several safe reasoning summaries. */
-function ReasoningGroup({ items }: { items: Extract<AgentTurnItem, { kind: "reasoning" }>[] }) {
-  const summaries = [...new Set(items.map((item) => cleanReasoning(item.summary)).filter(Boolean))]
-  const status = items.some((item) => item.status === "running")
-    ? "running"
-    : items.some((item) => item.status === "failed" || item.status === "interrupted")
-      ? "failed"
-      : "completed"
-  return (
-    <details className="activity-item activity-reasoning" open={status === "running"}>
-      <summary>
-        <span className={`activity-status status-${status}`} aria-label={status} />
-        <span className="activity-label">Reasoning{summaries.length > 1 ? ` · ${summaries.length} updates` : ""}</span>
-        <span className="activity-state">{status}</span>
-      </summary>
-      {summaries.length ? (
-        <ol className="activity-reasoning-list">
-          {summaries.map((summary, index) => <li key={`${index}-${summary}`}>{summary}</li>)}
-        </ol>
-      ) : <div className="activity-text">Reasoning summary unavailable.</div>}
-    </details>
-  )
-}
-
-function cleanReasoning(value: string): string {
-  return value
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim()
 }
 
 function AgentInputCard({
@@ -783,6 +690,29 @@ export function ChatView({
       `[data-mid="${CSS.escape(liveMessage.id)}"]`,
     )
     card?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+  }
+
+  /** A timeline row hands the reader down to the card holding that step. */
+  function jumpToItem(itemId: string) {
+    const card = transcriptRef.current?.querySelector(
+      `[data-item-id="${CSS.escape(itemId)}"]`,
+    )
+    if (!card) return
+    // Landing mid-turn means the reader is no longer tailing; say so before the
+    // scroll, or the next item yanks them back to the bottom.
+    atBottomRef.current = false
+    setAtBottom(false)
+    // React only writes `open` when the prop changes, and it never does for a
+    // card outside the error case — so opening it here sticks.
+    if (card instanceof HTMLDetailsElement) card.open = true
+    card.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+      block: "nearest",
+    })
+    card.classList.add("hit-flash")
+    window.setTimeout(() => card.classList.remove("hit-flash"), 1600)
   }
 
   async function submit() {
@@ -1329,7 +1259,12 @@ export function ChatView({
                     )}
                     {m.usage ? <TurnCost usage={m.usage} /> : null}
                   </div>
-                  <TurnItems items={m.items} streaming={m.streaming === true} />
+                  <TurnItems
+                    items={m.items}
+                    content={m.content}
+                    streaming={m.streaming === true}
+                    onJumpToItem={jumpToItem}
+                  />
                   {m.content.trim() ? (
                     <section className="turn-result">
                       <div className="turn-result-head">
@@ -1360,7 +1295,7 @@ export function ChatView({
           ))}
           </>
         )}
-        <div ref={bottomRef} />
+        <div className="transcript-tail" ref={bottomRef} />
       </div>
 
       <div
