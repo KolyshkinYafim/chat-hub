@@ -241,8 +241,8 @@ const projects: Project[] = [
 
 const sessions: SessionMeta[] = [
   { id: "s1", title: "Refactor auth middleware", project: "orbit-api", provider: "claude", model: "opus", cwd: projects[0].cwd, status: "running", createdAt: now - 3e5, updatedAt: now - 2e4 },
-  { id: "s2", title: "Fix webhook retries", project: "orbit-api", provider: "codex", model: "gpt-5.6-sol", cwd: projects[0].cwd, status: "waiting_input", createdAt: now - 6e5, updatedAt: now - 9e4 },
-  { id: "s3", title: "Tune reward curve", project: "aurora-shop", provider: "grok", model: "grok-4", cwd: projects[1].cwd, status: "idle", createdAt: now - 8e5, updatedAt: now - 3e5 },
+  { id: "s2", title: "Fix webhook retries", project: "orbit-api", provider: "codex", model: "gpt-5.6-sol", cwd: projects[0].cwd, status: "waiting_input", favorite: true, createdAt: now - 6e5, updatedAt: now - 9e4 },
+  { id: "s3", title: "Tune reward curve", project: "aurora-shop", provider: "grok", model: "grok-4", cwd: projects[1].cwd, status: "idle", favorite: true, settledAt: now - 2e5, settledBy: "user", createdAt: now - 8e5, updatedAt: now - 3e5 },
 ]
 
 const mockAttachments: MessageAttachment[] = [
@@ -925,6 +925,15 @@ export function installDevMock(): void {
     setSessionPermission: async (id, mode) => {
       const s = sessions.find((x) => x.id === id)!
       s.permissionMode = mode
+      return s
+    },
+    setSessionFavorite: async (id, favorite) => {
+      const s = sessions.find((x) => x.id === id)!
+      if (favorite) {
+        s.favorite = true
+      } else {
+        delete s.favorite
+      }
       return s
     },
     setSessionSettled: async (id, settled) => {
