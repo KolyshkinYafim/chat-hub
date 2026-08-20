@@ -4,7 +4,9 @@
  * Activated only with `?mock=1` in dev — never ships in the Electron app.
  */
 import type {
+  AgentTurnItem,
   ChatMessage,
+  HubEvent,
   MessageAttachment,
   PermissionRequestInfo,
   Project,
@@ -443,6 +445,117 @@ function mockImage(path: string): string | null {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
 }
 
+// The live turn, as a provider that streams structured items reports it: one
+// reasoning summary, then tool calls in every state the timeline has to draw —
+// finished, failed, running, still queued.
+const liveItems: AgentTurnItem[] = [
+  {
+    id: "li1",
+    kind: "reasoning",
+    status: "completed",
+    summary:
+      "Only the expiry suite is red, so the wrong claim is read in one place. Re-running it first to see the assertion, then routing both call sites through the shared clock.",
+  },
+  {
+    id: "li2",
+    kind: "command",
+    status: "completed",
+    command: "pnpm test -- expiry",
+    cwd: projects[0].cwd,
+    output:
+      " ❯ tests/expiry.test.ts (2 tests | 1 failed) 11ms\n   AssertionError: expected null to be an object",
+    exitCode: 1,
+    durationMs: 4120,
+  },
+  {
+    id: "li3",
+    kind: "tool",
+    status: "completed",
+    name: "Read",
+    arguments: { file_path: "src/lib/jwt.ts" },
+    result: "export function verifyJwt(token: string) { … }",
+    durationMs: 180,
+  },
+  {
+    id: "li4",
+    kind: "file_change",
+    status: "completed",
+    changes: [
+      { path: "src/lib/clock.ts", kind: "add", diff: clockDiff.join("\n") },
+      { path: "src/lib/jwt.ts", kind: "edit", diff: jwtDiff.join("\n") },
+    ],
+  },
+  {
+    id: "li5",
+    kind: "tool",
+    status: "failed",
+    name: "mcp__docs__lookup",
+    server: "docs",
+    arguments: { query: "jsonwebtoken exp claim" },
+    error: "docs server returned 503",
+    durationMs: 2600,
+  },
+  {
+    id: "li5b",
+    kind: "reasoning",
+    status: "completed",
+    summary:
+      "The docs server is down, so the claim names come from the token spec in the repo instead. Nothing about the fix depends on it.",
+  },
+  {
+    id: "li6",
+    kind: "plan",
+    status: "completed",
+    text: "Route both call sites through the shared clock",
+    steps: [
+      { text: "Reproduce the expiry failure", status: "completed" },
+      { text: "Compare exp instead of iat", status: "completed" },
+      { text: "Re-run the affected suites", status: "running" },
+    ],
+  },
+  {
+    id: "li7",
+    kind: "command",
+    status: "running",
+    command: "pnpm test -- expiry auth",
+    cwd: projects[0].cwd,
+  },
+  {
+    id: "li8",
+    kind: "command",
+    status: "pending",
+    command: "pnpm lint",
+    cwd: projects[0].cwd,
+  },
+]
+
+// A turn that ended, so the timeline can be reviewed as a record rather than a
+// live view: ten steps, one of them refused, and enough of them to need the
+// "show all" affordance.
+const settledItems: AgentTurnItem[] = [
+  {
+    id: "si1",
+    kind: "reasoning",
+    status: "completed",
+    summary:
+      "The retry loop and the backoff table are the only two places that decide when to give up, so both have to move together.",
+  },
+  { id: "si2", kind: "tool", status: "completed", name: "Grep", arguments: { pattern: "retry", path: "src" }, durationMs: 240 },
+  { id: "si3", kind: "tool", status: "completed", name: "Read", arguments: { file_path: "src/webhooks/retry.ts" }, durationMs: 120 },
+  { id: "si4", kind: "plan", status: "completed", text: "Back off instead of giving up", steps: [
+    { text: "Find every give-up path", status: "completed" },
+    { text: "Add exponential backoff", status: "completed" },
+    { text: "Cover it with tests", status: "completed" },
+  ] },
+  { id: "si5", kind: "file_change", status: "completed", changes: [{ path: "src/webhooks/retry.ts", kind: "edit" }] },
+  { id: "si6", kind: "command", status: "completed", command: "pnpm test -- webhooks", cwd: projects[0].cwd, output: " ok tests/webhooks (9 tests) 91ms", exitCode: 0, durationMs: 9400 },
+  { id: "si7", kind: "tool", status: "declined", name: "Bash", arguments: { command: "rm -rf node_modules" }, error: "Not approved" },
+  { id: "si8", kind: "file_change", status: "completed", changes: [{ path: "tests/webhooks/backoff.test.ts", kind: "add" }] },
+  { id: "si9", kind: "command", status: "completed", command: "pnpm test -- webhooks", cwd: projects[0].cwd, output: " ok tests/webhooks (12 tests) 118ms", exitCode: 0, durationMs: 11200 },
+  { id: "si10", kind: "web_search", status: "completed", query: "webhook retry jitter recommendations" },
+  { id: "si11", kind: "review", status: "completed", text: "Backoff caps at five attempts with full jitter." },
+]
+
 const messages: Record<string, ChatMessage[]> = {
   s1: [
     { id: "m1", sessionId: "s1", role: "user", content: "Extract the JWT verification into a reusable middleware and add tests.", createdAt: now - 25e4 },
@@ -451,8 +564,10 @@ const messages: Record<string, ChatMessage[]> = {
     { id: "m9", sessionId: "s1", role: "assistant", content: busyTurn, createdAt: now - 21e4, usage: { inputTokens: 41200, outputTokens: 3100, cacheReadTokens: 128000, costUsd: 0.71, durationMs: 48300 } },
     { id: "m11", sessionId: "s1", role: "user", content: "Write up where the auth work stands, with the numbers and the request flow.", createdAt: now - 19e4 },
     { id: "m12", sessionId: "s1", role: "assistant", content: richTurn, createdAt: now - 18e4, usage: { inputTokens: 22400, outputTokens: 2600, cacheReadTokens: 111000, costUsd: 0.44, durationMs: 31200 } },
+    { id: "m13", sessionId: "s1", role: "user", content: "Make the webhook retry back off instead of giving up on the first failure.", createdAt: now - 17e4 },
+    { id: "m14", sessionId: "s1", role: "assistant", content: "Retries now back off exponentially with full jitter and stop after five attempts. The cleanup command I asked for was refused, so `node_modules` is untouched.", createdAt: now - 16e4, items: settledItems, usage: { inputTokens: 18600, outputTokens: 1900, cacheReadTokens: 104000, costUsd: 0.31, durationMs: 26400 } },
     { id: "m10", sessionId: "s1", role: "user", content: "Use these three screens as the visual reference for the final polish.", attachments: mockAttachments, createdAt: now - 3e4 },
-    { id: "m3", sessionId: "s1", role: "assistant", content: "Running the suite now…", createdAt: now - 2e4, streaming: true },
+    { id: "m3", sessionId: "s1", role: "assistant", content: "Running the suite now…", createdAt: now - 2e4, streaming: true, items: liveItems },
   ],
   s2: [
     { id: "m4", sessionId: "s2", role: "user", content: "The webhook retry loop gives up after the first 500. Make it back off instead.", createdAt: now - 12e4 },
@@ -1180,6 +1295,8 @@ async function mockMcpList() {
   }
 }
 
+const hubListeners = new Set<(event: HubEvent) => void>()
+
 export function installDevMock(): void {
   const api = {
     getSnapshot: async () => snapshot,
@@ -1428,7 +1545,10 @@ export function installDevMock(): void {
     gitCommitStaged: async () => ({ ok: true, output: "[main abc1234] 1 file changed" }),
     gitPush: async () => ({ ok: true, output: "Everything up-to-date" }),
     gitCreatePr: async () => ({ ok: true, output: "https://github.com/example/chat-hub/pull/1" }),
-    onHubEvent: () => () => {},
+    onHubEvent: (listener) => {
+      hubListeners.add(listener)
+      return () => hubListeners.delete(listener)
+    },
     listPermissions: async () => [],
     resolvePermission: async () => true,
     mcpList: mockMcpList,
@@ -1498,5 +1618,13 @@ export function installDevMock(): void {
       mtimeMs: Date.now(),
       size: current?.size ?? 0,
     }
+  }
+  // Stands in for the bridge pushing a turn forward, so item arrival — the one
+  // thing that moves the transcript under the reader — can be driven, and
+  // measured, from a plain browser tab.
+  ;(
+    window as unknown as { chatHubEmit: (event: HubEvent) => void }
+  ).chatHubEmit = (event) => {
+    for (const listener of hubListeners) listener(event)
   }
 }
