@@ -9,6 +9,7 @@ export type SurfaceKind =
   | "diff"
   | "history"
   | "board"
+  | "context"
   | "fleet"
 
 /**

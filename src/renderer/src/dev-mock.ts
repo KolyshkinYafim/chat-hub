@@ -37,10 +37,12 @@ import {
   type FileType,
 } from "@shared/file-kind"
 import { STALE_WRITE_MESSAGE } from "@shared/surfaces"
+import { CONTEXT_DOCS, type ContextDocId } from "@shared/project-context"
 import type {
   Board,
   FileStamp,
   OpenedFile,
+  ProjectContext,
   ProjectSearchHit,
   SurfaceBridge,
   TerminalChunk,
@@ -632,6 +634,76 @@ function mockNameOf(relPath: string): string {
 // Starts untrusted so ?mock=1 shows the Grok folder-trust banner.
 let mockGrokTrusted = false
 
+// Real prose, not lorem: the context surface is reviewed in ?mock=1, and an
+// empty template would hide every wrapping, truncation and token-count problem.
+const MOCK_CONTEXT_TEXT: Record<ContextDocId, string> = {
+  overview: `# Overview
+
+**orbit-api** — Task orchestration API behind the Orbit dashboard.
+
+Repository: https://github.com/acme/orbit-api
+
+## What it does
+
+Accepts task definitions over HTTP, schedules them onto a worker pool, and
+streams status back to the dashboard. "Working" means a task submitted through
+\`POST /tasks\` reaches a terminal state and the dashboard sees every transition.
+
+## Where to start
+
+- \`src/\` — the API, one folder per resource
+- \`tests/\` — one file per resource, integration-first
+`,
+  stack: `# Stack
+
+- Languages: TypeScript
+- Package manager: pnpm
+- Notable dependencies: Fastify, Prisma, Vitest
+- Layout: \`src/\`, \`tests/\`
+
+## Commands
+
+- \`pnpm dev\` — vite
+- \`pnpm test\` — vitest run
+
+Detected from the repository. Re-detect from the Context panel after a
+toolchain change — that button rewrites this file and nothing else.
+`,
+  conventions: `# Conventions
+
+- Match the surrounding code — copy the nearest existing pattern rather than introducing a new one.
+- Run \`pnpm test\` before calling a change done.
+- Handlers stay thin: validation in the schema, logic in a service, no database calls in a route.
+- Keep changes scoped to what was asked. Flag anything else you notice instead of fixing it in passing.
+`,
+  focus: `# Current focus
+
+Cutting the dashboard over to the streaming status endpoint. The polling route
+stays until the last client is migrated, then it goes.
+
+The task list itself lives on the board (\`.chathub/board.json\`), shown in the
+Board panel; open todos are sent to the agent alongside this file.
+`,
+}
+
+let mockContext: ProjectContext = {
+  seeded: true,
+  share: true,
+  updatedAt: now,
+  docs: CONTEXT_DOCS.map((spec) => ({
+    id: spec.id,
+    file: spec.file,
+    title: spec.title,
+    text: MOCK_CONTEXT_TEXT[spec.id],
+    updatedAt: now,
+  })),
+}
+
+function patchMockContext(patch: Partial<ProjectContext>): ProjectContext {
+  mockContext = { ...mockContext, ...patch, updatedAt: Date.now() }
+  return mockContext
+}
+
 function makeSurfaceBridge(): SurfaceBridge &
   Pick<ChatHubApi, "scriptsList" | "scriptsSave"> {
   return {
@@ -780,6 +852,24 @@ function makeSurfaceBridge(): SurfaceBridge &
       mockGrokTrusted = true
       return true
     },
+    contextRead: async () => mockContext,
+    contextWriteDoc: async (_cwd, id, text) =>
+      patchMockContext({
+        seeded: true,
+        docs: mockContext.docs.map((doc) =>
+          doc.id === id ? { ...doc, text, updatedAt: Date.now() } : doc,
+        ),
+      }),
+    contextSeed: async (_cwd, id) =>
+      patchMockContext({
+        seeded: true,
+        docs: mockContext.docs.map((doc) =>
+          id === undefined || doc.id === id
+            ? { ...doc, text: MOCK_CONTEXT_TEXT[doc.id], updatedAt: Date.now() }
+            : doc,
+        ),
+      }),
+    contextSetShare: async (_cwd, share) => patchMockContext({ share }),
   }
 }
 
