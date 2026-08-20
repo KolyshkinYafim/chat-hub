@@ -195,6 +195,42 @@ export function languageOf(path: string): string {
   return BY_EXTENSION[name.slice(dot + 1).toLowerCase()] ?? "text"
 }
 
+/** Names agents write after a fence, which are rarely the file extension. */
+const BY_FENCE_TAG: Record<string, string> = {
+  javascript: "js",
+  typescript: "js",
+  typescriptreact: "js",
+  javascriptreact: "js",
+  node: "js",
+  java: "js",
+  kotlin: "js",
+  csharp: "js",
+  "c++": "js",
+  objectivec: "js",
+  python: "py",
+  python3: "py",
+  shell: "sh",
+  console: "sh",
+  terminal: "sh",
+  shellsession: "sh",
+  golang: "go",
+  rs: "rust",
+  jsonc: "json",
+  json5: "json",
+  scss: "css",
+  sass: "css",
+  markdown: "md",
+  plaintext: "text",
+  txt: "text",
+  log: "text",
+}
+
+export function languageOfTag(tag: string): string {
+  const key = tag.trim().toLowerCase()
+  if (key === "") return "text"
+  return BY_FENCE_TAG[key] ?? BY_EXTENSION[key] ?? "text"
+}
+
 const IDENTIFIER = /[A-Za-z_$][A-Za-z0-9_$]*/y
 const NUMBER = /(?:0[xXbBoO][0-9a-fA-F_]+|\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?)/y
 const PUNCT = /[{}()[\].,;:?!<>=+\-*/%&|^~@#]/y
@@ -357,8 +393,28 @@ export function styleLine(
   language: string,
   changed: [number, number][],
 ): StyledPiece[] {
+  return cutLine(text, highlight(text, language), changed)
+}
+
+/**
+ * A whole fenced block, line by line, carrying block-comment state across the
+ * newlines — highlighting each line alone would drop out of an open comment.
+ */
+export function styleBlock(code: string, language: string): StyledPiece[][] {
+  let open = false
+  return code.split("\n").map((line) => {
+    const { spans, openAtEnd } = highlightLine(line, language, open)
+    open = openAtEnd
+    return cutLine(line, spans, [])
+  })
+}
+
+function cutLine(
+  text: string,
+  spans: SyntaxSpan[],
+  changed: [number, number][],
+): StyledPiece[] {
   const boundaries = new Set<number>([0, text.length])
-  const spans = highlight(text, language)
   for (const span of spans) {
     boundaries.add(span.start)
     boundaries.add(span.end)
