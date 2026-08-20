@@ -10,6 +10,7 @@ import { runProcess, type RunningProcess } from "./process-runner"
 import { randomUUID } from "node:crypto"
 import {
   beginAssistant,
+  emitTurnItem,
   beginSnapshotMessage,
   extractTextFromContent,
   extractToolResults,
@@ -203,12 +204,12 @@ export class ClaudeAdapter implements AgentAdapter {
           if (think) {
             if (!turn) turn = beginAssistant(sessionId, cb)
             thinking += think
-            cb.onTurnItem(sessionId, turn.messageId, {
+            emitTurnItem(turn, sessionId, {
               id: "claude-reasoning",
               kind: "reasoning",
               status: "running",
               summary: thinking,
-            })
+            }, cb)
             return
           }
           const delta = extractPartialDelta(ev)
@@ -281,16 +282,17 @@ export class ClaudeAdapter implements AgentAdapter {
           pushDelta(turn, sessionId, completedQuestion.visible, cb)
           sawText = true
         }
+        const outcome = code === 0 ? "completed" : "interrupted"
         if (thinking && turn) {
-          cb.onTurnItem(sessionId, turn.messageId, {
+          emitTurnItem(turn, sessionId, {
             id: "claude-reasoning",
             kind: "reasoning",
-            status: code === 0 ? "completed" : "interrupted",
+            status: outcome,
             summary: thinking,
-          })
+          }, cb)
         }
         const messageId = turn?.messageId
-        finishTurn(turn, sessionId, cb)
+        finishTurn(turn, sessionId, cb, outcome)
         turn = null
         if (usage) cb.onUsage?.(sessionId, usage, messageId)
         // A newer turn may already own this session (Stop then immediate

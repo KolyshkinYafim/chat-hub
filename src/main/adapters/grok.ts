@@ -10,6 +10,7 @@ import { runProcess, type RunningProcess } from "./process-runner"
 import { randomUUID } from "node:crypto"
 import {
   beginAssistant,
+  emitTurnItem,
   extractTextFromContent,
   finishTurn,
   newSnapshot,
@@ -22,7 +23,13 @@ import {
 import { readUsage } from "./usage"
 import { renderCliFailure } from "./failure-message"
 import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
-import type { AgentTurnItem, TurnUsage } from "@shared/types"
+import { isPlanToolName, planStepsFromInput } from "@shared/tool-card"
+import type {
+  AgentTurnItem,
+  TurnItemStatus,
+  TurnPlanStep,
+  TurnUsage,
+} from "@shared/types"
 import type {
   AdapterCallbacks,
   AdapterSendOpts,
@@ -134,7 +141,7 @@ export class GrokAdapter implements AgentAdapter {
     let usage: TurnUsage | null = null
     const snapshot = newSnapshot()
     const stderr: string[] = []
-    let sawThought = false
+    const activity = new GrokActivityStream()
     const questionStream = new InteractiveQuestionStream()
     let continuation: Promise<void> | null = null
     const pushAssistantText = (text: string) => {
@@ -172,24 +179,20 @@ export class GrokAdapter implements AgentAdapter {
 
         const type = String(ev.type ?? ev.event ?? "")
 
-        // Grok exposes raw thought chunks, not a user-safe reasoning summary.
-        // Record only lifecycle state; never copy chain-of-thought into the UI.
+        // Thought chunks stay out of the answer bubble, but the reasoning card
+        // is where they belong — a placeholder there told the user nothing.
         if (type === "thought") {
-          sawThought = true
+          const item = activity.thought(String(ev.data ?? ""))
+          if (!item) return
           if (!turn) turn = beginAssistant(sessionId, cb)
-          cb.onTurnItem(sessionId, turn.messageId, {
-            id: "grok-reasoning",
-            kind: "reasoning",
-            status: "running",
-            summary: "Grok is reasoning…",
-          })
+          emitTurnItem(turn, sessionId, item, cb)
           return
         }
 
-        const action = extractGrokAction(ev, type)
+        const action = activity.push(ev, type)
         if (action) {
           if (!turn) turn = beginAssistant(sessionId, cb)
-          cb.onTurnItem(sessionId, turn.messageId, action)
+          emitTurnItem(turn, sessionId, action, cb)
           return
         }
 
@@ -243,19 +246,13 @@ export class GrokAdapter implements AgentAdapter {
           pushDelta(turn, sessionId, completedQuestion.visible, cb)
         }
         const messageId = turn?.messageId
-        if (sawThought && turn) {
-          cb.onTurnItem(sessionId, turn.messageId, {
-            id: "grok-reasoning",
-            kind: "reasoning",
-            status: code === 0 ? "completed" : "interrupted",
-            summary: "Grok reasoning complete",
-          })
-        }
+        const outcome: TurnItemStatus =
+          code === 0 ? "completed" : code === null ? "interrupted" : "failed"
         if (usage) cb.onUsage?.(sessionId, usage, messageId)
         // A newer turn may already own this session (Stop then immediate
         // resend): a dead process must not overwrite the live turn's status.
         if (state.proc !== proc) {
-          finishTurn(turn, sessionId, cb)
+          finishTurn(turn, sessionId, cb, outcome)
           return
         }
         state.proc = undefined
@@ -302,7 +299,7 @@ export class GrokAdapter implements AgentAdapter {
             reason: "error",
           })
         }
-        finishTurn(turn, sessionId, cb)
+        finishTurn(turn, sessionId, cb, outcome)
       },
     })
 
@@ -356,40 +353,251 @@ export class GrokAdapter implements AgentAdapter {
   }
 }
 
-/** Normalize documented and forward-compatible Grok action envelopes. */
+const TOOL_TYPES = new Set([
+  "tool",
+  "tool_use",
+  "tool_call",
+  "tool_call_update",
+  "tool_result",
+  "function_call",
+  "function_result",
+  "command",
+  "command_execution",
+  "command_start",
+  "command_end",
+])
+
+const OUTPUT_LIMIT = 8000
+
+type GrokCall = {
+  id: string
+  name: string
+  /** ACP tool kind — read | edit | execute | plan | search | fetch | other. */
+  kind: string
+  input?: Record<string, unknown>
+  status: TurnItemStatus
+  output?: string
+  exitCode?: number
+  cwd?: string
+}
+
+/**
+ * Grok Build streams ACP session updates: `tool_call` names the call and
+ * carries its arguments, and every `tool_call_update` after it carries the id
+ * plus only what changed — no name, no input, sometimes a null status. Reading
+ * either event alone loses half the card, so the pair is merged here into one
+ * item that keeps its name and reaches a settled status.
+ */
+export class GrokActivityStream {
+  private readonly calls = new Map<string, GrokCall>()
+  private lastCallId: string | null = null
+  private planSteps: TurnPlanStep[] = []
+  private reasoning = ""
+  private reasoningOpen = false
+
+  /** One raw thought chunk → the reasoning item, or null while it is empty. */
+  thought(chunk: string): AgentTurnItem | null {
+    if (!chunk) return null
+    if (this.reasoning && !this.reasoningOpen) this.reasoning += "\n\n"
+    this.reasoning += chunk
+    this.reasoningOpen = true
+    return {
+      id: "grok-reasoning",
+      kind: "reasoning",
+      status: "running",
+      summary: this.reasoning,
+    }
+  }
+
+  push(
+    ev: Record<string, unknown>,
+    type = String(ev.type ?? ev.event ?? ""),
+  ): AgentTurnItem | null {
+    const lower = type.toLowerCase()
+    if (lower !== "thought") this.reasoningOpen = false
+    if (lower === "plan") return this.plan(ev.entries)
+    if (!TOOL_TYPES.has(lower)) return null
+
+    const id = this.callId(ev, lower)
+    const call = mergeGrokCall(this.calls.get(id), ev, lower, id)
+    this.calls.set(id, call)
+    this.lastCallId = id
+    // A checklist call and grok's own `plan` event describe the same list;
+    // funnel both into one card rather than showing the plan twice.
+    if (call.kind === "plan" || isPlanToolName(call.name)) {
+      return this.plan(call.input?.todos ?? call.input?.plan ?? call.input)
+    }
+    return grokToolItem(call)
+  }
+
+  private plan(entries: unknown): AgentTurnItem | null {
+    const steps = planStepsFromInput(Array.isArray(entries) ? { todos: entries } : entries)
+    // Grok's merge-mode checklist repeats ids with no text; keeping the last
+    // populated list is what stops the card blanking mid-turn.
+    if (steps.length > 0) {
+      this.planSteps = steps.map((step) => ({
+        text: step.text,
+        status: step.status === "in_progress" ? "running" : step.status,
+      }))
+    }
+    if (this.planSteps.length === 0) return null
+    const active =
+      this.planSteps.find((step) => step.status === "running") ??
+      this.planSteps.find((step) => step.status === "pending")
+    return {
+      id: "grok-plan",
+      kind: "plan",
+      status: active ? "running" : "completed",
+      text: active?.text ?? `${this.planSteps.length} steps`,
+      steps: this.planSteps,
+    }
+  }
+
+  private callId(ev: Record<string, unknown>, lower: string): string {
+    const id =
+      stringValue(ev.toolCallId) ??
+      stringValue(ev.tool_call_id) ??
+      stringValue(ev.call_id) ??
+      stringValue(ev.id)
+    if (id) return id
+    // An update without an id can only belong to the call it follows; a first
+    // event without one still needs an id of its own, not a shared placeholder.
+    if (this.lastCallId) return this.lastCallId
+    return `${lower}-${String(this.calls.size)}`
+  }
+}
+
+/** Single-event view of the tool stream, for envelopes that carry it all. */
 export function extractGrokAction(
   ev: Record<string, unknown>,
   type = String(ev.type ?? ev.event ?? ""),
-): Extract<AgentTurnItem, { kind: "tool" | "command" }> | null {
-  const lower = type.toLowerCase()
-  const isTool = ["tool", "tool_use", "tool_call", "tool_result", "function_call", "function_result"].includes(lower)
-  const isCommand = ["command", "command_execution", "command_start", "command_end"].includes(lower)
-  if (!isTool && !isCommand) return null
+): AgentTurnItem | null {
+  return new GrokActivityStream().push(ev, type)
+}
 
-  const nested = objectValue(ev.tool) ?? objectValue(ev.call) ?? objectValue(ev.function) ?? {}
-  const id = stringValue(ev.tool_call_id) ?? stringValue(ev.call_id) ?? stringValue(ev.id) ?? `${lower}-${stringValue(ev.sequence) ?? "event"}`
-  const status: AgentTurnItem["status"] = lower.endsWith("result") || lower.endsWith("end") || stringValue(ev.status) === "completed"
-    ? "completed"
-    : stringValue(ev.status) === "failed" ? "failed" : "running"
-  const command = stringValue(ev.command) ?? stringValue(nested.command)
-  if (isCommand || command) {
+function mergeGrokCall(
+  prev: GrokCall | undefined,
+  ev: Record<string, unknown>,
+  lower: string,
+  id: string,
+): GrokCall {
+  const nested =
+    objectValue(ev.tool) ?? objectValue(ev.call) ?? objectValue(ev.function) ?? {}
+  const raw = objectValue(ev.rawOutput)
+  const output = grokOutputText(ev)
+  return {
+    id,
+    name:
+      stringValue(ev.toolName) ??
+      stringValue(ev.tool_name) ??
+      stringValue(ev.name) ??
+      stringValue(ev.title) ??
+      stringValue(nested.name) ??
+      prev?.name ??
+      "Tool",
+    kind: stringValue(ev.kind) ?? prev?.kind ?? "",
+    input:
+      objectValue(ev.rawInput) ??
+      objectValue(ev.input) ??
+      objectValue(ev.arguments) ??
+      objectValue(nested.input) ??
+      objectValue(nested.arguments) ??
+      prev?.input,
+    status: grokStatus(ev, lower, prev),
+    output: output ?? prev?.output,
+    exitCode: numberValue(raw?.exit_code) ?? prev?.exitCode,
+    cwd: stringValue(raw?.current_dir) ?? prev?.cwd,
+  }
+}
+
+function grokToolItem(call: GrokCall): AgentTurnItem {
+  const id = `grok-${call.id}`
+  const command = stringValue(call.input?.command) ?? stringValue(call.input?.cmd)
+  if (call.kind === "execute" || command) {
+    // Grok calls a command "completed" whatever it exited with; the exit code
+    // is the only honest signal that the work itself failed.
+    const failed =
+      call.status === "completed" &&
+      call.exitCode !== undefined &&
+      call.exitCode !== 0
     return {
-      id: `grok-${id}`,
+      id,
       kind: "command",
-      status,
-      command: command ?? "Command",
-      output: stringValue(ev.output) ?? stringValue(ev.result) ?? undefined,
+      status: failed ? "failed" : call.status,
+      command: command ?? call.name,
+      cwd: call.cwd,
+      output: clipOutput(call.output),
+      exitCode: call.exitCode,
     }
   }
-  const name = stringValue(ev.name) ?? stringValue(ev.tool_name) ?? stringValue(nested.name) ?? "Tool"
   return {
-    id: `grok-${id}`,
+    id,
     kind: "tool",
-    status,
-    name,
-    arguments: ev.input ?? ev.arguments ?? nested.input ?? nested.arguments,
-    result: ev.result ?? ev.output,
+    status: call.status,
+    name: call.name,
+    arguments: call.input,
+    result: clipOutput(call.output),
   }
+}
+
+function grokStatus(
+  ev: Record<string, unknown>,
+  lower: string,
+  prev: GrokCall | undefined,
+): TurnItemStatus {
+  const raw = stringValue(ev.status)
+  if (raw) {
+    switch (raw.toLowerCase()) {
+      case "completed":
+      case "complete":
+      case "success":
+        return "completed"
+      case "failed":
+      case "error":
+        return "failed"
+      case "declined":
+      case "rejected":
+        return "declined"
+      case "cancelled":
+      case "canceled":
+      case "interrupted":
+        return "interrupted"
+      // ACP opens a call as `pending` and flips to `in_progress` a beat later;
+      // both read as one live state to somebody watching the card.
+      default:
+        return "running"
+    }
+  }
+  // `tool_call_update` sends status:null when only the output changed.
+  if (prev) return prev.status
+  return lower.endsWith("result") || lower.endsWith("end") ? "completed" : "running"
+}
+
+/** Streamed tool output: ACP content blocks first, raw payload as a fallback. */
+function grokOutputText(ev: Record<string, unknown>): string | null {
+  const parts: string[] = []
+  if (Array.isArray(ev.content)) {
+    for (const entry of ev.content) {
+      const block = objectValue(entry)
+      const inner = (block && objectValue(block.content)) ?? block
+      if (inner && typeof inner.text === "string") parts.push(inner.text)
+    }
+  }
+  const joined = parts.join("")
+  if (joined) return joined
+  const raw = objectValue(ev.rawOutput)
+  return (
+    (raw && stringValue(raw.output_for_prompt)) ??
+    stringValue(ev.output) ??
+    stringValue(ev.result)
+  )
+}
+
+function clipOutput(text: string | undefined): string | undefined {
+  if (!text) return undefined
+  return text.length > OUTPUT_LIMIT
+    ? `${text.slice(0, OUTPUT_LIMIT)}\n… (${text.length - OUTPUT_LIMIT} more characters)`
+    : text
 }
 
 function objectValue(value: unknown): Record<string, unknown> | null {
@@ -400,6 +608,10 @@ function objectValue(value: unknown): Record<string, unknown> | null {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value ? value : null
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
 
 /** Parse both legacy and Grok Build 0.2.x streaming-json text events. */

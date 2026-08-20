@@ -24,6 +24,7 @@ import type {
 } from "@shared/types"
 import type { PermissionMode } from "@shared/permission"
 import { PERMISSION_LABELS } from "@shared/permission"
+import { summarizeToolArgs } from "@shared/tool-card"
 import type { ProjectScript } from "@shared/scripts"
 import type { Mode, ModelInfo } from "@shared/settings-types"
 import { formatClock, formatRelative } from "../lib/format"
@@ -49,7 +50,14 @@ import { PlanSteps, toPlanSteps } from "./PlanSteps"
 import { ComposerMenu } from "./ComposerMenu"
 import { LiveStepTicker } from "./LiveStepTicker"
 import { buildTranscript } from "../lib/tool-runs"
-import { currentStep, planProgress } from "../lib/live-step"
+import {
+  currentStep,
+  formatElapsed,
+  itemPlanProgress,
+  itemStep,
+  planProgress,
+  type LiveStep,
+} from "../lib/live-step"
 import { formatSessionUsage, formatUsage, usageDetail } from "../lib/usage"
 import {
   contextUsedTokens,
@@ -186,7 +194,11 @@ function itemLabel(item: AgentTurnItem): string {
       }
       return item.changes.length === 1 ? item.changes[0]!.path : `${item.changes.length} file changes`
     }
-    case "tool": return item.server ? `${item.server} · ${item.name}` : item.name
+    case "tool": {
+      const args = summarizeToolArgs(item.arguments, 60)
+      const name = item.server ? `${item.server} · ${item.name}` : item.name
+      return args ? `${name} · ${args}` : name
+    }
     case "web_search": return `Search · ${item.query}`
     case "image": return `Viewed · ${item.path}`
     case "review": return "Review"
@@ -195,26 +207,6 @@ function itemLabel(item: AgentTurnItem): string {
   }
 }
 
-function liveActionLabel(item: AgentTurnItem): string {
-  switch (item.kind) {
-    case "plan": {
-      const step = item.steps?.find((candidate) => candidate.status === "running")
-        ?? item.steps?.find((candidate) => candidate.status === "pending")
-      return step?.text || item.text || "Updating plan"
-    }
-    case "command": return `Running ${item.command.split("\n")[0] || "command"}`
-    case "file_change": return item.changes.length
-      ? `Changing ${item.changes.length === 1 ? item.changes[0]!.path : `${item.changes.length} files`}`
-      : item.aggregateDiff ? "Preparing the code diff" : "Preparing file changes"
-    case "tool": return `Using ${item.server ? `${item.server} · ` : ""}${item.name}`
-    case "web_search": return `Searching for ${item.query}`
-    case "image": return `Inspecting ${item.path}`
-    case "review": return item.text || "Reviewing changes"
-    case "compaction": return "Compacting context"
-    case "reasoning": return "Preparing the next step"
-    case "error": return item.message
-  }
-}
 
 function itemHasDetail(item: AgentTurnItem): boolean {
   if (item.kind === "command") return Boolean(item.command || item.output)
@@ -254,7 +246,16 @@ function ItemBody({ item }: { item: AgentTurnItem }) {
       )
     }
     case "tool":
-      return <pre className="activity-code"><code>{JSON.stringify(item.result ?? item.arguments ?? item.error ?? {}, null, 2)}</code></pre>
+      return (
+        <>
+          {item.arguments === undefined ? null : (
+            <pre className="activity-code"><code>{stringifyPayload(item.arguments)}</code></pre>
+          )}
+          {item.result === undefined && !item.error ? null : (
+            <pre className="activity-output"><code>{item.error ?? stringifyPayload(item.result)}</code></pre>
+          )}
+        </>
+      )
     case "review": return <div className="activity-text">{item.text}</div>
     case "error": return <div className="activity-error">{item.message}</div>
     default: return null
@@ -268,17 +269,18 @@ function TurnItems({
   items: AgentTurnItem[] | undefined
   streaming?: boolean
 }) {
-  if (!items?.length) return streaming ? <LiveActivityPlaceholder /> : null
+  const step = itemStep(items)
+  if (!items?.length) return streaming ? <LiveActivityLine step={null} /> : null
   const reasoning = items.filter((item) => item.kind === "reasoning")
   const activity = items.filter((item) => item.kind !== "reasoning")
   return (
     <div className="turn-activity">
       {reasoning.length ? <ReasoningGroup items={reasoning} /> : null}
-      {activity.length ? (
-        <ActivityOverview items={activity} streaming={streaming} />
-      ) : streaming ? (
-        <LiveActivityPlaceholder />
-      ) : null}
+      {/* One live line, then the cards themselves. The old roll-up row said the
+          same thing a third time, which is what made a single tool call read as
+          three stacked boxes. */}
+      {streaming ? <LiveActivityLine step={step} /> : null}
+      {!streaming && activity.length > 1 ? <ActivityOverview items={activity} /> : null}
       {activity.map((item) => (
         <details
           key={item.id}
@@ -288,6 +290,9 @@ function TurnItems({
           <summary>
             <span className={`activity-status status-${item.status}`} aria-label={item.status} />
             <span className="activity-label">{itemLabel(item)}</span>
+            {item.kind === "command" && typeof item.exitCode === "number" ? (
+              <span className="activity-exit">exit {item.exitCode}</span>
+            ) : null}
             <span className="activity-state">{item.status}</span>
           </summary>
           <ItemBody item={item} />
@@ -297,24 +302,38 @@ function TurnItems({
   )
 }
 
-function LiveActivityPlaceholder({ label = "Preparing the next step" }: { label?: string }) {
+/** Which tool, on what, for how long — the single live line of a turn. */
+function LiveActivityLine({ step }: { step: LiveStep | null }) {
+  const [elapsedMs, setElapsedMs] = useState(0)
+  const key = step?.key ?? "starting"
+
+  useEffect(() => {
+    const startedAt = Date.now()
+    setElapsedMs(0)
+    const timer = window.setInterval(() => setElapsedMs(Date.now() - startedAt), 1000)
+    return () => window.clearInterval(timer)
+  }, [key])
+
   return (
     <div className="activity-live" aria-live="polite">
       <span className="activity-status status-running" aria-label="running" />
       <span className="activity-live-kicker">Working now</span>
-      <strong className="activity-live-label">{label}</strong>
-      <span className="activity-state">live</span>
+      <strong className="activity-live-label" title={step?.server ?? undefined}>
+        {step?.label ?? "Preparing the next step"}
+      </strong>
+      {step?.detail ? (
+        <span className="activity-live-detail">{step.detail}</span>
+      ) : null}
+      <span className="activity-live-elapsed">{formatElapsed(elapsedMs)}</span>
     </div>
   )
 }
 
-/** A readable outcome before the detailed, chronological tool cards. */
+/** A readable outcome over a finished turn's chronological cards. */
 function ActivityOverview({
   items,
-  streaming,
 }: {
   items: Exclude<AgentTurnItem, { kind: "reasoning" }>[]
-  streaming: boolean
 }) {
   const commands = items.filter((item) => item.kind === "command").length
   const files = items
@@ -331,21 +350,20 @@ function ActivityOverview({
     plans ? `${plans} ${plans === 1 ? "plan update" : "plan updates"}` : "",
   ].filter(Boolean)
   const status = failed ? "failed" : running ? "running" : "completed"
-  const live = [...items].reverse().find((item) => item.status === "running" || item.status === "pending")
   return (
-    <>
-      {live ? <LiveActivityPlaceholder label={liveActionLabel(live)} /> : null}
-      {streaming && !live ? (
-        <LiveActivityPlaceholder label="Preparing the next step after the last action" />
-      ) : null}
-      <div className="activity-overview">
-        <span className={`activity-status status-${status}`} aria-label={status} />
-        <span className="activity-label">Technical activity</span>
-        <span className="activity-overview-summary">{parts.join(" · ") || `${items.length} updates`}</span>
-        <span className="activity-state">{failed ? `${failed} failed` : status}</span>
-      </div>
-    </>
+    <div className="activity-overview">
+      <span className={`activity-status status-${status}`} aria-label={status} />
+      <span className="activity-label">Technical activity</span>
+      <span className="activity-overview-summary">{parts.join(" · ") || `${items.length} updates`}</span>
+      <span className="activity-state">{failed ? `${failed} failed` : status}</span>
+    </div>
   )
+}
+
+/** Arguments and results are provider JSON; a string stays a string. */
+function stringifyPayload(value: unknown): string {
+  if (typeof value === "string") return value
+  return JSON.stringify(value, null, 2) ?? String(value)
 }
 
 /** Keep a long Codex turn readable: it streams several safe reasoning summaries. */
@@ -556,7 +574,12 @@ export function ChatView({
   const liveTicker = useMemo(() => {
     if (!liveMessage) return null
     const { blocks } = buildTranscript(liveMessage.content, liveMessage.id)
-    return { step: currentStep(blocks), plan: planProgress(blocks) }
+    // Codex and Grok stream structured items, not tool fences in the prose —
+    // without this the ticker reports "Writing" through an entire tool call.
+    return {
+      step: itemStep(liveMessage.items) ?? currentStep(blocks),
+      plan: itemPlanProgress(liveMessage.items) ?? planProgress(blocks),
+    }
   }, [liveMessage])
 
   const revertBlocked = sending || session?.status === "running"

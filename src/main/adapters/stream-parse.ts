@@ -8,6 +8,7 @@ import {
   type ToolCardMeta,
 } from "@shared/tool-card"
 import { buildEditDiff } from "./edit-diff"
+import type { AgentTurnItem, TurnItemStatus } from "@shared/types"
 import type { AdapterCallbacks } from "./types"
 
 /** Shared helpers for NDJSON CLI streams → transcript callbacks. */
@@ -16,6 +17,8 @@ export type StreamTurn = {
   messageId: string
   started: boolean
   text: string
+  /** Every item this turn has published, so its end can settle what is open. */
+  items: Map<string, AgentTurnItem>
 }
 
 export function beginAssistant(
@@ -31,7 +34,41 @@ export function beginAssistant(
     createdAt: Date.now(),
     streaming: true,
   })
-  return { messageId, started: true, text: "" }
+  return { messageId, started: true, text: "", items: new Map() }
+}
+
+/** Publish one item and remember it, so `finishTurn` can settle it later. */
+export function emitTurnItem(
+  turn: StreamTurn,
+  sessionId: string,
+  item: AgentTurnItem,
+  cb: AdapterCallbacks,
+): void {
+  turn.items.set(item.id, item)
+  cb.onTurnItem(sessionId, turn.messageId, item)
+}
+
+function isOpen(status: TurnItemStatus): boolean {
+  return status === "running" || status === "pending"
+}
+
+/**
+ * A card that never leaves RUNNING is a bug in itself. Whatever the provider,
+ * an item still open when the turn ends inherits the turn's own outcome rather
+ * than pretending the work is still in flight.
+ */
+export function settleOpenItems(
+  turn: StreamTurn,
+  sessionId: string,
+  cb: AdapterCallbacks,
+  outcome: TurnItemStatus,
+): void {
+  for (const [id, item] of turn.items) {
+    if (item.kind === "error" || !isOpen(item.status)) continue
+    const settled: AgentTurnItem = { ...item, status: outcome }
+    turn.items.set(id, settled)
+    cb.onTurnItem(sessionId, turn.messageId, settled)
+  }
 }
 
 export function pushDelta(
@@ -49,8 +86,10 @@ export function finishTurn(
   turn: StreamTurn | null,
   sessionId: string,
   cb: AdapterCallbacks,
+  outcome: TurnItemStatus = "completed",
 ): string {
   if (!turn) return ""
+  settleOpenItems(turn, sessionId, cb, outcome)
   cb.onStreamDone(sessionId, turn.messageId)
   if (turn.text.trim()) {
     cb.onSessionEvent({

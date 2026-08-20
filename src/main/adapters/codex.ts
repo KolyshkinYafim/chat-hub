@@ -3,6 +3,7 @@ import { basename, extname, join } from "node:path"
 import { findBinary, isExecutable } from "./binary"
 import {
   beginAssistant,
+  emitTurnItem,
   finishTurn,
   pushDelta,
   toolCallBlock,
@@ -156,7 +157,7 @@ export class CodexAdapter implements AgentAdapter {
       await completed
     } catch (error) {
       if (state.active === active) {
-        finishTurn(active.stream, sessionId, cb)
+        finishTurn(active.stream, sessionId, cb, "failed")
         state.active = undefined
       }
       throw error
@@ -225,7 +226,7 @@ export class CodexAdapter implements AgentAdapter {
       const active = state.active
       if (!active) return
       state.active = undefined
-      finishTurn(active.stream, state.sessionId, state.callbacks)
+      finishTurn(active.stream, state.sessionId, state.callbacks, "failed")
       active.reject(error)
     })
     return client
@@ -276,20 +277,21 @@ export class CodexAdapter implements AgentAdapter {
         const previous = active.reasoning?.get(itemId) ?? ""
         active.reasoning ??= new Map()
         active.reasoning.set(itemId, previous + delta)
-        cb.onTurnItem(state.sessionId, active.stream.messageId, {
+        emitTurnItem(active.stream, state.sessionId, {
           id: itemId,
           kind: "reasoning",
           status: "running",
           summary: previous + delta,
-        })
+        }, cb)
         break
       }
       case "item/commandExecution/outputDelta": {
-        const item = active.items?.get(event.params.itemId)
+        const item = active.stream.items.get(event.params.itemId)
         if (item?.kind === "command") {
-          const updated = { ...item, output: (item.output ?? "") + event.params.delta }
-          active.items?.set(item.id, updated)
-          cb.onTurnItem(state.sessionId, active.stream.messageId, updated)
+          emitTurnItem(active.stream, state.sessionId, {
+            ...item,
+            output: (item.output ?? "") + event.params.delta,
+          }, cb)
         }
         break
       }
@@ -299,26 +301,29 @@ export class CodexAdapter implements AgentAdapter {
         break
       }
       case "turn/plan/updated": {
-        cb.onTurnItem(state.sessionId, active.stream.messageId, {
+        const steps = event.params.plan.map((step) => ({
+          text: step.step,
+          status: mapPlanStatus(step.status),
+        }))
+        emitTurnItem(active.stream, state.sessionId, {
           id: "turn-plan",
           kind: "plan",
-          status: "running",
+          status: steps.every((step) => step.status === "completed")
+            ? "completed"
+            : "running",
           text: event.params.explanation ?? "Plan",
-          steps: event.params.plan.map((step) => ({
-            text: step.step,
-            status: mapPlanStatus(step.status),
-          })),
-        })
+          steps,
+        }, cb)
         break
       }
       case "turn/diff/updated": {
-        cb.onTurnItem(state.sessionId, active.stream.messageId, {
+        emitTurnItem(active.stream, state.sessionId, {
           id: "turn-diff",
           kind: "file_change",
           status: "running",
           changes: [],
           aggregateDiff: event.params.diff,
-        })
+        }, cb)
         break
       }
       case "thread/tokenUsage/updated": {
@@ -336,20 +341,20 @@ export class CodexAdapter implements AgentAdapter {
         break
       }
       case "error": {
-        cb.onTurnItem(state.sessionId, active.stream.messageId, {
+        emitTurnItem(active.stream, state.sessionId, {
           id: `error-${event.params.turnId}`,
           kind: "error",
           status: "failed",
           message: event.params.error.message,
-        })
+        }, cb)
         break
       }
       case "thread/compacted": {
-        cb.onTurnItem(state.sessionId, active.stream.messageId, {
+        emitTurnItem(active.stream, state.sessionId, {
           id: `compaction-${event.params.turnId}`,
           kind: "compaction",
           status: "completed",
-        })
+        }, cb)
         break
       }
       case "serverRequest/resolved":
@@ -377,9 +382,7 @@ export class CodexAdapter implements AgentAdapter {
     }
     const mapped = mapThreadItem(item, completed)
     if (!mapped) return
-    active.items ??= new Map()
-    active.items.set(mapped.id, mapped)
-    state.callbacks.onTurnItem(state.sessionId, active.stream.messageId, mapped)
+    emitTurnItem(active.stream, state.sessionId, mapped, state.callbacks)
   }
 
   private completeTurn(
@@ -391,14 +394,21 @@ export class CodexAdapter implements AgentAdapter {
     if (!active || status === "inProgress") return
     state.active = undefined
     if (errorMessage) {
-      state.callbacks.onTurnItem(state.sessionId, active.stream.messageId, {
+      emitTurnItem(active.stream, state.sessionId, {
         id: `turn-error-${active.turnId}`,
         kind: "error",
         status: "failed",
         message: errorMessage,
-      })
+      }, state.callbacks)
     }
-    finishTurn(active.stream, state.sessionId, state.callbacks)
+    // An interrupted turn never sends `item/completed` for the command it was
+    // running, so the card only settles if the turn's end settles it.
+    finishTurn(
+      active.stream,
+      state.sessionId,
+      state.callbacks,
+      status === "completed" ? "completed" : status === "interrupted" ? "interrupted" : "failed",
+    )
     if (active.usage) {
       state.callbacks.onUsage?.(state.sessionId, active.usage, active.stream.messageId)
     }
@@ -542,7 +552,6 @@ type ActiveTurn = {
   reject: (error: Error) => void
   itemText: Map<string, string>
   reasoning?: Map<string, string>
-  items?: Map<string, AgentTurnItem>
   usage?: TurnUsage
 }
 
