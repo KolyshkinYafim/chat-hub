@@ -41,9 +41,13 @@ import { listCheckpoints } from "./checkpoints"
 import { sanitizeGeneralPatch, SettingsStore } from "./settings"
 import type { PermissionMode } from "@shared/permission"
 import type {
+  BuildInfo,
   DataPaths,
   ProviderConfig,
+  StorageStats,
 } from "@shared/settings-types"
+import { readBuildInfo } from "./build-info"
+import { dirStats } from "./storage-stats"
 import {
   probeAllProviders,
   testProvider,
@@ -749,6 +753,38 @@ function registerIpc(
       bridgeMtime,
     }
   })
+
+  ipcMain.handle(
+    IpcChannels.getBuildInfo,
+    (): BuildInfo =>
+      readBuildInfo({
+        appPath: app.getAppPath(),
+        packaged: app.isPackaged,
+        version: app.getVersion(),
+        versions: process.versions,
+        platform: process.platform,
+        arch: process.arch,
+      }),
+  )
+
+  ipcMain.handle(
+    IpcChannels.getStorageStats,
+    async (): Promise<StorageStats> => {
+      const sessions = sm.listSessions()
+      let messageCount = 0
+      for (const session of sessions) {
+        messageCount += sm.getMessages(session.id).length
+      }
+      const { bytes, files } = await dirStats(join(userData, "data"))
+      return {
+        dataDirBytes: bytes,
+        fileCount: files,
+        sessionCount: sessions.length,
+        archivedSessionCount: sessions.filter((s) => s.archived === true).length,
+        messageCount,
+      }
+    },
+  )
 
   ipcMain.handle(IpcChannels.revealPath, (_e, target: unknown) => {
     if (typeof target !== "string" || !target) throw new Error("Invalid path")

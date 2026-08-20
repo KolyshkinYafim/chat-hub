@@ -196,3 +196,30 @@ export type DataPaths = {
   bridgeSize: number
   bridgeMtime: number | null
 }
+
+/**
+ * App + build identity, i.e. the first thing a support conversation asks for.
+ * `commit` is the short sha packaging/build-app.sh stamped into the bundle; an
+ * unpackaged dev run has no stamp and reports "dev".
+ */
+export type BuildInfo = {
+  version: string
+  commit: string
+  /** ISO build timestamp, null when the running code was never packaged. */
+  builtAt: string | null
+  packaged: boolean
+  electron: string
+  chrome: string
+  node: string
+  platform: string
+  arch: string
+}
+
+/** What the data folder currently holds — sized for the Advanced tab. */
+export type StorageStats = {
+  dataDirBytes: number
+  fileCount: number
+  sessionCount: number
+  archivedSessionCount: number
+  messageCount: number
+}

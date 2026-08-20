@@ -8,6 +8,7 @@ import type {
 import { formatTokens, formatUsage, formatUsd } from "../lib/usage"
 import type { PermissionMode } from "@shared/permission"
 import type {
+  BuildInfo,
   DataPaths,
   EditorPref,
   EffortLevel,
@@ -16,8 +17,17 @@ import type {
   ProviderConfig,
   ProviderStatus,
   SettingsSnapshot,
+  StorageStats,
 } from "@shared/settings-types"
 import { DEFAULT_MODES } from "@shared/settings-types"
+import {
+  buildLabel,
+  countLabel,
+  formatBuildDate,
+  formatBytes,
+  sessionsLabel,
+  supportSummary,
+} from "@shared/support"
 import {
   BASE_TOKENS,
   BUILTIN_THEMES,
@@ -40,12 +50,6 @@ import {
   parseMcpArgs,
   slugifyMcpId,
 } from "@shared/mcp"
-
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`
-}
 
 const SWATCH_TOKENS: ThemeToken[] = [
   "--bg",
@@ -156,6 +160,37 @@ function authBadge(auth: ProviderStatus["auth"]): { text: string; cls: string } 
     default:
       return { text: "Installed · auth unverified", cls: "warn" }
   }
+}
+
+/** Read once at launch; listed so a support thread can ask about them by name. */
+const ENV_OVERRIDES: { key: string; detail: string }[] = [
+  {
+    key: "CHAT_HUB_PERMISSION",
+    detail:
+      "Permission mode a turn falls back to when the session sets none — yolo, acceptEdits or default.",
+  },
+  {
+    key: "CHAT_HUB_DEMO",
+    detail: "Set to 1 to seed the demo sessions when there are no saved ones.",
+  },
+  {
+    key: "AGENT_DESKTOP_EVENTS",
+    detail: "Path of the Session Monitor bridge JSONL, instead of the default.",
+  },
+  {
+    key: "CHAT_HUB_SELFTEST",
+    detail: "Set to 1 to run the provider self-test before the window opens.",
+  },
+]
+
+/** One label/value pair in an About or Storage card. */
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="fact">
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
+  )
 }
 
 const NAV: { id: Tab; label: string; icon: string }[] = [
@@ -426,6 +461,10 @@ export function SettingsModal({
   )
   const [mcpForm, setMcpForm] = useState<McpFormState | null>(null)
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null)
+  const [buildInfo, setBuildInfo] = useState<BuildInfo | null>(null)
+  const [storage, setStorage] = useState<StorageStats | null>(null)
+  const [storageBusy, setStorageBusy] = useState(false)
+  const [supportNotice, setSupportNotice] = useState<string | null>(null)
   const [themeDraft, setThemeDraft] = useState<Record<string, string> | null>(
     null,
   )
@@ -447,6 +486,33 @@ export function SettingsModal({
       cancelled = true
     }
   }, [open, tab])
+
+  /** Walks the whole data folder, so it only runs on the tab that shows it. */
+  const measureStorage = useCallback(async () => {
+    setStorageBusy(true)
+    try {
+      setStorage(await window.chatHub.getStorageStats())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setStorageBusy(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!open || tab !== "advanced") return
+    let cancelled = false
+    window.chatHub
+      .getBuildInfo()
+      .then((info) => {
+        if (!cancelled) setBuildInfo(info)
+      })
+      .catch(() => undefined)
+    void measureStorage()
+    return () => {
+      cancelled = true
+    }
+  }, [open, tab, measureStorage])
 
   const refreshMcp = useCallback(async () => {
     if (!projectCwd) {
@@ -930,6 +996,22 @@ export function SettingsModal({
     }
   }
 
+  async function copySupportSummary() {
+    if (!buildInfo) return
+    try {
+      await navigator.clipboard.writeText(
+        supportSummary({
+          build: buildInfo,
+          storage,
+          dataDir: dataPaths?.dataDir ?? "unknown",
+        }),
+      )
+      setSupportNotice("Copied — paste it into the bug report")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   async function wipeSessions() {
     if (
       !window.confirm(
@@ -1007,7 +1089,11 @@ export function SettingsModal({
         <div className="settings-scroll">
           {tab === "general" ? (
             <div className="settings-section">
-              <h2 className="section-label">General</h2>
+              <h2 className="section-label">Defaults</h2>
+              <p className="modal-lead">
+                What a brand-new session starts with. Every one of these can
+                still be changed per session from the composer.
+              </p>
               <div className="settings-group">
                 <label className="settings-row">
                   <div>
@@ -1119,8 +1205,8 @@ export function SettingsModal({
                 </div>
               </div>
 
-              <h2 className="section-label modes-head">Modes</h2>
-              <p className="modes-intro">
+              <h2 className="section-label">Modes</h2>
+              <p className="modal-lead">
                 Presets you can attach to a session from the composer. The system
                 prompt is appended every turn (Claude Code); model / effort /
                 permission pre-set the session’s knobs.
@@ -1204,19 +1290,25 @@ export function SettingsModal({
                   </div>
                 ))}
               </div>
-              <button
-                type="button"
-                className="tb-btn modes-add"
-                onClick={addMode}
-              >
-                + Add mode
-              </button>
+              <div className="section-foot">
+                <button type="button" className="tb-btn" onClick={addMode}>
+                  + Add mode
+                </button>
+                <span className="field-hint">
+                  Saved as you type · {countLabel(modesDraft.length, "mode")} ·
+                  deleting the last one brings the built-in set back
+                </span>
+              </div>
             </div>
           ) : null}
 
           {tab === "appearance" ? (
             <div className="settings-section">
               <h2 className="section-label">Theme</h2>
+              <p className="modal-lead">
+                Sets the palette for the whole app — sidebar, transcript, diffs
+                and syntax colours. Applies the moment you pick one.
+              </p>
               <div className="theme-grid">
                 {[...BUILTIN_THEMES, ...customThemes].map((t) => (
                   <div
@@ -1264,7 +1356,7 @@ export function SettingsModal({
               </div>
 
               <h2 className="section-label">Customize</h2>
-              <p className="modes-intro">
+              <p className="modal-lead">
                 Edits preview instantly. Save as a new theme to keep them —
                 switching presets or closing Settings discards unsaved tweaks.
               </p>
@@ -1363,6 +1455,10 @@ export function SettingsModal({
               ) : null}
 
               <h2 className="section-label">Import</h2>
+              <p className="modal-lead">
+                Paste what “Export JSON” copies. Unknown tokens are dropped, and
+                an id that is already taken gets a fresh one.
+              </p>
               <div className="theme-import">
                 <textarea
                   rows={3}
@@ -1379,12 +1475,20 @@ export function SettingsModal({
                   Import
                 </button>
               </div>
+              <div className="section-foot">
+                <span className="field-hint">
+                  {countLabel(BUILTIN_THEMES.length, "built-in theme")} ·{" "}
+                  {customThemes.length === 0
+                    ? "none of your own yet"
+                    : countLabel(customThemes.length, "saved theme")}
+                </span>
+              </div>
             </div>
           ) : null}
 
           {tab === "providers" ? (
             <div className="settings-section">
-              <h2 className="section-label">Providers</h2>
+              <h2 className="section-label">Installed CLIs</h2>
               <p className="modal-lead">
                 Local CLIs only — Hub detects install, auth, and models. Expand a
                 card to set binary path and default model.
@@ -1754,15 +1858,25 @@ export function SettingsModal({
                     )
                   })}
               </div>
+              <div className="section-foot">
+                <span className="field-hint">
+                  {countLabel(enabledAgents.length, "agent")} ready for new
+                  sessions. Missing one? Install its CLI, then Refresh.
+                </span>
+              </div>
             </div>
           ) : null}
 
           {tab === "connections" ? (
             <div className="settings-section">
-              <h2 className="section-label">Connections</h2>
+              <h2 className="section-label">Session Monitor</h2>
+              <p className="modal-lead">
+                How Chat Hub reaches the rest of the desktop suite — the island /
+                tray app reads the event file below.
+              </p>
               <div className="settings-group">
                 <div className="settings-row col">
-                  <div className="row-title">Session Monitor bridge</div>
+                  <div className="row-title">Bridge events</div>
                   <div className="row-desc">
                     Append-only JSONL events for the island / tray app. Override
                     with <code>AGENT_DESKTOP_EVENTS</code>.
@@ -1777,7 +1891,7 @@ export function SettingsModal({
                       }`}
                     />
                     {dataPaths?.bridgeExists
-                      ? `${fmtBytes(dataPaths.bridgeSize)} · last event ${fmtAgo(
+                      ? `${formatBytes(dataPaths.bridgeSize)} · last event ${fmtAgo(
                           dataPaths.bridgeMtime,
                         )}`
                       : "No events file yet — start a session to create it"}
@@ -1796,11 +1910,14 @@ export function SettingsModal({
                 </div>
               </div>
 
-              <h2 className="section-label" style={{ marginTop: 20 }}>
-                MCP servers
-              </h2>
+              <h2 className="section-label">MCP servers</h2>
+              <p className="modal-lead">
+                Extra tools every agent in one project can call. Configured per
+                folder, then written out into each CLI’s own config file.
+              </p>
               <div className="settings-group">
                 <div className="settings-row col">
+                  <div className="row-title">This project</div>
                   <div className="row-desc">
                     Project config at <code>.chathub/mcp.json</code> (no secrets).
                     Apply writes Claude <code>.mcp.json</code>, Codex{" "}
@@ -1878,8 +1995,36 @@ export function SettingsModal({
                   ) : null}
                 </div>
 
-                {!projectCwd ? null : mcpServers.length === 0 && !mcpForm ? (
-                  <p className="row-desc">No MCP servers configured yet.</p>
+                {!projectCwd ? (
+                  <div className="settings-row col">
+                    <div className="settings-empty">
+                      <div className="settings-empty-title">
+                        No project selected
+                      </div>
+                      <p>
+                        MCP servers are configured per folder. Open a session or
+                        pin a project, then come back here.
+                      </p>
+                    </div>
+                  </div>
+                ) : mcpServers.length === 0 && !mcpForm ? (
+                  <div className="settings-row col">
+                    <div className="settings-empty">
+                      <div className="settings-empty-title">No servers yet</div>
+                      <p>
+                        Nothing is configured for this project, so its agents get
+                        their built-in tools only. Add a server to change that.
+                      </p>
+                      <button
+                        type="button"
+                        className="tb-btn"
+                        disabled={mcpBusy}
+                        onClick={() => openMcpAdd()}
+                      >
+                        Add server
+                      </button>
+                    </div>
+                  </div>
                 ) : (
                   mcpServers.map((server) => {
                     const st =
@@ -2109,6 +2254,15 @@ export function SettingsModal({
                   </div>
                 ) : null}
               </div>
+              <div className="section-foot">
+                <span className="field-hint">
+                  {projectCwd
+                    ? `${countLabel(mcpServers.length, "server")} in this ` +
+                      "project · Apply to CLIs after every change"
+                    : "Per-project configuration — nothing to apply here " +
+                      "without a project."}
+                </span>
+              </div>
             </div>
           ) : null}
 
@@ -2160,16 +2314,73 @@ export function SettingsModal({
 
           {tab === "advanced" ? (
             <div className="settings-section">
-              <h2 className="section-label">Advanced</h2>
-
+              <h2 className="section-label">About this build</h2>
+              <p className="modal-lead">
+                Everything a bug report asks for first: which build is running,
+                where its data lives, and how much of it there is.
+              </p>
               <div className="settings-group">
                 <div className="settings-row col">
-                  <div className="row-title">Data folder</div>
-                  <div className="row-desc">
-                    Sessions, settings, projects, and encrypted keys live here.
+                  <div className="row-title">
+                    Chat Hub {buildInfo ? buildLabel(buildInfo) : "…"}
                   </div>
+                  <div className="row-desc">
+                    {!buildInfo
+                      ? "Reading build identity…"
+                      : buildInfo.packaged
+                        ? `Packaged build · ${formatBuildDate(buildInfo.builtAt)}`
+                        : "Unpackaged dev run — this code was never stamped with a commit."}
+                  </div>
+                  {buildInfo ? (
+                    <dl className="fact-grid">
+                      <Fact label="Version" value={buildInfo.version} />
+                      <Fact label="Commit" value={buildInfo.commit} />
+                      <Fact
+                        label="Platform"
+                        value={`${buildInfo.platform} ${buildInfo.arch}`}
+                      />
+                      <Fact label="Electron" value={buildInfo.electron} />
+                      <Fact label="Chrome" value={buildInfo.chrome} />
+                      <Fact label="Node" value={buildInfo.node} />
+                    </dl>
+                  ) : null}
+                  <div className="provider-card-actions">
+                    <button
+                      type="button"
+                      className="tb-btn primary"
+                      disabled={!buildInfo}
+                      onClick={() => void copySupportSummary()}
+                    >
+                      Copy for support
+                    </button>
+                  </div>
+                  {supportNotice ? (
+                    <div className="path-status">
+                      <span className="auth-dot ok" />
+                      {supportNotice}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <h2 className="section-label">Data folder</h2>
+              <p className="modal-lead">
+                Sessions, settings, pinned projects, and encrypted keys live in
+                one folder. Nothing here leaves the machine.
+              </p>
+              <div className="settings-group">
+                <div className="settings-row col">
+                  <div className="row-title">Location</div>
                   <code className="path-code">{dataPaths?.dataDir || "…"}</code>
                   <div className="provider-card-actions">
+                    <button
+                      type="button"
+                      className="tb-btn"
+                      disabled={!dataPaths}
+                      onClick={() => dataPaths && void reveal(dataPaths.dataDir)}
+                    >
+                      Reveal in Finder
+                    </button>
                     <button
                       type="button"
                       className="tb-btn"
@@ -2178,7 +2389,7 @@ export function SettingsModal({
                         dataPaths && void reveal(dataPaths.settingsPath)
                       }
                     >
-                      Reveal settings.json
+                      settings.json
                     </button>
                     <button
                       type="button"
@@ -2188,18 +2399,78 @@ export function SettingsModal({
                         dataPaths && void reveal(dataPaths.projectsPath)
                       }
                     >
-                      Reveal projects.json
+                      projects.json
+                    </button>
+                  </div>
+                </div>
+
+                <div className="settings-row col">
+                  <div className="row-title">Contents</div>
+                  <div className="row-desc">
+                    {storageBusy
+                      ? "Walking the folder…"
+                      : storage
+                        ? "Measured just now. Wiping sessions below clears most of it."
+                        : "Not measured yet."}
+                  </div>
+                  <dl className="fact-grid">
+                    <Fact
+                      label="On disk"
+                      value={storage ? formatBytes(storage.dataDirBytes) : "—"}
+                    />
+                    <Fact
+                      label="Files"
+                      value={
+                        storage ? countLabel(storage.fileCount, "file") : "—"
+                      }
+                    />
+                    <Fact
+                      label="Sessions"
+                      value={storage ? sessionsLabel(storage) : "—"}
+                    />
+                    <Fact
+                      label="Messages"
+                      value={
+                        storage
+                          ? countLabel(storage.messageCount, "message")
+                          : "—"
+                      }
+                    />
+                  </dl>
+                  <div className="provider-card-actions">
+                    <button
+                      type="button"
+                      className="tb-btn"
+                      disabled={storageBusy}
+                      onClick={() => void measureStorage()}
+                    >
+                      {storageBusy ? "Measuring…" : "↻ Recalculate"}
                     </button>
                   </div>
                 </div>
               </div>
 
+              <h2 className="section-label">Environment overrides</h2>
+              <p className="modal-lead">
+                Read from the environment when Chat Hub launches, so they only
+                take effect on the next start. Settings above win at runtime.
+              </p>
+              <div className="settings-group">
+                {ENV_OVERRIDES.map((v) => (
+                  <div key={v.key} className="settings-row col">
+                    <code className="env-var-name">{v.key}</code>
+                    <div className="row-desc">{v.detail}</div>
+                  </div>
+                ))}
+              </div>
+
+              <h2 className="section-label">Danger zone</h2>
               <div className="settings-group danger-group">
                 <div className="settings-row col">
                   <div className="row-title">Reset sessions</div>
                   <div className="row-desc">
                     Delete every session and transcript. Providers, API keys, and
-                    pinned projects are kept.
+                    pinned projects are kept. This cannot be undone.
                   </div>
                   <div className="provider-card-actions">
                     <button
@@ -2211,14 +2482,6 @@ export function SettingsModal({
                     </button>
                   </div>
                 </div>
-              </div>
-
-              <div className="settings-group">
-                <p className="modal-lead">
-                  Env overrides: <code>CHAT_HUB_PERMISSION</code>,{" "}
-                  <code>CHAT_HUB_DEMO=1</code>, <code>AGENT_DESKTOP_EVENTS</code>,{" "}
-                  <code>CHAT_HUB_SELFTEST=1</code>.
-                </p>
               </div>
             </div>
           ) : null}
