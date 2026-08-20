@@ -567,7 +567,7 @@ export function Sidebar({
           <span>Projects</span>
           <button
             type="button"
-            className="icon-chip xs"
+            className="icon-chip"
             title="Add project folder"
             onClick={onAddProject}
           >
