@@ -27,6 +27,10 @@ export type TitleRunner = (
 const execFileAsync = promisify(execFile)
 
 const realRunner: TitleRunner = async (bin, args, timeoutMs) => {
+  // A test that reaches the real CLI spends the owner's quota and posts a card
+  // on the notch island — the machine's Claude hooks report every invocation,
+  // and there is no flag that keeps the subscription login while skipping them.
+  if (process.env.VITEST) throw new Error("title-llm: refused under test")
   const child = execFileAsync(bin, args, {
     timeout: timeoutMs,
     maxBuffer: 1024 * 1024,

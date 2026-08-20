@@ -127,7 +127,6 @@ export class SessionManager {
   /** Preserve archive order and let an immediate scroll-back wait for its write. */
   private archiveWrites = new Map<string, Promise<void>>()
   private inputStatusWired = false
-  private userUnsettled = new Set<string>()
   /** Sessions already told their workspace carries an unignored CLI config. */
   private configNoted = new Set<string>()
   private readonly generateTitleFn: TitleGenerator
@@ -400,8 +399,9 @@ export class SessionManager {
   }
 
   /**
-   * Manual settle/unsettle. A user-unsettled session holds off auto-settle
-   * until its next turn actually completes.
+   * Settling is a decision, never a side effect: only this call and archiving
+   * put a thread away, so the sidebar keeps showing work until its owner says
+   * otherwise. Sending into a settled thread brings it back (see `unsettle`).
    */
   setSessionSettled(sessionId: string, settled: boolean): SessionMeta {
     const session = this.sessions.get(sessionId)
@@ -410,11 +410,9 @@ export class SessionManager {
     if (settled) {
       next.settledAt = Date.now()
       next.settledBy = "user"
-      this.userUnsettled.delete(sessionId)
     } else {
       delete next.settledAt
       delete next.settledBy
-      this.userUnsettled.add(sessionId)
     }
     this.sessions.set(sessionId, next)
     this.publishSessionEvent({ type: "session.upsert", session: next })
@@ -434,7 +432,6 @@ export class SessionManager {
         next.settledAt = Date.now()
         next.settledBy = "user"
       }
-      this.userUnsettled.delete(sessionId)
     } else {
       delete next.archived
     }
@@ -472,21 +469,6 @@ export class SessionManager {
    */
   private ownsTurn(sessionId: string, token: number): boolean {
     return this.turns.get(sessionId)?.token === token
-  }
-
-  private autoSettle(sessionId: string): void {
-    if (this.userUnsettled.has(sessionId)) return
-    const session = this.sessions.get(sessionId)
-    if (!session || session.settledAt !== undefined) return
-    const next: SessionMeta = {
-      ...session,
-      settledAt: Date.now(),
-      settledBy: "auto",
-    }
-    this.sessions.set(sessionId, next)
-    this.publishSessionEvent({ type: "session.upsert", session: next })
-    this.bus.emit({ type: "sessions.replaced", sessions: this.listSessions() })
-    this.scheduleSave()
   }
 
   private unsettle(sessionId: string): void {
@@ -634,12 +616,20 @@ export class SessionManager {
       // Never restore as stuck running without a live process.
       const status: SessionStatus =
         session.status === "running" ? "idle" : session.status
-      this.sessions.set(session.id, {
+      const restored: SessionMeta = {
         ...session,
         cwd,
         project: session.project || normalizeProject(undefined, cwd),
         status,
-      })
+      }
+      // Threads the Hub used to settle by itself come back: settling is the
+      // owner's call now, and leaving those stamps would keep a sidebar full
+      // of finished-looking work that nobody chose to put away.
+      if (restored.settledBy === "auto") {
+        delete restored.settledAt
+        delete restored.settledBy
+      }
+      this.sessions.set(session.id, restored)
     }
     for (const [id, msgs] of Object.entries(state.messages)) {
       if (!this.sessions.has(id)) continue
@@ -1002,11 +992,8 @@ export class SessionManager {
         if (!failed && this.sessions.get(sessionId)?.status === "running") {
           this.applyStatus(sessionId, "idle")
         }
-        const hasQueued = (this.queued.get(sessionId)?.length ?? 0) > 0
         this.flushQueued(sessionId)
         if (failed) return
-        this.userUnsettled.delete(sessionId)
-        if (!hasQueued) this.autoSettle(sessionId)
         this.maybeRefineTitle(sessionId)
       })
       .catch((err) => {
@@ -1355,7 +1342,6 @@ export class SessionManager {
     this.turns.delete(sessionId)
     this.queued.delete(sessionId)
     this.usage.delete(sessionId)
-    this.userUnsettled.delete(sessionId)
     this.configNoted.delete(sessionId)
     await this.discardArchive(sessionId)
     this.hooks.clearSession(sessionId)
@@ -1403,7 +1389,6 @@ export class SessionManager {
     this.turns.clear()
     this.queued.clear()
     this.usage.clear()
-    this.userUnsettled.clear()
     this.configNoted.clear()
     for (const id of ids) await this.discardArchive(id)
     for (const id of ids) this.hooks.clearSession(id)

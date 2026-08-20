@@ -91,9 +91,7 @@ async function runTurn(
 ) {
   await sm.sendMessage(sessionId, text)
   state.pending?.resolve()
-  await vi.waitFor(() =>
-    expect(sm.getSession(sessionId)?.settledAt).toBeDefined(),
-  )
+  await vi.waitFor(() => expect(sm.getSession(sessionId)?.status).toBe("idle"))
 }
 
 beforeEach(() => {
@@ -101,38 +99,31 @@ beforeEach(() => {
   state.pending = null
 })
 
-describe("auto-settle", () => {
-  it("settles a thread when its turn ends cleanly", async () => {
+describe("settling is never automatic", () => {
+  it("leaves a thread in the list when its turn ends cleanly", async () => {
     const { sm, dir } = await makeManager()
     const session = await sm.createSession({ provider: "mock", cwd: dir })
-    expect(sm.getSession(session.id)?.settledAt).toBeUndefined()
 
-    await sm.sendMessage(session.id, "hello")
-    expect(sm.getSession(session.id)?.settledAt).toBeUndefined()
-    state.pending?.resolve()
+    await runTurn(sm, session.id, "hello")
+    await new Promise((r) => setTimeout(r, 20))
 
-    await vi.waitFor(() =>
-      expect(sm.getSession(session.id)?.settledAt).toBeDefined(),
-    )
-    expect(sm.getSession(session.id)?.settledBy).toBe("auto")
+    expect(sm.getSession(session.id)?.settledAt).toBeUndefined()
+    expect(sm.getSession(session.id)?.settledBy).toBeUndefined()
   })
 
-  it("holds off while a follow-up is queued, then settles once the queue drains", async () => {
+  it("leaves it in the list after a queue drains too", async () => {
     const { sm, dir } = await makeManager()
     const session = await sm.createSession({ provider: "mock", cwd: dir })
 
     await sm.sendMessage(session.id, "one")
     await sm.sendMessage(session.id, "two")
     state.pending?.resolve()
-
     await vi.waitFor(() => expect(state.sent).toHaveLength(2))
-    expect(sm.getSession(session.id)?.settledAt).toBeUndefined()
-
     state.pending?.resolve()
-    await vi.waitFor(() =>
-      expect(sm.getSession(session.id)?.settledAt).toBeDefined(),
-    )
-    expect(sm.getSession(session.id)?.settledBy).toBe("auto")
+    await vi.waitFor(() => expect(sm.getSession(session.id)?.status).toBe("idle"))
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(sm.getSession(session.id)?.settledAt).toBeUndefined()
   })
 
   it("does not settle a turn that failed", async () => {
@@ -154,6 +145,8 @@ describe("unsettle on activity", () => {
     const { sm, dir } = await makeManager()
     const session = await sm.createSession({ provider: "mock", cwd: dir })
     await runTurn(sm, session.id, "first")
+    sm.setSessionSettled(session.id, true)
+    expect(sm.getSession(session.id)?.settledAt).toBeDefined()
 
     await sm.sendMessage(session.id, "again")
     expect(sm.getSession(session.id)?.settledAt).toBeUndefined()
@@ -171,23 +164,20 @@ describe("manual settle / unsettle", () => {
     expect(next.settledBy).toBe("user")
   })
 
-  it("user un-settle sticks through the next event but re-settles on the next completed turn", async () => {
+  it("an un-settled thread stays out of Settled through further turns", async () => {
     const { sm, dir } = await makeManager()
     const session = await sm.createSession({ provider: "mock", cwd: dir })
     await runTurn(sm, session.id, "first")
+    sm.setSessionSettled(session.id, true)
 
     const next = sm.setSessionSettled(session.id, false)
     expect(next.settledAt).toBeUndefined()
 
     sm.checkStuckSessions()
-    expect(sm.getSession(session.id)?.settledAt).toBeUndefined()
+    await runTurn(sm, session.id, "second")
+    await new Promise((r) => setTimeout(r, 20))
 
-    await sm.sendMessage(session.id, "second")
-    state.pending?.resolve()
-    await vi.waitFor(() =>
-      expect(sm.getSession(session.id)?.settledAt).toBeDefined(),
-    )
-    expect(sm.getSession(session.id)?.settledBy).toBe("auto")
+    expect(sm.getSession(session.id)?.settledAt).toBeUndefined()
   })
 })
 
@@ -225,6 +215,7 @@ describe("persistence", () => {
     const { sm, dir, persistence } = await makeManager()
     const session = await sm.createSession({ provider: "mock", cwd: dir })
     await runTurn(sm, session.id, "work")
+    sm.setSessionSettled(session.id, true)
     sm.setSessionArchived(session.id, true)
     await sm.flush()
 
@@ -232,13 +223,13 @@ describe("persistence", () => {
       (s) => s.id === session.id,
     )
     expect(saved?.settledAt).toBeDefined()
-    expect(saved?.settledBy).toBe("auto")
+    expect(saved?.settledBy).toBe("user")
     expect(saved?.archived).toBe(true)
 
     const { sm: reborn } = await makeManager(dir)
     const restored = reborn.getSession(session.id)
     expect(restored?.settledAt).toBe(saved?.settledAt)
-    expect(restored?.settledBy).toBe("auto")
+    expect(restored?.settledBy).toBe("user")
     expect(restored?.archived).toBe(true)
   })
 })
@@ -260,7 +251,7 @@ describe("failed and stopped turns", () => {
     expect(sm.getSession(session.id)?.settledAt).toBeUndefined()
   })
 
-  it("a stopped turn's late resolution cannot settle or idle the resend", async () => {
+  it("a stopped turn's late resolution cannot idle or hijack the resend", async () => {
     const { sm, dir } = await makeManager()
     const session = await sm.createSession({ provider: "mock", cwd: dir })
     await sm.sendMessage(session.id, "first")
@@ -274,10 +265,33 @@ describe("failed and stopped turns", () => {
     stale?.resolve()
     await new Promise((r) => setTimeout(r, 20))
 
-    expect(sm.getSession(session.id)?.settledAt).toBeUndefined()
+    expect(sm.getSession(session.id)?.status).toBe("running")
     live?.resolve()
-    await vi.waitFor(() =>
-      expect(sm.getSession(session.id)?.settledAt).toBeDefined(),
+    await vi.waitFor(() => expect(sm.getSession(session.id)?.status).toBe("idle"))
+  })
+})
+
+describe("migration off the removed auto-settle", () => {
+  it("brings back threads the Hub settled by itself, and leaves the owner's alone", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const mine = await sm.createSession({ provider: "mock", cwd: dir })
+    const theirs = await sm.createSession({ provider: "mock", cwd: dir })
+    sm.setSessionSettled(theirs.id, true)
+    await sm.flush()
+
+    const saved = await persistence.load()
+    const stamped = saved.sessions.map((s) =>
+      s.id === mine.id
+        ? { ...s, settledAt: Date.now(), settledBy: "auto" as const }
+        : s,
     )
+    await persistence.save({ ...saved, sessions: stamped })
+
+    const { sm: reborn } = await makeManager(dir)
+
+    expect(reborn.getSession(mine.id)?.settledAt).toBeUndefined()
+    expect(reborn.getSession(mine.id)?.settledBy).toBeUndefined()
+    expect(reborn.getSession(theirs.id)?.settledAt).toBeDefined()
+    expect(reborn.getSession(theirs.id)?.settledBy).toBe("user")
   })
 })
