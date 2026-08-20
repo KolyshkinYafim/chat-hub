@@ -111,6 +111,9 @@ export type UsageLedgerEntry = {
   model: string
   inputTokens: number
   outputTokens: number
+  /** Cache hits. Ledgers written before this field existed read back as 0. */
+  cacheReadTokens: number
+  cacheCreateTokens: number
   costUsd: number
   turns: number
 }
@@ -118,6 +121,8 @@ export type UsageLedgerEntry = {
 export type UsageWindowTotals = {
   inputTokens: number
   outputTokens: number
+  cacheReadTokens: number
+  cacheCreateTokens: number
   costUsd: number
   turns: number
 }

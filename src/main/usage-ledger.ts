@@ -28,6 +28,8 @@ export function mergeLedgerEntry(
     ...cur,
     inputTokens: cur.inputTokens + add.inputTokens,
     outputTokens: cur.outputTokens + add.outputTokens,
+    cacheReadTokens: cur.cacheReadTokens + add.cacheReadTokens,
+    cacheCreateTokens: cur.cacheCreateTokens + add.cacheCreateTokens,
     costUsd: cur.costUsd + add.costUsd,
     turns: cur.turns + add.turns,
   }
@@ -55,6 +57,8 @@ function windowTotals(
   const out: UsageWindowTotals = {
     inputTokens: 0,
     outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreateTokens: 0,
     costUsd: 0,
     turns: 0,
   }
@@ -62,6 +66,8 @@ function windowTotals(
     if (e.day < from || e.day > to) continue
     out.inputTokens += e.inputTokens
     out.outputTokens += e.outputTokens
+    out.cacheReadTokens += e.cacheReadTokens
+    out.cacheCreateTokens += e.cacheCreateTokens
     out.costUsd += e.costUsd
     out.turns += e.turns
   }
@@ -87,6 +93,8 @@ export function seedFromSessions(
       model: session.model ?? "unknown",
       inputTokens: total.inputTokens ?? 0,
       outputTokens: total.outputTokens ?? 0,
+      cacheReadTokens: total.cacheReadTokens ?? 0,
+      cacheCreateTokens: total.cacheCreateTokens ?? 0,
       costUsd: total.costUsd ?? 0,
       turns: total.turns,
     })
@@ -142,6 +150,8 @@ export class UsageLedger {
         model: model ?? "unknown",
         inputTokens: turn.inputTokens ?? 0,
         outputTokens: turn.outputTokens ?? 0,
+        cacheReadTokens: turn.cacheReadTokens ?? 0,
+        cacheCreateTokens: turn.cacheCreateTokens ?? 0,
         costUsd: turn.costUsd ?? 0,
         turns: 1,
       })
@@ -185,6 +195,8 @@ function sanitizeEntries(entries: unknown): UsageLedgerEntry[] {
       model: r.model,
       inputTokens: finite(r.inputTokens),
       outputTokens: finite(r.outputTokens),
+      cacheReadTokens: finite(r.cacheReadTokens),
+      cacheCreateTokens: finite(r.cacheCreateTokens),
       costUsd: finite(r.costUsd),
       turns: finite(r.turns),
     })
