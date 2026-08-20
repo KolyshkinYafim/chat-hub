@@ -37,6 +37,7 @@ import {
 import { createSessionWorktree, removeSessionWorktree } from "./git"
 import { heuristicTitle, looksDefaultTitle } from "@shared/title"
 import { generateTitle } from "./title-llm"
+import { listUnignoredMcpNativeFiles } from "./mcp"
 import {
   createCheckpoint,
   deleteSessionCheckpoints,
@@ -127,6 +128,8 @@ export class SessionManager {
   private archiveWrites = new Map<string, Promise<void>>()
   private inputStatusWired = false
   private userUnsettled = new Set<string>()
+  /** Sessions already told their workspace carries an unignored CLI config. */
+  private configNoted = new Set<string>()
   private readonly generateTitleFn: TitleGenerator
   private readonly usageLedger: UsageLedger | null
   private readonly worktreeSetup: WorktreeSetupRunner
@@ -178,6 +181,28 @@ export class SessionManager {
     } catch (err) {
       console.warn("[session-manager] browser mcp registration failed", err)
     }
+  }
+
+  /**
+   * Registering the browser tools writes a CLI config into the workspace, and
+   * that file holds this machine's absolute paths — worth one line in the
+   * thread so it is not discovered as a stray entry in someone's next commit.
+   * Said once, when the session is born: restoring an old session re-registers
+   * the same file, and repeating the notice on every launch would be noise.
+   */
+  private async noteUnignoredConfigs(
+    sessionId: string,
+    cwd: string,
+  ): Promise<void> {
+    if (this.configNoted.has(sessionId)) return
+    this.configNoted.add(sessionId)
+    const unignored = await listUnignoredMcpNativeFiles(cwd).catch(() => [])
+    if (unignored.length === 0) return
+    const them = unignored.length === 1 ? "it" : "them"
+    this.note(
+      sessionId,
+      `Wrote ${unignored.join(", ")} here so the CLI can see the Hub's tools. Git does not ignore ${them} — Settings › MCP can add ${them} to .gitignore.`,
+    )
   }
 
   /**
@@ -804,6 +829,7 @@ export class SessionManager {
     const cb = this.callbacks()
     try {
       await this.prepareBrowserTools(session)
+      void this.noteUnignoredConfigs(session.id, session.cwd)
       await adapter.start(
         {
           sessionId: id,
@@ -1330,6 +1356,7 @@ export class SessionManager {
     this.queued.delete(sessionId)
     this.usage.delete(sessionId)
     this.userUnsettled.delete(sessionId)
+    this.configNoted.delete(sessionId)
     await this.discardArchive(sessionId)
     this.hooks.clearSession(sessionId)
     // The CLI is dead, so nothing is left to answer its permission any more.
@@ -1377,6 +1404,7 @@ export class SessionManager {
     this.queued.clear()
     this.usage.clear()
     this.userUnsettled.clear()
+    this.configNoted.clear()
     for (const id of ids) await this.discardArchive(id)
     for (const id of ids) this.hooks.clearSession(id)
     this.activeSessionId = null

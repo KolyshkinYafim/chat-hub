@@ -817,3 +817,51 @@ describe("message archive overflow", () => {
     expect(() => archive.fileFor("")).toThrow(/Invalid session id/)
   })
 })
+
+describe("workspace configs the CLI needs", () => {
+  async function repoWithMcpJson(ignored: boolean): Promise<string> {
+    const repo = await mkdtemp(join(tmpdir(), "chat-hub-sm-mcp-"))
+    await exec("git", ["init", "-q"], { cwd: repo })
+    if (ignored) await writeFile(join(repo, ".gitignore"), "/.mcp.json\n")
+    await writeFile(join(repo, ".mcp.json"), '{"mcpServers":{}}\n')
+    return repo
+  }
+
+  it("tells the new session its workspace carries an unignored CLI config", async () => {
+    const { sm } = await makeManager()
+    const repo = await repoWithMcpJson(false)
+
+    const session = await sm.createSession({ provider: "mock", cwd: repo })
+
+    await vi.waitFor(() => {
+      const notes = sm
+        .getMessages(session.id)
+        .filter((m) => m.role === "system" && m.content.includes(".mcp.json"))
+      expect(notes).toHaveLength(1)
+    })
+  })
+
+  it("stays quiet when the project already ignores it", async () => {
+    const { sm } = await makeManager()
+    const repo = await repoWithMcpJson(true)
+
+    const session = await sm.createSession({ provider: "mock", cwd: repo })
+    await new Promise((r) => setTimeout(r, 60))
+
+    expect(
+      sm.getMessages(session.id).filter((m) => m.role === "system"),
+    ).toHaveLength(0)
+  })
+
+  it("stays quiet outside a repository, where nothing can be committed", async () => {
+    const { sm, dir } = await makeManager()
+    await writeFile(join(dir, ".mcp.json"), '{"mcpServers":{}}\n')
+
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await new Promise((r) => setTimeout(r, 60))
+
+    expect(
+      sm.getMessages(session.id).filter((m) => m.role === "system"),
+    ).toHaveLength(0)
+  })
+})
