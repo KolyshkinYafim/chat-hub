@@ -125,7 +125,8 @@ async function makeManager(
     notifications,
     settings,
     watchdog ?? { intervalMs: 60_000, silenceMs: 60_000 },
-    { maxMessages: opts?.maxMessages },
+    // Never the real one: it shells out to the claude CLI.
+    { maxMessages: opts?.maxMessages, titleGenerator: async () => null },
   )
   await sm.init()
   return { sm, dir, persistence, events, bus }
