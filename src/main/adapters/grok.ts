@@ -7,6 +7,7 @@ import {
   type InteractiveQuestion,
 } from "./interactive-input"
 import { runProcess, type RunningProcess } from "./process-runner"
+import { buildEditDiff } from "./edit-diff"
 import { randomUUID } from "node:crypto"
 import {
   beginAssistant,
@@ -26,6 +27,7 @@ import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
 import { isPlanToolName, planStepsFromInput } from "@shared/tool-card"
 import type {
   AgentTurnItem,
+  TurnFileChange,
   TurnItemStatus,
   TurnPlanStep,
   TurnUsage,
@@ -379,6 +381,7 @@ type GrokCall = {
   output?: string
   exitCode?: number
   cwd?: string
+  changes?: TurnFileChange[]
 }
 
 /**
@@ -485,6 +488,7 @@ function mergeGrokCall(
     objectValue(ev.tool) ?? objectValue(ev.call) ?? objectValue(ev.function) ?? {}
   const raw = objectValue(ev.rawOutput)
   const output = grokOutputText(ev)
+  const changes = grokFileChanges(ev)
   return {
     id,
     name:
@@ -507,6 +511,7 @@ function mergeGrokCall(
     output: output ?? prev?.output,
     exitCode: numberValue(raw?.exit_code) ?? prev?.exitCode,
     cwd: stringValue(raw?.current_dir) ?? prev?.cwd,
+    changes: changes ?? prev?.changes,
   }
 }
 
@@ -530,6 +535,9 @@ function grokToolItem(call: GrokCall): AgentTurnItem {
       exitCode: call.exitCode,
     }
   }
+  if (call.changes && call.changes.length > 0) {
+    return { id, kind: "file_change", status: call.status, changes: call.changes }
+  }
   return {
     id,
     kind: "tool",
@@ -538,6 +546,31 @@ function grokToolItem(call: GrokCall): AgentTurnItem {
     arguments: call.input,
     result: clipOutput(call.output),
   }
+}
+
+/**
+ * An edit tool reports itself as ACP `diff` content blocks, not as output. The
+ * hunk is rebuilt from the payload so a folder that is not a repo still gets a
+ * real diff; the file on disk is already edited, so the line numbers are the
+ * ones buildEditDiff can recover, not necessarily absolute.
+ */
+function grokFileChanges(ev: Record<string, unknown>): TurnFileChange[] | null {
+  if (!Array.isArray(ev.content)) return null
+  const changes: TurnFileChange[] = []
+  for (const entry of ev.content) {
+    const block = objectValue(entry)
+    if (!block || block.type !== "diff") continue
+    const path = stringValue(block.path)
+    if (!path) continue
+    const oldText = typeof block.oldText === "string" ? block.oldText : ""
+    const newText = typeof block.newText === "string" ? block.newText : ""
+    changes.push({
+      path,
+      kind: !oldText ? "add" : !newText ? "delete" : "edit",
+      diff: buildEditDiff(path, [{ oldText, newText }]).text || undefined,
+    })
+  }
+  return changes.length > 0 ? changes : null
 }
 
 function grokStatus(
