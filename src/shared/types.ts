@@ -148,6 +148,7 @@ export type TurnItemStatus =
 export type TurnPlanStep = {
   text: string
   status: "pending" | "running" | "completed"
+  id?: string
 }
 
 export type TurnFileChange = {

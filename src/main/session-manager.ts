@@ -58,6 +58,7 @@ export const CHECKPOINT_GATE_MS = 2500
 const ARCHIVE_REFILL_LIMIT = 50
 import { runWorktreeCreateScripts } from "./surfaces/scripts"
 import { projectContextBrief } from "./surfaces/project-context"
+import { applyPlanToBoard } from "./surfaces/board"
 
 /** Live window size; older turns spill into MessageArchive, not the void. */
 export const MAX_MESSAGES_PER_SESSION = 200
@@ -107,6 +108,8 @@ export type WorktreeSetupRunner = (
 
 export class SessionManager {
   private sessions = new Map<string, SessionMeta>()
+  /** Debounce TodoWrite → board.json so a streaming checklist doesn't hammer disk. */
+  private planBoardTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private messages = new Map<string, ChatMessage[]>()
   private activeSessionId: string | null = null
   private saveTimer: ReturnType<typeof setTimeout> | null = null
@@ -1532,6 +1535,10 @@ export class SessionManager {
         })
         this.touch(sessionId)
         this.scheduleSave()
+        if (item.kind === "plan" && item.steps && item.steps.length > 0) {
+          const cwd = this.sessions.get(sessionId)?.cwd
+          if (cwd) this.queuePlanBoard(cwd, item.steps)
+        }
       },
       onPermissionRequest: async (request) => {
         if (!this.permissions) return "deny"
@@ -1719,6 +1726,23 @@ export class SessionManager {
       usage,
       activeSessionId: this.activeSessionId,
     }
+  }
+
+  private queuePlanBoard(
+    cwd: string,
+    steps: { text: string; status: string; id?: string }[],
+  ): void {
+    const prev = this.planBoardTimers.get(cwd)
+    if (prev) clearTimeout(prev)
+    this.planBoardTimers.set(
+      cwd,
+      setTimeout(() => {
+        this.planBoardTimers.delete(cwd)
+        void applyPlanToBoard(cwd, steps).catch((err) => {
+          console.error("[board] plan mirror failed", err)
+        })
+      }, 400),
+    )
   }
 
   private scheduleSave(): void {

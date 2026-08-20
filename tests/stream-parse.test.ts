@@ -270,9 +270,9 @@ describe("planStepsFromInput", () => {
   it("reads todos / plan / items shapes", () => {
     expect(
       planStepsFromInput({
-        todos: [{ content: "a", status: "pending" }],
+        todos: [{ id: "1", content: "a", status: "pending" }],
       }),
-    ).toEqual([{ text: "a", status: "pending" }])
+    ).toEqual([{ text: "a", status: "pending", id: "1" }])
     expect(
       planStepsFromInput({
         plan: [{ step: "b", status: "completed" }],

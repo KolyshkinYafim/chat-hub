@@ -28,7 +28,7 @@ export {
   readFileText,
   saveFileText,
 } from "./files"
-export { readBoard, writeBoard } from "./board"
+export { applyPlanToBoard, mergePlanIntoTodos, readBoard, writeBoard } from "./board"
 export {
   projectContextBrief,
   readProjectContext,

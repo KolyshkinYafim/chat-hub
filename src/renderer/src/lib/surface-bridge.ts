@@ -26,6 +26,7 @@ export type {
   Board,
   BoardNote,
   BoardTodo,
+  BoardTodoStatus,
   DirEntry,
   DirListing,
   FileContents,

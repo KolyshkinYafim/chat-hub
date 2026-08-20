@@ -4,7 +4,12 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { beforeEach, describe, expect, it } from "vitest"
 import type { Board, BoardTodo } from "../src/shared/surfaces"
-import { readBoard, writeBoard } from "../src/main/surfaces/board"
+import {
+  applyPlanToBoard,
+  mergePlanIntoTodos,
+  readBoard,
+  writeBoard,
+} from "../src/main/surfaces/board"
 
 let root = ""
 let file = ""
@@ -20,11 +25,10 @@ async function onDisk(): Promise<Board> {
 }
 
 const todo = (t: Partial<BoardTodo> & { text: string }): BoardTodo => ({
-  id: t.id ?? t.text,
-  text: t.text,
-  done: t.done ?? false,
-  createdAt: t.createdAt ?? 1000,
-  ...(t.updatedAt === undefined ? {} : { updatedAt: t.updatedAt }),
+  done: false,
+  createdAt: 1000,
+  id: t.text,
+  ...t,
 })
 
 beforeEach(async () => {
@@ -40,7 +44,14 @@ describe("readBoard", () => {
     })
     const board = await readBoard(root)
     expect(board.todos).toEqual([
-      { id: "a", text: "ship it", done: true, createdAt: 5, updatedAt: expect.any(Number) },
+      {
+        id: "a",
+        text: "ship it",
+        done: true,
+        status: "done",
+        createdAt: 5,
+        updatedAt: expect.any(Number),
+      },
     ])
     expect(board.notes[0]?.id).toBe("n1")
     // Board + item stamps fall back to the file's mtime so the poll sees edits.
@@ -248,5 +259,89 @@ describe("per-item merge", () => {
     expect(merged.todos[0]?.updatedAt).toBeGreaterThanOrEqual(before)
     expect(merged.updatedAt).toBeGreaterThanOrEqual(before)
     expect((await onDisk()).todos[0]?.updatedAt).toBe(merged.todos[0]?.updatedAt)
+  })
+})
+
+describe("plan mirror", () => {
+  const now = 5_000
+
+  it("upserts plan steps without deleting user-authored tasks", () => {
+    const existing: BoardTodo[] = [
+      todo({ id: "user-1", text: "hand-written", source: "user" }),
+      todo({ id: "1", text: "old title", planKey: "id:1", source: "plan" }),
+    ]
+    const next = mergePlanIntoTodos(
+      existing,
+      [
+        { id: "1", text: "Wire the board", status: "in_progress" },
+        { id: "2", text: "Write tests", status: "pending" },
+      ],
+      now,
+      () => "fresh",
+    )
+    expect(next.map((t) => t.id)).toEqual(["user-1", "1", "2"])
+    expect(next.find((t) => t.id === "user-1")?.text).toBe("hand-written")
+    expect(next.find((t) => t.id === "1")).toMatchObject({
+      text: "Wire the board",
+      status: "in_progress",
+      done: false,
+      source: "plan",
+    })
+    expect(next.find((t) => t.id === "2")).toMatchObject({
+      text: "Write tests",
+      status: "pending",
+      planKey: "id:2",
+    })
+  })
+
+  it("matches an existing row by text when the plan has no id", () => {
+    const next = mergePlanIntoTodos(
+      [todo({ id: "u", text: "Ship the board surface" })],
+      [{ text: "Ship the board surface", status: "completed" }],
+      now,
+    )
+    expect(next).toHaveLength(1)
+    expect(next[0]?.status).toBe("done")
+    expect(next[0]?.done).toBe(true)
+  })
+
+  it("round-trips blockedReason and result from a hand-written file", async () => {
+    await agentWrite({
+      todos: [
+        {
+          id: "b",
+          text: "C2 telegram",
+          done: false,
+          status: "blocked",
+          blockedReason: "need second chat",
+          result: "waiting",
+          createdAt: 1,
+        },
+      ],
+      notes: [],
+    })
+    const board = await readBoard(root)
+    expect(board.todos[0]).toMatchObject({
+      status: "blocked",
+      blockedReason: "need second chat",
+      result: "waiting",
+      done: false,
+    })
+  })
+
+  it("applyPlanToBoard writes once and no-ops when the snapshot is unchanged", async () => {
+    const first = await applyPlanToBoard(root, [
+      { id: "1", text: "Mirror todos", status: "in_progress" },
+    ])
+    expect(first.todos[0]).toMatchObject({
+      text: "Mirror todos",
+      status: "in_progress",
+      source: "plan",
+    })
+    const stamp = first.updatedAt
+    const second = await applyPlanToBoard(root, [
+      { id: "1", text: "Mirror todos", status: "in_progress" },
+    ])
+    expect(second.updatedAt).toBe(stamp)
   })
 })

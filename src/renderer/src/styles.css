@@ -4184,6 +4184,49 @@ select:focus-visible {
   font-family: var(--mono);
 }
 
+.board-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.board-filters {
+  display: flex;
+  gap: 4px;
+}
+
+.board-filter {
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.board-filter.on {
+  background: var(--bg-active);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.board-filter:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.board-search {
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--composer-bg);
+  color: var(--text);
+  font-size: 12px;
+}
+
 .board-add {
   display: flex;
   gap: 6px;
@@ -4225,9 +4268,9 @@ select:focus-visible {
 
 .board-todo {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  padding: 5px 6px;
+  padding: 6px;
   border-radius: 8px;
 }
 
@@ -4240,6 +4283,7 @@ select:focus-visible {
   flex-shrink: 0;
   width: 18px;
   height: 18px;
+  margin-top: 1px;
   border-radius: 5px;
   border: 1.5px solid var(--border);
   color: var(--ok);
@@ -4255,7 +4299,6 @@ select:focus-visible {
 }
 
 .board-todo-text {
-  flex: 1;
   font-size: 13px;
   color: var(--text);
   word-break: break-word;
@@ -4264,6 +4307,99 @@ select:focus-visible {
 .board-todo.done .board-todo-text {
   text-decoration: line-through;
   color: var(--text-faint);
+}
+
+.board-todo-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+}
+
+.board-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.board-status:disabled {
+  cursor: default;
+}
+
+.board-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.board-todo.status-pending .board-status-dot {
+  background: var(--text-secondary);
+}
+
+.board-todo.status-in_progress .board-status-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.board-todo.status-blocked .board-status-dot {
+  background: var(--danger);
+}
+
+.board-todo.status-done .board-status-dot {
+  background: var(--ok);
+}
+
+.board-todo.status-cancelled .board-status-dot,
+.board-todo.status-cancelled .board-todo-text {
+  opacity: 0.55;
+}
+
+.board-source {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 6px;
+  line-height: 1.6;
+}
+
+.board-blocker {
+  flex: 1 1 100%;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.board-todo-meta {
+  flex: 1 1 100%;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--text-faint);
+}
+
+.board-todo-meta.blocked {
+  color: var(--danger);
+}
+
+.board-todo-meta.result {
+  color: var(--text-secondary);
 }
 
 .board-note {

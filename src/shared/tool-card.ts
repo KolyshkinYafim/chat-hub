@@ -4,6 +4,7 @@ export type PlanStepStatus = "pending" | "in_progress" | "completed"
 export type PlanStep = {
   text: string
   status: PlanStepStatus
+  id?: string
 }
 
 export type ToolCardMeta = {
@@ -137,7 +138,8 @@ export function coercePlanSteps(raw: unknown[]): PlanStep[] {
       r.completed === true
         ? "completed"
         : normalizePlanStatus(r.status)
-    out.push({ text, status })
+    const id = strField(r.id)
+    out.push(id ? { text, status, id } : { text, status })
   }
   return out
 }

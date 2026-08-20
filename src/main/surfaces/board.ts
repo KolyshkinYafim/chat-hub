@@ -1,7 +1,15 @@
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import type { Board, BoardNote, BoardTodo } from "@shared/surfaces"
+import {
+  boardTodoStatus,
+  isBoardTodoStatus,
+  withBoardTodoStatus,
+  type Board,
+  type BoardNote,
+  type BoardTodo,
+  type BoardTodoStatus,
+} from "@shared/surfaces"
 import { resolveWorkspaceRoot } from "./paths"
 import { isEnoent } from "../fs-util"
 
@@ -35,6 +43,52 @@ function freshId(prefix: string): string {
 
 function isItemish(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === "object" && str((v as Record<string, unknown>).text).trim() !== ""
+}
+
+function optStr(v: unknown): string | undefined {
+  const s = str(v).trim()
+  return s ? s : undefined
+}
+
+function coerceTodoStatus(raw: unknown, done: boolean): BoardTodoStatus {
+  let parsed: BoardTodoStatus | undefined
+  if (typeof raw === "string") {
+    const s = raw.trim().toLowerCase().replace(/[\s-]+/g, "_")
+    if (s === "in_progress" || s === "inprogress" || s === "running") {
+      parsed = "in_progress"
+    } else if (s === "cancelled" || s === "canceled") {
+      parsed = "cancelled"
+    } else if (isBoardTodoStatus(s)) {
+      parsed = s
+    }
+  }
+  // Legacy UI only flipped `done` and left `status` stale. The boolean wins.
+  if (done) return parsed === "cancelled" ? "cancelled" : "done"
+  if (parsed && parsed !== "done") return parsed
+  return "pending"
+}
+
+function coerceTodo(r: Record<string, unknown>, stamp: number): BoardTodo | null {
+  const text = str(r.text).trim()
+  if (!text) return null
+  const done = r.done === true
+  const status = coerceTodoStatus(r.status, done)
+  const source = r.source === "plan" || r.source === "user" ? r.source : undefined
+  const blockedReason = optStr(r.blockedReason)
+  const result = optStr(r.result)
+  const planKey = optStr(r.planKey)
+  return {
+    id: str(r.id) || freshId("t"),
+    text,
+    done: status === "done",
+    status,
+    ...(blockedReason ? { blockedReason } : {}),
+    ...(result ? { result } : {}),
+    ...(source ? { source } : {}),
+    ...(planKey ? { planKey } : {}),
+    createdAt: num(r.createdAt),
+    updatedAt: num(r.updatedAt) || stamp,
+  }
 }
 
 /**
@@ -78,16 +132,7 @@ function coerce(raw: unknown, stamp: number): Board {
     ? o.todos
         .map((t): BoardTodo | null => {
           if (!t || typeof t !== "object") return null
-          const r = t as Record<string, unknown>
-          const text = str(r.text).trim()
-          if (!text) return null
-          return {
-            id: str(r.id) || freshId("t"),
-            text,
-            done: r.done === true,
-            createdAt: num(r.createdAt),
-            updatedAt: num(r.updatedAt) || stamp,
-          }
+          return coerceTodo(t as Record<string, unknown>, stamp)
         })
         .filter((t): t is BoardTodo => t !== null)
     : []
@@ -193,11 +238,160 @@ export async function readBoard(cwd: unknown): Promise<Board> {
 }
 
 function sameContent(a: BoardItem, b: BoardItem): boolean {
+  if (a.text !== b.text || a.createdAt !== b.createdAt) return false
+  const at = a as BoardTodo
+  const bt = b as BoardTodo
   return (
-    a.text === b.text &&
-    a.createdAt === b.createdAt &&
-    (a as BoardTodo).done === (b as BoardTodo).done
+    at.done === bt.done &&
+    boardTodoStatus(at) === boardTodoStatus(bt) &&
+    (at.blockedReason ?? "") === (bt.blockedReason ?? "") &&
+    (at.result ?? "") === (bt.result ?? "") &&
+    (at.source ?? "") === (bt.source ?? "") &&
+    (at.planKey ?? "") === (bt.planKey ?? "")
   )
+}
+
+export type PlanMirrorStep = {
+  text: string
+  status: string
+  id?: string
+}
+
+function normalizePlanKey(text: string, id?: string): string {
+  if (id && id.trim()) return `id:${id.trim()}`
+  return `text:${text.toLowerCase().replace(/\s+/g, " ").trim()}`
+}
+
+function boardStatusFromPlan(status: string): BoardTodoStatus {
+  const s = status.trim().toLowerCase().replace(/[\s-]+/g, "_")
+  if (s === "completed" || s === "complete" || s === "done" || s === "finished") {
+    return "done"
+  }
+  if (
+    s === "in_progress" ||
+    s === "inprogress" ||
+    s === "running" ||
+    s === "active" ||
+    s === "current"
+  ) {
+    return "in_progress"
+  }
+  return "pending"
+}
+
+function todoUnchanged(a: BoardTodo, b: BoardTodo): boolean {
+  return (
+    a.id === b.id &&
+    a.text === b.text &&
+    a.done === b.done &&
+    boardTodoStatus(a) === boardTodoStatus(b) &&
+    (a.planKey ?? "") === (b.planKey ?? "") &&
+    (a.source ?? "") === (b.source ?? "")
+  )
+}
+
+/**
+ * Upsert a session plan (TodoWrite / update_plan) onto the durable board.
+ * Never deletes rows — a user-authored task the plan doesn't mention stays.
+ * Match order: planKey from step id, then exact text (case-insensitive).
+ */
+export function mergePlanIntoTodos(
+  todos: BoardTodo[],
+  steps: PlanMirrorStep[],
+  now: number,
+  newId: () => string = () => freshId("t"),
+): BoardTodo[] {
+  const usable = steps.filter((step) => step.text.trim() !== "")
+  if (usable.length === 0) return todos
+
+  const next = todos.map((todo) => ({ ...todo }))
+  const indexByKey = new Map<string, number>()
+  const indexByText = new Map<string, number>()
+  next.forEach((todo, i) => {
+    if (todo.planKey) indexByKey.set(todo.planKey, i)
+    indexByText.set(todo.text.toLowerCase().replace(/\s+/g, " ").trim(), i)
+  })
+
+  for (const step of usable) {
+    const text = step.text.trim()
+    const key = normalizePlanKey(text, step.id)
+    const textKey = text.toLowerCase().replace(/\s+/g, " ").trim()
+    let idx = indexByKey.get(key)
+    if (idx === undefined && step.id) {
+      idx = next.findIndex(
+        (todo) => todo.planKey === `id:${step.id}` || todo.id === step.id,
+      )
+      if (idx < 0) idx = undefined
+    }
+    if (idx === undefined) idx = indexByText.get(textKey)
+
+    const status = boardStatusFromPlan(step.status)
+    if (idx === undefined) {
+      const id =
+        step.id && !next.some((todo) => todo.id === step.id)
+          ? step.id
+          : newId()
+      const created = withBoardTodoStatus(
+        {
+          id,
+          text,
+          done: false,
+          source: "plan",
+          planKey: key,
+          createdAt: now,
+          updatedAt: now,
+        },
+        status,
+      )
+      indexByKey.set(key, next.length)
+      indexByText.set(textKey, next.length)
+      next.push(created)
+      continue
+    }
+
+    const cur = next[idx]
+    const patched = withBoardTodoStatus(
+      {
+        ...cur,
+        text,
+        source: cur.source ?? "plan",
+        planKey: cur.planKey ?? key,
+        updatedAt: now,
+      },
+      status,
+    )
+    if (todoUnchanged(cur, patched) && cur.text === patched.text) {
+      continue
+    }
+    next[idx] = patched
+    if (cur.planKey) indexByKey.delete(cur.planKey)
+    indexByKey.set(key, idx)
+    indexByText.set(textKey, idx)
+  }
+  return next
+}
+
+function todosMatch(a: BoardTodo[], b: BoardTodo[]): boolean {
+  if (a.length !== b.length) return false
+  return a.every((todo, i) => {
+    const other = b[i]
+    return other !== undefined && todoUnchanged(todo, other)
+  })
+}
+
+/**
+ * Mirror a live plan checklist onto `.chathub/board.json`. No-op when the
+ * snapshot wouldn't change anything, so a streaming plan doesn't churn mtime.
+ */
+export async function applyPlanToBoard(
+  cwd: unknown,
+  steps: PlanMirrorStep[],
+): Promise<Board> {
+  const disk = await readBoard(cwd)
+  const now = Date.now()
+  const todos = mergePlanIntoTodos(disk.todos, steps, now)
+  if (todosMatch(disk.todos, todos)) return disk
+  return writeBoard(cwd, { ...disk, todos })
 }
 
 /**

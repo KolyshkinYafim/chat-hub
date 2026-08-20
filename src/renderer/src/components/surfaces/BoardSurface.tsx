@@ -1,11 +1,20 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
 } from "react"
 import { contextHeadline } from "@shared/project-context"
+import {
+  boardTodoStatus,
+  isBoardTodoNow,
+  isBoardTodoOpen,
+  withBoardTodoStatus,
+  type BoardTodo,
+  type BoardTodoStatus,
+} from "@shared/surfaces"
 import {
   surfaceBridge,
   errorText,
@@ -13,11 +22,6 @@ import {
   type SurfaceKind,
 } from "../../lib/surface-bridge"
 
-/**
- * Per-project board: todos + the agent's running notes, persisted at
- * `.chathub/board.json`. The agent edits that file directly during a turn; we
- * poll so those out-of-band edits show up live, and the user can edit too.
- */
 /**
  * Stamp the one item the user just edited. The main-process merge resolves per
  * item: rows we merely echo back never clobber a fresher agent edit, but a row
@@ -27,6 +31,44 @@ import {
  */
 function touch<T extends object>(item: T): T {
   return { ...item, updatedAt: Date.now() } as T
+}
+
+type Filter = "all" | "now" | "blocked" | "done"
+
+const FILTERS: { id: Filter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "now", label: "Now" },
+  { id: "blocked", label: "Blocked" },
+  { id: "done", label: "Done" },
+]
+
+const STATUS_LABEL: Record<BoardTodoStatus, string> = {
+  pending: "Pending",
+  in_progress: "In progress",
+  blocked: "Blocked",
+  done: "Done",
+  cancelled: "Cancelled",
+}
+
+function cycleOpenStatus(status: BoardTodoStatus): BoardTodoStatus {
+  if (status === "pending") return "in_progress"
+  if (status === "in_progress") return "blocked"
+  return "pending"
+}
+
+function haystack(todo: BoardTodo): string {
+  return [todo.text, todo.blockedReason, todo.result]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+}
+
+function matchesFilter(todo: BoardTodo, filter: Filter): boolean {
+  const status = boardTodoStatus(todo)
+  if (filter === "now") return isBoardTodoNow(todo)
+  if (filter === "blocked") return status === "blocked"
+  if (filter === "done") return status === "done"
+  return true
 }
 
 type Props = {
@@ -40,6 +82,9 @@ export function BoardSurface({ cwd, onOpenSurface }: Props) {
   const [head, setHead] = useState<{ line: string; share: boolean } | null>(null)
   const [todoDraft, setTodoDraft] = useState("")
   const [noteDraft, setNoteDraft] = useState("")
+  const [query, setQuery] = useState("")
+  const [filter, setFilter] = useState<Filter>("all")
+  const [blockerDrafts, setBlockerDrafts] = useState<Record<string, string>>({})
   const [err, setErr] = useState<string | null>(null)
   // Last-seen persisted stamp: lets the poll ignore what we ourselves just wrote.
   const updatedRef = useRef(0)
@@ -106,6 +151,18 @@ export function BoardSurface({ cwd, onOpenSurface }: Props) {
     [cwd, bridge, adopt],
   )
 
+  const patchTodo = useCallback(
+    (id: string, fn: (todo: BoardTodo) => BoardTodo) => {
+      persist({
+        ...board,
+        todos: board.todos.map((todo) =>
+          todo.id === id ? touch(fn(todo)) : todo,
+        ),
+      })
+    },
+    [board, persist],
+  )
+
   function addTodo() {
     const text = todoDraft.trim()
     if (!text) return
@@ -114,7 +171,14 @@ export function BoardSurface({ cwd, onOpenSurface }: Props) {
       ...board,
       todos: [
         ...board.todos,
-        { id: crypto.randomUUID(), text, done: false, createdAt: Date.now() },
+        {
+          id: crypto.randomUUID(),
+          text,
+          done: false,
+          status: "pending",
+          source: "user",
+          createdAt: Date.now(),
+        },
       ],
     })
   }
@@ -139,9 +203,42 @@ export function BoardSurface({ cwd, onOpenSurface }: Props) {
     }
   }
 
-  const openCount = board.todos.filter((t) => !t.done).length
-  const doneCount = board.todos.length - openCount
+  const counts = useMemo(() => {
+    let open = 0
+    let now = 0
+    let blocked = 0
+    let done = 0
+    for (const todo of board.todos) {
+      const status = boardTodoStatus(todo)
+      if (isBoardTodoOpen(todo)) open += 1
+      if (isBoardTodoNow(todo)) now += 1
+      if (status === "blocked") blocked += 1
+      if (status === "done") done += 1
+    }
+    return { open, now, blocked, done, total: board.todos.length }
+  }, [board.todos])
+
+  const visibleTodos = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return board.todos.filter((todo) => {
+      if (!matchesFilter(todo, filter)) return false
+      if (q && !haystack(todo).includes(q)) return false
+      return true
+    })
+  }, [board.todos, filter, query])
+
   const notes = [...board.notes].sort((a, b) => b.createdAt - a.createdAt)
+
+  const nowLine =
+    counts.total === 0
+      ? "No tasks yet"
+      : [
+          counts.now ? `${counts.now} in work` : `${counts.open} open`,
+          counts.blocked ? `${counts.blocked} blocked` : null,
+          `${counts.done}/${counts.total} done`,
+        ]
+          .filter(Boolean)
+          .join(" · ")
 
   return (
     <div className="board-surface">
@@ -164,10 +261,33 @@ export function BoardSurface({ cwd, onOpenSurface }: Props) {
       <section className="board-section">
         <div className="board-section-head">
           <h3>Todos</h3>
-          <span className="board-count">
-            {doneCount}/{board.todos.length} done
-          </span>
+          <span className="board-count">{nowLine}</span>
         </div>
+
+        <div className="board-toolbar">
+          <div className="board-filters" role="tablist" aria-label="Task filter">
+            {FILTERS.map((chip) => (
+              <button
+                key={chip.id}
+                type="button"
+                role="tab"
+                aria-selected={filter === chip.id}
+                className={`board-filter ${filter === chip.id ? "on" : ""}`}
+                onClick={() => setFilter(chip.id)}
+              >
+                {chip.label}
+              </button>
+            ))}
+          </div>
+          <input
+            className="board-search"
+            value={query}
+            placeholder="Find a task…"
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Find a task"
+          />
+        </div>
+
         <div className="board-add">
           <input
             value={todoDraft}
@@ -180,42 +300,117 @@ export function BoardSurface({ cwd, onOpenSurface }: Props) {
           </button>
         </div>
         <ul className="board-todos">
-          {board.todos.map((t) => (
-            <li key={t.id} className={`board-todo ${t.done ? "done" : ""}`}>
-              <button
-                type="button"
-                className="board-check"
-                aria-pressed={t.done}
-                title={t.done ? "Mark open" : "Mark done"}
-                onClick={() =>
-                  persist({
-                    ...board,
-                    todos: board.todos.map((x) =>
-                      x.id === t.id ? touch({ ...x, done: !x.done }) : x,
-                    ),
-                  })
-                }
+          {visibleTodos.map((t) => {
+            const status = boardTodoStatus(t)
+            return (
+              <li
+                key={t.id}
+                className={`board-todo status-${status} ${status === "done" ? "done" : ""}`}
               >
-                {t.done ? "✓" : ""}
-              </button>
-              <span className="board-todo-text">{t.text}</span>
-              <button
-                type="button"
-                className="board-del"
-                title="Delete"
-                onClick={() =>
-                  persist({
-                    ...board,
-                    todos: board.todos.filter((x) => x.id !== t.id),
-                  })
-                }
-              >
-                ×
-              </button>
-            </li>
-          ))}
+                <button
+                  type="button"
+                  className="board-check"
+                  aria-pressed={status === "done"}
+                  title={status === "done" ? "Mark open" : "Mark done"}
+                  onClick={() =>
+                    patchTodo(t.id, (todo) =>
+                      withBoardTodoStatus(
+                        todo,
+                        boardTodoStatus(todo) === "done" ? "pending" : "done",
+                      ),
+                    )
+                  }
+                >
+                  {status === "done" ? "✓" : ""}
+                </button>
+                <button
+                  type="button"
+                  className="board-status"
+                  title={`${STATUS_LABEL[status]} — click to cycle`}
+                  disabled={status === "done" || status === "cancelled"}
+                  onClick={() =>
+                    patchTodo(t.id, (todo) => {
+                      const cur = boardTodoStatus(todo)
+                      if (cur === "done" || cur === "cancelled") return todo
+                      return withBoardTodoStatus(todo, cycleOpenStatus(cur))
+                    })
+                  }
+                >
+                  <span className="board-status-dot" aria-hidden />
+                  <span className="board-status-label">
+                    {STATUS_LABEL[status]}
+                  </span>
+                </button>
+                <div className="board-todo-body">
+                  <span className="board-todo-text">{t.text}</span>
+                  {t.source === "plan" ? (
+                    <span className="board-source">plan</span>
+                  ) : null}
+                  {status === "blocked" ? (
+                    <input
+                      className="board-blocker"
+                      value={blockerDrafts[t.id] ?? t.blockedReason ?? ""}
+                      placeholder="What’s blocking this?"
+                      aria-label="Blocker"
+                      onChange={(e) => {
+                        const value = e.target.value
+                        setBlockerDrafts((drafts) => ({
+                          ...drafts,
+                          [t.id]: value,
+                        }))
+                      }}
+                      onBlur={() => {
+                        const blockedReason = (
+                          blockerDrafts[t.id] ??
+                          t.blockedReason ??
+                          ""
+                        ).trim()
+                        setBlockerDrafts((drafts) => {
+                          const next = { ...drafts }
+                          delete next[t.id]
+                          return next
+                        })
+                        patchTodo(t.id, (todo) => ({
+                          ...todo,
+                          blockedReason: blockedReason || undefined,
+                        }))
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") (e.target as HTMLInputElement).blur()
+                      }}
+                    />
+                  ) : t.blockedReason ? (
+                    <span className="board-todo-meta blocked">
+                      {t.blockedReason}
+                    </span>
+                  ) : null}
+                  {t.result ? (
+                    <span className="board-todo-meta result">{t.result}</span>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="board-del"
+                  title="Delete"
+                  onClick={() =>
+                    persist({
+                      ...board,
+                      todos: board.todos.filter((x) => x.id !== t.id),
+                    })
+                  }
+                >
+                  ×
+                </button>
+              </li>
+            )
+          })}
           {board.todos.length === 0 ? (
-            <li className="board-empty">No todos yet.</li>
+            <li className="board-empty">
+              No todos yet — add one, or the agent will mirror its checklist
+              here.
+            </li>
+          ) : visibleTodos.length === 0 ? (
+            <li className="board-empty">No tasks match this filter.</li>
           ) : null}
         </ul>
       </section>
