@@ -567,3 +567,488 @@
   margin: 6px 0 0;
   border-color: var(--border-soft);
 }
+
+/* ——— Rich markdown blocks ———
+   Every block that is worth copying is one bordered container with a bar on
+   top: language or shape on the left, copy affordances on the right. */
+
+.md-block {
+  margin: 0 0 12px;
+  max-width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--code-bg);
+  overflow: hidden;
+}
+
+.md-block-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--bg-elevated) 60%, var(--code-bg));
+}
+
+.md-block-tag {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.md-block-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--danger);
+}
+
+.md-block-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.md-copy {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.6;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 5px;
+  color: var(--text-faint);
+  transition: opacity var(--speed-fast) ease;
+}
+
+.md-copy:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.md-copy.done {
+  color: var(--ok);
+}
+
+.md-copy.failed {
+  color: var(--danger);
+}
+
+/* Bar buttons stay quiet until the block is under the pointer. */
+.md-block .md-copy {
+  opacity: 0;
+}
+
+.md-block:hover .md-copy,
+.md-block .md-copy:focus-visible,
+.md-block .md-copy.done,
+.md-block .md-copy.failed {
+  opacity: 1;
+}
+
+.md-more {
+  display: block;
+  width: 100%;
+  padding: 5px 12px 6px;
+  text-align: left;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-soft);
+}
+
+.md-more:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+/* ——— Fenced code ——— */
+
+.md-block .md-code {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 620px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.md-code-block.clipped .md-code {
+  /* The last visible line fades so the cut reads as "more below". */
+  mask-image: linear-gradient(180deg, #000 calc(100% - 28px), transparent);
+}
+
+.md-code-line {
+  display: block;
+  min-height: 1lh;
+}
+
+/* ——— Table ——— */
+
+.md-table-scroll {
+  max-width: 100%;
+  max-height: 560px;
+  overflow: auto;
+  overscroll-behavior-x: contain;
+}
+
+.md-table-scroll:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: -2px;
+}
+
+/* max-content keeps the columns as wide as their data and lets the container
+   scroll; min-width stops a two-column table from huddling on the left. */
+.md-table {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.md-table th,
+.md-table td {
+  /* A cell of prose has to wrap somewhere, or one sentence sets the width. */
+  max-width: 46ch;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+
+/* The label column absorbs the slack so the data stays next to its header. */
+.md-table th:first-child,
+.md-table td:first-child {
+  width: 100%;
+}
+
+.md-table th:first-child.align-right,
+.md-table td:first-child.align-right {
+  width: auto;
+}
+
+.md-table th + th,
+.md-table td + td {
+  border-left: 1px solid var(--border-soft);
+}
+
+.md-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  white-space: nowrap;
+  font-weight: 620;
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg-elevated) 60%, var(--code-bg));
+  border-bottom: 1px solid var(--border);
+}
+
+.md-table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+}
+
+.md-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.md-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.md-table td {
+  color: var(--text-secondary);
+}
+
+.md-table td.numeric {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.md-table .align-left {
+  text-align: left;
+}
+
+.md-table .align-center {
+  text-align: center;
+}
+
+.md-table .align-right {
+  text-align: right;
+}
+
+/* ——— Mermaid ——— */
+
+.md-mermaid-canvas {
+  padding: 12px 14px;
+  overflow: auto;
+  text-align: center;
+}
+
+.md-mermaid-canvas svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.md-mermaid-fallback .md-code {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.md-mermaid-fallback.failed {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+
+/* ——— Lists ——— */
+
+.md-ul,
+.md-ol {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.md-li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.md-li-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.md-marker {
+  flex: none;
+  min-width: 1.2em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+.md-ol .md-marker {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.md-d1 {
+  margin-left: 20px;
+}
+
+.md-d2 {
+  margin-left: 40px;
+}
+
+.md-d3 {
+  margin-left: 60px;
+}
+
+.md-d4 {
+  margin-left: 80px;
+}
+
+.md-d5 {
+  margin-left: 100px;
+}
+
+/* ——— Task list ——— */
+
+.md-check {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  align-self: flex-start;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 1;
+  color: transparent;
+}
+
+.md-li.done .md-check {
+  border-color: color-mix(in srgb, var(--ok) 60%, var(--border));
+  background: color-mix(in srgb, var(--ok) 20%, transparent);
+  color: var(--ok);
+}
+
+.md-li.done .md-li-text {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--text-muted) 55%, transparent);
+}
+
+/* ——— Blockquote ——— */
+
+.md-quote {
+  margin: 0 0 12px;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  color: var(--text-muted);
+}
+
+.md-quote > :last-child {
+  margin-bottom: 0;
+}
+
+.md-quote .md-quote {
+  margin-bottom: 0;
+  border-left-color: var(--border-strong);
+}
+
+/* ——— Thematic break ——— */
+
+.md-hr {
+  margin: 16px 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+/* ——— Definition list ——— */
+
+.md-dl {
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.md-dl dt {
+  font-weight: 620;
+  color: var(--text);
+}
+
+.md-dl dt + dd {
+  margin-top: 2px;
+}
+
+.md-dl dd {
+  margin: 0 0 8px 16px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border-soft);
+}
+
+/* ——— Footnotes ——— */
+
+.md-footnotes {
+  margin: 14px 0 12px;
+  padding: 8px 0 0;
+  list-style: none;
+  border-top: 1px solid var(--border-soft);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.md-footnotes li {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.md-fn-label {
+  flex: none;
+  min-width: 1.4em;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.md-fnref {
+  margin-left: 1px;
+  padding: 0 2px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--accent);
+}
+
+/* ——— Inline flourishes ——— */
+
+.md-strike {
+  color: var(--text-muted);
+  text-decoration-color: color-mix(in srgb, var(--text-muted) 60%, transparent);
+}
+
+.md-kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 5px 2px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--bg-active);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.md-inline-code.md-path {
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  border-color: var(--border);
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.md-inline-code.md-path.actionable {
+  cursor: pointer;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.md-inline-code.md-path.actionable:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.md-image-ref {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.md-image-ico {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ——— Copy affordances on the older cards ——— */
+
+.tool-output {
+  position: relative;
+}
+
+.tool-output-copy {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  z-index: 1;
+  opacity: 0;
+}
+
+.tool-output:hover .tool-output-copy,
+.tool-output-copy:focus-visible,
+.tool-output-copy.done,
+.tool-output-copy.failed {
+  opacity: 1;
+}
+
+.md-diff-copy {
+  margin-left: auto;
+  opacity: 0;
+}
+
+.md-diff:hover .md-diff-copy,
+.md-diff-copy:focus-visible,
+.md-diff-copy.done,
+.md-diff-copy.failed {
+  opacity: 1;
+}

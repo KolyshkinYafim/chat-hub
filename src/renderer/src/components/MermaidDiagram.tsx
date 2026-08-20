@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from "react"
+import { CopyButton } from "./CopyButton"
 
 type RenderState =
   | { status: "loading" }
@@ -8,37 +9,134 @@ type RenderState =
 let mermaidReady: Promise<typeof import("mermaid")> | null = null
 
 function loadMermaid() {
-  if (!mermaidReady) {
-    mermaidReady = import("mermaid").then(async (mod) => {
-      const mermaid = mod.default
-      // LLM output is untrusted — strict blocks click/script injection in diagrams.
-      mermaid.initialize({
-        startOnLoad: false,
-        securityLevel: "strict",
-        theme: "dark",
-        themeVariables: {
-          darkMode: true,
-          background: "#12141a",
-          primaryColor: "#1e2028",
-          primaryTextColor: "#ececf1",
-          primaryBorderColor: "#2a2c35",
-          secondaryColor: "#16171c",
-          tertiaryColor: "#1a1b21",
-          lineColor: "#8b8d98",
-          textColor: "#ececf1",
-          mainBkg: "#1e2028",
-          nodeBorder: "#2a2c35",
-          clusterBkg: "#16171c",
-          titleColor: "#ececf1",
-          edgeLabelBackground: "#12141a",
-          fontFamily:
-            '"SF Pro Text", "Inter", system-ui, -apple-system, sans-serif',
-        },
-      })
-      return mod
-    })
-  }
+  if (!mermaidReady) mermaidReady = import("mermaid")
   return mermaidReady
+}
+
+/** Bumps whenever the theme editor rewrites the root tokens, so diagrams follow. */
+function useThemeVersion(): number {
+  const [version, setVersion] = useState(0)
+  useEffect(() => {
+    const root = document.documentElement
+    const observer = new MutationObserver(() => setVersion((n) => n + 1))
+    observer.observe(root, { attributes: true, attributeFilter: ["style", "class"] })
+    return () => observer.disconnect()
+  }, [])
+  return version
+}
+
+function isDark(color: string): boolean {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim())
+  if (!hex) return true
+  const digits = hex[1]!
+  const full =
+    digits.length === 3
+      ? digits
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : digits
+  const r = parseInt(full.slice(0, 2), 16)
+  const g = parseInt(full.slice(2, 4), 16)
+  const b = parseInt(full.slice(4, 6), 16)
+  return (r * 299 + g * 587 + b * 114) / 1000 < 128
+}
+
+/**
+ * Mermaid draws with its own palette unless every colour is handed to it, so
+ * the live theme tokens are read off `:root` and passed through on each render.
+ */
+function themeVariables(): Record<string, string> {
+  const style = getComputedStyle(document.documentElement)
+  const token = (name: string, fallback: string) =>
+    style.getPropertyValue(name).trim() || fallback
+
+  const bg = token("--code-bg", "#12141a")
+  const surface = token("--bg-active", "#1e2028")
+  const border = token("--border", "#2a2c35")
+  const text = token("--text", "#ececf1")
+  const muted = token("--text-muted", "#8b8d98")
+  const accent = token("--accent", "#7c8cff")
+
+  return {
+    darkMode: String(isDark(bg)),
+    background: bg,
+    primaryColor: surface,
+    primaryTextColor: text,
+    primaryBorderColor: border,
+    secondaryColor: token("--bg-elevated", "#16171c"),
+    tertiaryColor: token("--bg-hover", "#1a1b21"),
+    secondaryTextColor: text,
+    tertiaryTextColor: text,
+    secondaryBorderColor: border,
+    tertiaryBorderColor: border,
+    lineColor: muted,
+    textColor: text,
+    mainBkg: surface,
+    nodeBorder: border,
+    nodeTextColor: text,
+    clusterBkg: token("--bg-elevated", "#16171c"),
+    clusterBorder: border,
+    titleColor: text,
+    edgeLabelBackground: bg,
+    labelBackground: bg,
+    labelBoxBkgColor: surface,
+    labelBoxBorderColor: border,
+    labelTextColor: text,
+    actorBkg: surface,
+    actorBorder: border,
+    actorTextColor: text,
+    actorLineColor: muted,
+    signalColor: text,
+    signalTextColor: text,
+    loopTextColor: text,
+    noteBkgColor: token("--bg-hover", "#1a1b21"),
+    noteBorderColor: border,
+    noteTextColor: text,
+    activationBkgColor: accent,
+    activationBorderColor: border,
+    sequenceNumberColor: bg,
+    altBackground: token("--bg-elevated", "#16171c"),
+    classText: text,
+    attributeBackgroundColorOdd: token("--bg-elevated", "#16171c"),
+    attributeBackgroundColorEven: surface,
+    fillType0: surface,
+    fillType1: token("--bg-elevated", "#16171c"),
+    fillType2: token("--bg-hover", "#1a1b21"),
+    fillType3: token("--bg-row-active", "#252730"),
+    pie1: accent,
+    pie2: token("--ok", "#3dd68c"),
+    pie3: token("--waiting", "#f0b429"),
+    pie4: token("--danger", "#f07178"),
+    pie5: token("--accent-2", "#5b8def"),
+    pie6: token("--working", "#4d9fff"),
+    pieTitleTextColor: text,
+    pieSectionTextColor: bg,
+    pieLegendTextColor: text,
+    pieStrokeColor: border,
+    pieOuterStrokeColor: border,
+    taskBkgColor: surface,
+    taskBorderColor: border,
+    taskTextColor: text,
+    taskTextOutsideColor: text,
+    taskTextLightColor: text,
+    taskTextDarkColor: bg,
+    activeTaskBkgColor: accent,
+    activeTaskBorderColor: accent,
+    doneTaskBkgColor: token("--ok", "#3dd68c"),
+    doneTaskBorderColor: border,
+    critBkgColor: token("--danger", "#f07178"),
+    critBorderColor: border,
+    gridColor: border,
+    sectionBkgColor: token("--bg-elevated", "#16171c"),
+    sectionBkgColor2: surface,
+    altSectionBkgColor: bg,
+    todayLineColor: token("--waiting", "#f0b429"),
+    fontFamily: token(
+      "--font",
+      '"SF Pro Text", "Inter", system-ui, -apple-system, sans-serif',
+    ),
+  }
 }
 
 /**
@@ -47,6 +145,7 @@ function loadMermaid() {
  */
 export function MermaidDiagram({ code }: { code: string }) {
   const reactId = useId().replace(/:/g, "")
+  const theme = useThemeVersion()
   const [state, setState] = useState<RenderState>({ status: "loading" })
 
   useEffect(() => {
@@ -59,6 +158,14 @@ export function MermaidDiagram({ code }: { code: string }) {
       try {
         const mod = await loadMermaid()
         const mermaid = mod.default
+        // LLM output is untrusted — strict blocks click/script injection, and
+        // re-initialising here is what lets a theme switch repaint the diagram.
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          theme: "base",
+          themeVariables: themeVariables(),
+        })
         // parse first so invalid syntax fails before render mutates the DOM.
         await mermaid.parse(code)
         const { svg } = await mermaid.render(renderId, code)
@@ -74,37 +181,48 @@ export function MermaidDiagram({ code }: { code: string }) {
     return () => {
       cancelled = true
     }
-  }, [code, reactId])
+  }, [code, reactId, theme])
 
-  if (state.status === "loading") {
+  if (state.status !== "ready") {
+    const failed = state.status === "error"
     return (
-      <div className="md-mermaid md-mermaid-loading" aria-busy="true">
-        <span className="md-code-lang">mermaid</span>
-        <pre className="md-mermaid-source">
-          <code>{code}</code>
-        </pre>
-      </div>
-    )
-  }
-
-  if (state.status === "error") {
-    return (
-      <div className="md-mermaid md-mermaid-error" role="alert">
-        <div className="md-mermaid-error-msg">{state.message}</div>
+      <div
+        className={`md-block md-mermaid-fallback ${failed ? "failed" : ""}`}
+        aria-busy={failed ? undefined : true}
+        role={failed ? "note" : undefined}
+      >
+        <div className="md-block-bar">
+          <span className="md-block-tag">mermaid</span>
+          {failed ? (
+            <span className="md-block-note" title={state.message}>
+              could not be drawn — showing source
+            </span>
+          ) : null}
+          <span className="md-block-actions">
+            <CopyButton text={() => code} title="Copy the diagram source" />
+          </span>
+        </div>
         <pre className="md-code">
-          <span className="md-code-lang">mermaid</span>
           <code>{code}</code>
         </pre>
       </div>
     )
   }
 
-  // SVG is produced by mermaid with securityLevel: "strict" — the only
-  // intentionally trusted HTML injection path in the renderer.
   return (
-    <div
-      className="md-mermaid"
-      dangerouslySetInnerHTML={{ __html: state.svg }}
-    />
+    <div className="md-block md-mermaid">
+      <div className="md-block-bar">
+        <span className="md-block-tag">diagram</span>
+        <span className="md-block-actions">
+          <CopyButton text={() => code} title="Copy the diagram source" />
+        </span>
+      </div>
+      {/* SVG is produced by mermaid with securityLevel: "strict" — the only
+          intentionally trusted HTML injection path in the renderer. */}
+      <div
+        className="md-mermaid-canvas"
+        dangerouslySetInnerHTML={{ __html: state.svg }}
+      />
+    </div>
   )
 }

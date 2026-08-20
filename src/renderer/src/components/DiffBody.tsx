@@ -1,3 +1,5 @@
+import { CopyButton } from "./CopyButton"
+
 function lineClass(line: string): string {
   if (line.startsWith("+")) return "add"
   if (line.startsWith("-")) return "del"
@@ -14,6 +16,11 @@ export function DiffBody({ code }: { code: string }) {
         <span className="diff-ico">±</span>
         <span className="diff-stat add">+{added}</span>
         <span className="diff-stat del">−{removed}</span>
+        <CopyButton
+          className="md-diff-copy"
+          text={() => code}
+          title="Copy the diff"
+        />
       </div>
       <pre>
         <code>
