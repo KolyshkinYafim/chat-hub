@@ -1,6 +1,7 @@
 import { type ReactNode } from "react"
 import { splitToolName } from "@shared/tool-card"
 import { useExpanded } from "../lib/expansion"
+import { groupFeed, stepsFromCalls } from "../lib/tool-feed"
 import {
   collapseOutput,
   isFailed,
@@ -10,6 +11,7 @@ import {
 import { CopyButton } from "./CopyButton"
 import { DiffBody } from "./DiffBody"
 import { DiffCard } from "./DiffCard"
+import { FeedRunRow } from "./ToolFeed"
 
 function StatusChip({
   call,
@@ -162,6 +164,13 @@ export function ToolRun({
   }
 
   const failures = calls.filter(isFailed).length
+  const byKey = new Map(calls.map((call) => [call.key, call]))
+  const row =
+    (extra: string) =>
+    (cls: string, children: ReactNode): ReactNode => (
+      <li className={`tool-row ${extra} ${cls}`.trim()}>{children}</li>
+    )
+
   return (
     <div className="tool-run">
       <div className="tool-run-head">
@@ -171,16 +180,42 @@ export function ToolRun({
         ) : null}
       </div>
       <ul className="tool-run-list">
-        {calls.map((call) => (
-          <Call
-            key={call.key}
-            call={call}
-            live={live}
-            wrap={(cls, children) => (
-              <li className={`tool-row ${cls}`}>{children}</li>
-            )}
-          />
-        ))}
+        {groupFeed(stepsFromCalls(calls, live)).map((node) => {
+          if (node.kind === "step") {
+            return (
+              <Call
+                key={node.key}
+                call={byKey.get(node.key)!}
+                live={live}
+                wrap={row("")}
+              />
+            )
+          }
+          if (node.steps.length === 1) {
+            return (
+              <Call
+                key={node.key}
+                call={byKey.get(node.steps[0]!.id)!}
+                live={live}
+                wrap={row("quiet")}
+              />
+            )
+          }
+          return (
+            <li key={node.key} className="tool-row is-run">
+              <FeedRunRow run={node}>
+                {node.steps.map((step) => (
+                  <Call
+                    key={step.id}
+                    call={byKey.get(step.id)!}
+                    live={live}
+                    wrap={row("quiet")}
+                  />
+                ))}
+              </FeedRunRow>
+            </li>
+          )
+        })}
       </ul>
     </div>
   )

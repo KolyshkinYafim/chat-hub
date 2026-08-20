@@ -31,6 +31,18 @@
   border-top: 1px solid var(--border-soft);
 }
 
+/* A folded run is already inside the run's own frame — it borrows it. */
+.tool-row.is-run .feed-run {
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.tool-row.quiet > .tool-head {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
 .tool-card {
   margin: 0 0 12px;
   border-radius: 10px;

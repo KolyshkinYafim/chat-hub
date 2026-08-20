@@ -1,5 +1,6 @@
 import type { AgentTurnItem, TurnItemStatus } from "@shared/types"
 import { describeItem, formatElapsed } from "./live-step"
+import { looksLikePath, shortenPath } from "./short-path"
 
 export type TimelineRow = {
   /** Position in the turn, 1-based — the number printed on the row. */
@@ -11,6 +12,8 @@ export type TimelineRow = {
   label: string
   /** On what: the command, the path, the query. Empty when there is no object. */
   detail: string
+  /** `detail` before it was shortened — what a hover has to answer with. */
+  detailFull: string
   status: TurnItemStatus
   /** One lower-case word for the row's right edge. */
   state: string
@@ -34,6 +37,8 @@ export type TurnTimeline = {
 }
 
 const DETAIL_MAX = 140
+/** A row is a fraction of the header's width, so a path gets far less than prose. */
+const PATH_MAX = 52
 const SUMMARY_MAX = 260
 
 const STATE_WORDS: Record<TurnItemStatus, string> = {
@@ -93,7 +98,10 @@ function toRow(item: AgentTurnItem, index: number): TimelineRow {
     id: item.id,
     kind: item.kind,
     label,
-    detail: clamp(detail, DETAIL_MAX),
+    detail: looksLikePath(detail)
+      ? shortenPath(detail, PATH_MAX)
+      : clamp(detail, DETAIL_MAX),
+    detailFull: detail,
     status: item.status,
     state: STATE_WORDS[item.status],
     timing: formatTiming(itemDuration(item)),
