@@ -1,8 +1,21 @@
 import { describe, expect, it } from "vitest"
 import { buildCodexArgs } from "../src/main/adapters/args"
-import { currentCodexModel, renderCodexItem, selectCompatibleEffort } from "../src/main/adapters/codex"
+import {
+  currentCodexModel,
+  mapThreadItem,
+  renderCodexItem,
+  selectCompatibleEffort,
+} from "../src/main/adapters/codex"
 import { readUsage } from "../src/main/adapters/usage"
-import { safeJson } from "../src/main/adapters/stream-parse"
+import {
+  beginAssistant,
+  emitTurnItem,
+  finishTurn,
+  safeJson,
+} from "../src/main/adapters/stream-parse"
+import type { ThreadItem } from "../src/main/codex-protocol/generated/v2/ThreadItem"
+import type { AdapterCallbacks } from "../src/main/adapters/types"
+import type { AgentTurnItem } from "../src/shared/types"
 
 /**
  * Every expectation here was captured from a real `codex exec --json` run
@@ -195,5 +208,127 @@ describe("a real codex turn end to end", () => {
       cacheReadTokens: 27136,
       cacheCreateTokens: 0,
     })
+  })
+})
+
+/**
+ * Captured verbatim from a real `codex app-server` session (codex-cli
+ * 0.148.0-alpha.21, /Applications/ChatGPT.app/Contents/Resources/codex) on
+ * 2026-08-21; only the scratch cwd was shortened to `/p`. The second item is
+ * the one the user interrupted: codex sends `item/started` for it and then
+ * `turn/completed` with status "interrupted" — no `item/completed` ever
+ * arrives, so the card settles only if the turn's end settles it.
+ */
+const REAL_COMMAND_ITEM = {
+  type: "commandExecution",
+  id: "exec-9bd2010c-24a4-420d-b29e-4a96277f8026",
+  pluginId: null,
+  scriptPath: null,
+  command: "/bin/zsh -lc \"sed -n '2p' notes.txt && echo hi\"",
+  cwd: "/p",
+  processId: "10528",
+  source: "unifiedExecStartup",
+  status: "completed",
+  commandActions: [{ type: "unknown", command: "sed -n '2p' notes.txt && echo hi" }],
+  aggregatedOutput: "second line\nhi\n",
+  exitCode: 0,
+  durationMs: 0,
+} as unknown as ThreadItem
+
+const REAL_INTERRUPTED_ITEM = {
+  type: "commandExecution",
+  id: "exec-c72a7fc5-800f-487b-9171-6ddd561c3737",
+  pluginId: null,
+  scriptPath: null,
+  command: "/bin/zsh -lc 'sleep 45 && echo done'",
+  cwd: "/p",
+  processId: "19978",
+  source: "unifiedExecStartup",
+  status: "inProgress",
+  commandActions: [{ type: "unknown", command: "sleep 45 && echo done" }],
+  aggregatedOutput: null,
+  exitCode: null,
+  durationMs: null,
+} as unknown as ThreadItem
+
+const REAL_REASONING_ITEM = {
+  type: "reasoning",
+  id: "rs_02a8b71fecd86eed016a877f616d8487d09d7ca684109d63c0",
+  summary: ["**Confirming tool unavailability**"],
+  content: [],
+} as unknown as ThreadItem
+
+describe("codex app-server thread items", () => {
+  function recorder() {
+    const emitted: AgentTurnItem[] = []
+    const cb = {
+      onMessage: () => {},
+      onDelta: () => {},
+      onStreamDone: () => {},
+      onSessionEvent: () => {},
+      onTurnItem: (_s: string, _m: string, item: AgentTurnItem) => {
+        emitted.push(item)
+      },
+    } as unknown as AdapterCallbacks
+    return { cb, emitted }
+  }
+
+  it("keeps a finished command's own output, exit code and duration", () => {
+    expect(mapThreadItem(REAL_COMMAND_ITEM, true)).toMatchObject({
+      kind: "command",
+      status: "completed",
+      command: "/bin/zsh -lc \"sed -n '2p' notes.txt && echo hi\"",
+      cwd: "/p",
+      output: "second line\nhi\n",
+      exitCode: 0,
+    })
+  })
+
+  it("carries the model's reasoning summary rather than a placeholder", () => {
+    expect(mapThreadItem(REAL_REASONING_ITEM, true)).toMatchObject({
+      kind: "reasoning",
+      status: "completed",
+      summary: "**Confirming tool unavailability**",
+    })
+  })
+
+  it("settles the command an interrupted turn never reported back on", () => {
+    const { cb, emitted } = recorder()
+    const turn = beginAssistant("s1", cb)
+    const running = mapThreadItem(REAL_INTERRUPTED_ITEM, false)!
+    expect(running.status).toBe("running")
+    emitTurnItem(turn, "s1", running, cb)
+
+    finishTurn(turn, "s1", cb, "interrupted")
+    expect(emitted.at(-1)).toMatchObject({
+      id: "exec-c72a7fc5-800f-487b-9171-6ddd561c3737",
+      kind: "command",
+      status: "interrupted",
+    })
+  })
+
+  it("settles the synthetic plan and diff cards a turn opens and never closes", () => {
+    const { cb, emitted } = recorder()
+    const turn = beginAssistant("s1", cb)
+    emitTurnItem(turn, "s1", {
+      id: "turn-plan",
+      kind: "plan",
+      status: "running",
+      text: "Plan",
+      steps: [{ text: "read the file", status: "running" }],
+    }, cb)
+    emitTurnItem(turn, "s1", {
+      id: "turn-diff",
+      kind: "file_change",
+      status: "running",
+      changes: [],
+      aggregateDiff: "--- a\n+++ b\n",
+    }, cb)
+
+    finishTurn(turn, "s1", cb, "completed")
+    expect(emitted.slice(-2).map((item) => [item.id, item.status])).toEqual([
+      ["turn-plan", "completed"],
+      ["turn-diff", "completed"],
+    ])
   })
 })
