@@ -1,5 +1,6 @@
 import type { ToolCardMeta } from "@shared/tool-card"
 import { splitBlocks, type Block } from "./markdown"
+import { shortenIfPath } from "./short-path"
 
 export type ToolResult = {
   text: string
@@ -208,7 +209,8 @@ export function describeCall(
 ): string {
   const lower = name.toLowerCase()
   if (meta.desc) {
-    return clamp(`${meta.desc}${isEditTool(lower) ? delta(meta) : ""}`)
+    const desc = shortenIfPath(meta.desc)
+    return clamp(`${desc}${isEditTool(lower) ? delta(meta) : ""}`)
   }
   const head = firstLine(args)
   const path = meta.paths?.[0] ?? head
@@ -230,7 +232,7 @@ export function describeCall(
     return clamp(active?.text ? `Planning: ${active.text}` : "Planning")
   }
   if (!head || head === "(no args)") return clamp(name)
-  return clamp(`${name} ${head}`)
+  return clamp(`${name} ${shortenIfPath(head)}`)
 }
 
 /** Index of the current step (1-based) and total for "Step 2/5" labels. */

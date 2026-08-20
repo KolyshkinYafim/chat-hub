@@ -1113,7 +1113,7 @@ select:focus-visible {
 .activity-item > summary:hover { background: var(--bg-hover); }
 .activity-item:has(> summary:hover) { border-color: var(--border-strong); }
 .activity-index { flex: 0 0 auto; min-width: 14px; color: var(--text-faint); font-family: var(--mono); font-size: 10px; font-variant-numeric: tabular-nums; text-align: right; }
-.activity-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.activity-label { display: flex; align-items: baseline; gap: 6px; flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; color: var(--text-secondary); }
 .activity-state { margin-left: auto; color: var(--text-faint); font-size: 10px; text-transform: uppercase; }
 .activity-status { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; background: var(--text-faint); }
 .activity-status.status-running { background: var(--working); box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.12); }
@@ -1127,6 +1127,120 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
 .activity-code, .activity-output, .activity-diff { max-height: 260px; margin: 0; padding: 9px 10px; overflow: auto; border-top: 1px solid var(--border); background: #0d0f14; color: var(--text-secondary); font: 11px/1.5 var(--mono); white-space: pre-wrap; }
 .activity-output { color: var(--text-muted); }
 .activity-diff { color: #b8c5a3; white-space: pre; }
+
+/* ——— Tool feed ———
+   Cheap, repetitive steps — reads, greps, listings — fold into one row that
+   opens in place. Writes, commands and anything that failed keep a card of
+   their own. Nothing here animates its height: opening is a reflow, not a
+   transition, so the transcript under the reader never crawls. */
+
+.feed-run {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-m);
+  background: var(--code-bg);
+  overflow: hidden;
+}
+
+.feed-run > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.feed-run > summary::-webkit-details-marker { display: none; }
+.feed-run > summary:hover { background: var(--bg-hover); }
+.feed-run:has(> summary:hover) { border-color: var(--border-strong); }
+
+.feed-run > summary::before {
+  content: "▶";
+  flex: 0 0 auto;
+  width: 9px;
+  color: var(--text-faint);
+  font-size: 7px;
+  line-height: 1;
+}
+
+.feed-run[open] > summary::before {
+  content: "▼";
+}
+
+.feed-run-range {
+  flex: 0 0 auto;
+  min-width: 30px;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.feed-run-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feed-quiet {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.feed-quiet-row + .feed-quiet-row {
+  border-top: 1px solid var(--border-soft);
+}
+
+/* A cheap step is one line, whether it stands alone or sits inside a run. */
+.activity-item.is-quiet {
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.activity-item.is-quiet > summary {
+  padding: 3px 10px;
+  font-size: 10.5px;
+}
+
+.feed-tool {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.feed-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The head is the part that gives, so the file name at the end always shows. */
+.feed-path {
+  display: flex;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 0.96em;
+}
+
+.feed-path-head {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feed-path-tail {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+}
 
 .agent-input-card {
   display: grid;
@@ -5848,10 +5962,13 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  /* A step may fade in; nothing may animate its height. */
   .turn:last-of-type,
   .turn:last-of-type .tool-card,
   .turn:last-of-type .tool-run,
   .turn:last-of-type .plan-card,
+  .turn:last-of-type .activity-item,
+  .turn:last-of-type .feed-run,
   .permission-banner,
   .grok-trust-banner,
   .agent-input-card,
@@ -5892,7 +6009,8 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   .tool-card,
   .tool-run,
   .plan-card,
-  .activity-item {
+  .activity-item,
+  .feed-run > summary {
     transition:
       background-color var(--speed-fast) ease,
       border-color var(--speed-fast) ease,
