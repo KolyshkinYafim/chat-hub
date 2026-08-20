@@ -12,6 +12,33 @@ export type SurfaceKind =
   | "context"
   | "fleet"
 
+/** Every dock surface, in the order the panel's tab strip shows them. */
+export const SURFACE_KINDS: readonly SurfaceKind[] = [
+  "board",
+  "context",
+  "browser",
+  "terminal",
+  "files",
+  "diff",
+  "history",
+  "fleet",
+]
+
+export const SURFACE_LABEL: Record<SurfaceKind, string> = {
+  board: "Board",
+  context: "Context",
+  browser: "Browser",
+  terminal: "Terminal",
+  files: "Files",
+  diff: "Diff",
+  history: "History",
+  fleet: "Agents",
+}
+
+export function isSurfaceKind(value: unknown): value is SurfaceKind {
+  return typeof value === "string" && SURFACE_KINDS.some((k) => k === value)
+}
+
 /**
  * One task on the project board. `done` toggles from the UI or the agent.
  * `updatedAt` is per item so concurrent writes merge row by row instead of

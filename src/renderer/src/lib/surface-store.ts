@@ -1,3 +1,4 @@
+import { isSurfaceKind } from "@shared/surfaces"
 import type { SurfaceKind } from "./surface-bridge"
 
 const WIDTH_KEY = "chat-hub.surfaceDock.width"
@@ -5,16 +6,7 @@ const OPEN_KEY = "chat-hub.surfaceDock.open"
 const BY_SESSION_KEY = "chat-hub.surfaceDock.bySession"
 const AUTO_OPEN_KEY = "chat-hub.surfaceDock.autoOpen"
 
-export const SURFACE_KINDS: readonly SurfaceKind[] = [
-  "board",
-  "context",
-  "browser",
-  "terminal",
-  "files",
-  "diff",
-  "history",
-  "fleet",
-]
+export { SURFACE_KINDS } from "@shared/surfaces"
 
 export const MIN_DOCK_WIDTH = 320
 export const DEFAULT_DOCK_WIDTH = 460
@@ -46,13 +38,6 @@ export function loadDockOpen(): boolean {
 
 export function saveDockOpen(open: boolean): void {
   localStorage.setItem(OPEN_KEY, open ? "1" : "0")
-}
-
-function isSurfaceKind(value: unknown): value is SurfaceKind {
-  return (
-    typeof value === "string" &&
-    SURFACE_KINDS.some((kind) => kind === value)
-  )
 }
 
 export function loadSurfaceBySession(): Record<string, SurfaceKind> {
