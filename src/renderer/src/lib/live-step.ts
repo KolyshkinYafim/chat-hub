@@ -1,5 +1,6 @@
-import { splitToolName, type PlanStep } from "@shared/tool-card"
-import type { ToolCall, TranscriptBlock } from "./tool-runs"
+import { splitToolName, summarizeToolArgs, type PlanStep } from "@shared/tool-card"
+import type { AgentTurnItem } from "@shared/types"
+import { unwrapShell, type ToolCall, type TranscriptBlock } from "./tool-runs"
 
 export type LiveStep = {
   key: string
@@ -16,6 +17,94 @@ export type PlanProgress = {
 }
 
 const DETAIL_MAX = 80
+
+/**
+ * The one step worth showing live for a provider that streams structured items
+ * rather than tool fences in the prose. Null once nothing is open.
+ */
+export function itemStep(items: AgentTurnItem[] | undefined): LiveStep | null {
+  if (!items?.length) return null
+  const open = items.filter(
+    (item) => item.status === "running" || item.status === "pending",
+  )
+  const action = [...open].reverse().find((item) => item.kind !== "reasoning")
+  if (action) {
+    const { label, detail, server } = describeItem(action)
+    return {
+      key: `item:${action.id}`,
+      kind: "tool",
+      label,
+      detail: detail ? clampDetail(detail) : null,
+      server,
+    }
+  }
+  if (open.length === 0) return null
+  return {
+    key: "item:thinking",
+    kind: "thinking",
+    label: "Thinking",
+    detail: null,
+    server: null,
+  }
+}
+
+/** Checklist progress carried by a provider's own plan item. */
+export function itemPlanProgress(
+  items: AgentTurnItem[] | undefined,
+): PlanProgress | null {
+  let steps: { text: string; status: string }[] | null = null
+  for (const item of items ?? []) {
+    if (item.kind === "plan" && item.steps && item.steps.length > 0) {
+      steps = item.steps
+    }
+  }
+  if (!steps) return null
+  return {
+    done: steps.filter((step) => step.status === "completed").length,
+    total: steps.length,
+    active: steps.find((step) => step.status === "running")?.text ?? null,
+  }
+}
+
+/** What a turn item is doing, split into "which tool" and "on what". */
+export function describeItem(item: AgentTurnItem): {
+  label: string
+  detail: string
+  server: string | null
+} {
+  const plain = (label: string, detail: string) => ({ label, detail, server: null })
+  switch (item.kind) {
+    case "command":
+      return plain("Shell", unwrapShell(item.command.split("\n")[0] ?? ""))
+    case "tool": {
+      const { label, server } = splitToolName(item.name)
+      return { label, detail: summarizeToolArgs(item.arguments), server }
+    }
+    case "file_change": {
+      const paths = item.changes.map((change) => change.path)
+      if (paths.length === 1) return plain("Edit", paths[0]!)
+      return plain("Edit", paths.length ? `${paths.length} files` : "code diff")
+    }
+    case "plan": {
+      const active =
+        item.steps?.find((step) => step.status === "running") ??
+        item.steps?.find((step) => step.status === "pending")
+      return plain("Plan", active?.text || item.text)
+    }
+    case "web_search":
+      return plain("Search", item.query)
+    case "image":
+      return plain("Image", item.path)
+    case "review":
+      return plain("Review", item.text)
+    case "compaction":
+      return plain("Compacting context", "")
+    case "reasoning":
+      return plain("Reasoning", "")
+    case "error":
+      return plain("Error", item.message)
+  }
+}
 
 export function currentStep(blocks: TranscriptBlock[]): LiveStep {
   const open = lastOpenCall(blocks)
@@ -85,5 +174,10 @@ function lastOpenCall(blocks: TranscriptBlock[]): ToolCall | null {
 function callDetail(call: ToolCall): string | null {
   const text = (call.meta.desc ?? call.title).replace(/^\$ /, "").trim()
   if (!text) return null
-  return text.length > DETAIL_MAX ? `${text.slice(0, DETAIL_MAX - 1)}…` : text
+  return clampDetail(text)
+}
+
+function clampDetail(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim()
+  return flat.length > DETAIL_MAX ? `${flat.slice(0, DETAIL_MAX - 1)}…` : flat
 }

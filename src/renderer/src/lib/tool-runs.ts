@@ -257,7 +257,8 @@ function delta(meta: ToolCardMeta): string {
 const SHELL_WRAP =
   /^\S*\b(?:bash|zsh|sh)\s+-[a-z]*c\s+(['"])([\s\S]*)\1\s*$/
 
-function unwrapShell(command: string): string {
+/** `/bin/zsh -lc "…"` is a wrapper the reader never typed — show what is inside. */
+export function unwrapShell(command: string): string {
   const wrapped = SHELL_WRAP.exec(command.trim())
   return wrapped ? wrapped[2]!.trim() : command
 }

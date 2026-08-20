@@ -4,8 +4,12 @@ import { buildTranscript } from "@renderer/lib/tool-runs"
 import {
   currentStep,
   formatElapsed,
+  itemPlanProgress,
+  itemStep,
   planProgress,
 } from "@renderer/lib/live-step"
+import { summarizeToolArgs } from "@shared/tool-card"
+import type { AgentTurnItem } from "@shared/types"
 
 function stepFor(src: string) {
   return currentStep(buildTranscript(src).blocks)
@@ -171,5 +175,139 @@ describe("formatElapsed", () => {
 
   it("clamps a negative duration to zero", () => {
     expect(formatElapsed(-5_000)).toBe("0s")
+  })
+})
+
+/**
+ * Item payloads as the real CLIs send them: Grok's `read_file` with
+ * `rawInput`, and Codex's zsh-wrapped command. Both used to reach the ticker as
+ * nothing at all, because the live step was read from the prose only.
+ */
+describe("itemStep", () => {
+  const readFile: AgentTurnItem = {
+    id: "grok-call-0",
+    kind: "tool",
+    status: "running",
+    name: "read_file",
+    arguments: { target_file: "notes.txt" },
+  }
+  const shell: AgentTurnItem = {
+    id: "exec-1",
+    kind: "command",
+    status: "running",
+    command: "/bin/zsh -lc \"sed -n '2p' notes.txt && echo hi\"",
+    cwd: "/p",
+  }
+
+  it("returns nothing when the turn has no items", () => {
+    expect(itemStep(undefined)).toBeNull()
+    expect(itemStep([])).toBeNull()
+  })
+
+  it("names the running tool and what it is working on", () => {
+    expect(itemStep([readFile])).toMatchObject({
+      kind: "tool",
+      label: "read_file",
+      detail: "notes.txt",
+      server: null,
+    })
+  })
+
+  it("shows the command a shell card is running, without the zsh wrapper", () => {
+    expect(itemStep([shell])).toMatchObject({
+      label: "Shell",
+      detail: "sed -n '2p' notes.txt && echo hi",
+    })
+  })
+
+  it("prefers the newest open action over reasoning still streaming", () => {
+    const reasoning: AgentTurnItem = {
+      id: "r",
+      kind: "reasoning",
+      status: "running",
+      summary: "weighing the output",
+    }
+    expect(itemStep([reasoning, shell])).toMatchObject({ label: "Shell" })
+  })
+
+  it("falls back to thinking while only reasoning is open", () => {
+    expect(
+      itemStep([
+        { ...readFile, status: "completed" },
+        { id: "r", kind: "reasoning", status: "running", summary: "next" },
+      ]),
+    ).toMatchObject({ kind: "thinking", label: "Thinking" })
+  })
+
+  it("goes quiet once every item has settled", () => {
+    expect(itemStep([{ ...readFile, status: "completed" }])).toBeNull()
+  })
+
+  it("splits an MCP tool into its short name and server", () => {
+    expect(
+      itemStep([{ ...readFile, name: "mcp__slack__users_search" }]),
+    ).toMatchObject({ label: "users_search", server: "slack" })
+  })
+
+  it("changes its key with the item so the clock restarts", () => {
+    expect(itemStep([readFile])?.key).not.toBe(itemStep([shell])?.key)
+  })
+})
+
+describe("itemPlanProgress", () => {
+  it("counts a provider's own checklist item", () => {
+    expect(
+      itemPlanProgress([
+        {
+          id: "grok-plan",
+          kind: "plan",
+          status: "running",
+          text: "Report what happened",
+          steps: [
+            { text: "Run the command", status: "completed" },
+            { text: "Report what happened", status: "running" },
+          ],
+        },
+      ]),
+    ).toEqual({ done: 1, total: 2, active: "Report what happened" })
+  })
+
+  it("returns null when no item carries steps", () => {
+    expect(itemPlanProgress([])).toBeNull()
+  })
+})
+
+describe("summarizeToolArgs", () => {
+  it("prefers the command over the description grok sends beside it", () => {
+    expect(
+      summarizeToolArgs({ command: "echo hi", description: "Print hi" }),
+    ).toBe("echo hi")
+  })
+
+  it("reads whichever spelling of a path the CLI used", () => {
+    expect(summarizeToolArgs({ target_file: "notes.txt" })).toBe("notes.txt")
+    expect(summarizeToolArgs({ file_path: "src/a.ts" })).toBe("src/a.ts")
+  })
+
+  it("summarizes a checklist by its active step", () => {
+    expect(
+      summarizeToolArgs({
+        todos: [
+          { content: "done thing", status: "completed" },
+          { content: "current thing", status: "in_progress" },
+        ],
+      }),
+    ).toBe("current thing")
+  })
+
+  it("falls back to compact JSON rather than saying nothing", () => {
+    expect(summarizeToolArgs({ depth: 2, recurse: true })).toBe(
+      '{"depth":2,"recurse":true}',
+    )
+  })
+
+  it("stays empty for an argument-free call", () => {
+    expect(summarizeToolArgs({})).toBe("")
+    expect(summarizeToolArgs(undefined)).toBe("")
   })
 })

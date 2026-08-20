@@ -8178,3 +8178,37 @@ select:focus-visible {
   font-size: 10px;
   letter-spacing: 0.02em;
 }
+
+/* --- Live step line and tool cards (stream fidelity) ------------------- */
+
+.activity-live-detail {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-live-elapsed {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-exit {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+/* A non-zero exit is the one thing a command card must not whisper. */
+.activity-item:has(> summary > .status-failed) .activity-exit {
+  color: var(--danger);
+}
