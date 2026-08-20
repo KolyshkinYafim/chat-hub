@@ -12,7 +12,9 @@ export function useOutsideDismiss(
   onDismiss: () => void,
 ): void {
   const latest = useRef(onDismiss)
-  latest.current = onDismiss
+  useEffect(() => {
+    latest.current = onDismiss
+  })
 
   useEffect(() => {
     if (!open) return
