@@ -233,9 +233,10 @@ describe("surface helpers", () => {
     expect(contextDocSpec(undefined)).toBeNull()
   })
 
-  it("shares by default, including for a file that is nonsense", () => {
-    expect(parseContextSettings(null).share).toBe(true)
-    expect(parseContextSettings({ share: "yes" }).share).toBe(true)
+  it("stays silent until sharing was actually recorded", () => {
+    expect(parseContextSettings(null).share).toBe(false)
+    expect(parseContextSettings({ share: "yes" }).share).toBe(false)
+    expect(parseContextSettings({ share: true }).share).toBe(true)
     expect(parseContextSettings({ share: false }).share).toBe(false)
     expect(parseContextSettings({ updatedAt: 42 }).updatedAt).toBe(42)
     expect(parseContextSettings({ updatedAt: -1 }).updatedAt).toBe(0)
