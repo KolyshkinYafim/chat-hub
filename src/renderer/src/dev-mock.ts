@@ -12,6 +12,7 @@ import type {
   SessionMeta,
   SessionSnapshot,
   SessionUsage,
+  UsageLedgerEntry,
   UsageSummary,
   UsageWindowTotals,
 } from "@shared/types"
@@ -243,6 +244,11 @@ const sessions: SessionMeta[] = [
   { id: "s1", title: "Refactor auth middleware", project: "orbit-api", provider: "claude", model: "opus", cwd: projects[0].cwd, status: "running", createdAt: now - 3e5, updatedAt: now - 2e4 },
   { id: "s2", title: "Fix webhook retries", project: "orbit-api", provider: "codex", model: "gpt-5.6-sol", cwd: projects[0].cwd, status: "waiting_input", favorite: true, createdAt: now - 6e5, updatedAt: now - 9e4 },
   { id: "s3", title: "Tune reward curve", project: "aurora-shop", provider: "grok", model: "grok-4", cwd: projects[1].cwd, status: "idle", favorite: true, settledAt: now - 2e5, settledBy: "user", createdAt: now - 8e5, updatedAt: now - 3e5 },
+  // Finished sessions, kept so the Usage tab's top-spend table has a ranking
+  // worth looking at rather than a single row.
+  { id: "s4", title: "Checkout rewrite", project: "aurora-shop", provider: "claude", model: "opus", cwd: projects[1].cwd, status: "done", createdAt: now - 9e6, updatedAt: now - 26e5 },
+  { id: "s5", title: "Migrate billing schema", project: "orbit-api", provider: "claude", model: "sonnet", cwd: projects[0].cwd, status: "done", createdAt: now - 12e6, updatedAt: now - 78e5 },
+  { id: "s6", title: "Landing page copy pass", project: "landing-site", provider: "codex", model: "gpt-5.6-terra", cwd: projects[2].cwd, status: "done", createdAt: now - 16e6, updatedAt: now - 12e6 },
 ]
 
 const mockAttachments: MessageAttachment[] = [
@@ -332,49 +338,111 @@ const queued: Record<string, QueuedMessage[]> = {
 const usage: Record<string, SessionUsage> = {
   s1: { turns: 2, inputTokens: 18400, outputTokens: 2260, cacheReadTokens: 96000, costUsd: 0.42, durationMs: 31200, contextWindow: 200000, lastTurn: { inputTokens: 5100, outputTokens: 890, cacheReadTokens: 62100, cacheCreateTokens: 2400, durationMs: 9400, contextWindow: 200000 } },
   s2: { turns: 1, inputTokens: 5100, outputTokens: 890, costUsd: 0.06, durationMs: 9400 },
+  s4: { turns: 148, inputTokens: 412_000, outputTokens: 96_400, cacheReadTokens: 7_310_000, cacheCreateTokens: 486_000, costUsd: 61.28, durationMs: 4_920_000 },
+  s5: { turns: 63, inputTokens: 151_200, outputTokens: 38_900, cacheReadTokens: 2_140_000, cacheCreateTokens: 173_000, costUsd: 18.44, durationMs: 1_760_000 },
+  s6: { turns: 27, inputTokens: 88_300, outputTokens: 14_100, cacheReadTokens: 402_000, cacheCreateTokens: 51_000, costUsd: 0, durationMs: 610_000 },
 }
 
-// A believable fortnight of ledger rows so the Usage tab renders tiles, both
-// breakdowns, and the day strip without Electron.
+// Half a year of ledger rows: enough to fill the 90-day range *and* the 90 days
+// it compares against, with weekday rhythm, quiet gaps, and one deliberate spike
+// so the chart has something the hover readout can explain.
 const mockUsageSummary: UsageSummary = (() => {
+  const LEDGER_DAYS = 190
+  const SPIKE_OFFSET = 12
+  const MIX: { provider: string; model: string; costPerKTok: number; cache: number }[] = [
+    { provider: "claude", model: "opus", costPerKTok: 0.042, cache: 14 },
+    { provider: "claude", model: "sonnet", costPerKTok: 0.011, cache: 11 },
+    { provider: "claude", model: "haiku", costPerKTok: 0.003, cache: 8 },
+    { provider: "codex", model: "gpt-5.6-sol", costPerKTok: 0, cache: 6 },
+    { provider: "codex", model: "gpt-5.6-terra", costPerKTok: 0, cache: 5 },
+    { provider: "grok", model: "grok-4", costPerKTok: 0.004, cache: 0 },
+    { provider: "opencode", model: "anthropic/claude-sonnet", costPerKTok: 0.009, cache: 3 },
+  ]
+
+  // Seeded LCG: the mock must look the same on every reload, or two screenshots
+  // of the same page disagree.
+  let seed = 0x5eed_1234
+  const rand = (): number => {
+    seed = (seed * 1_664_525 + 1_013_904_223) >>> 0
+    return seed / 0x1_0000_0000
+  }
+  const pick = <T,>(xs: T[]): T => xs[Math.floor(rand() * xs.length)]
+
+  // Anchored to the real clock, not the frozen `now`: the Usage tab windows are
+  // "last N days from today", so a ledger stuck in the mock's past renders empty.
   const dayStr = (offset: number): string => {
-    const d = new Date(now - offset * 86_400_000)
+    const d = new Date()
+    d.setHours(12, 0, 0, 0)
+    d.setDate(d.getDate() - offset)
     const m = String(d.getMonth() + 1).padStart(2, "0")
     const dd = String(d.getDate()).padStart(2, "0")
     return `${d.getFullYear()}-${m}-${dd}`
   }
-  const rows = [
-    { offset: 0, provider: "claude", model: "opus", inputTokens: 48_200, outputTokens: 6_100, costUsd: 1.84, turns: 9 },
-    { offset: 0, provider: "codex", model: "gpt-5.6-sol", inputTokens: 12_300, outputTokens: 2_400, costUsd: 0.31, turns: 4 },
-    { offset: 1, provider: "claude", model: "opus", inputTokens: 91_400, outputTokens: 11_800, costUsd: 3.42, turns: 17 },
-    { offset: 2, provider: "claude", model: "sonnet", inputTokens: 22_000, outputTokens: 4_100, costUsd: 0.44, turns: 6 },
-    { offset: 3, provider: "codex", model: "gpt-5.6-terra", inputTokens: 8_800, outputTokens: 1_500, costUsd: 0.19, turns: 3 },
-    { offset: 4, provider: "claude", model: "opus", inputTokens: 60_300, outputTokens: 7_700, costUsd: 2.31, turns: 12 },
-    { offset: 6, provider: "opencode", model: "anthropic/claude-sonnet", inputTokens: 15_600, outputTokens: 2_900, costUsd: 0.27, turns: 5 },
-    { offset: 8, provider: "claude", model: "opus", inputTokens: 130_500, outputTokens: 16_200, costUsd: 4.96, turns: 21 },
-    { offset: 9, provider: "grok", model: "grok-4", inputTokens: 9_400, outputTokens: 2_100, costUsd: 0.12, turns: 4 },
-    { offset: 11, provider: "claude", model: "haiku", inputTokens: 5_200, outputTokens: 900, costUsd: 0.03, turns: 2 },
-    { offset: 12, provider: "codex", model: "gpt-5.6-sol", inputTokens: 27_800, outputTokens: 5_300, costUsd: 0.68, turns: 8 },
-    { offset: 13, provider: "claude", model: "opus", inputTokens: 44_100, outputTokens: 5_600, costUsd: 1.62, turns: 10 },
-  ]
-  const win = (maxOffset: number): UsageWindowTotals =>
-    rows
-      .filter((r) => r.offset <= maxOffset)
-      .reduce(
-        (acc, r) => ({
-          inputTokens: acc.inputTokens + r.inputTokens,
-          outputTokens: acc.outputTokens + r.outputTokens,
-          costUsd: acc.costUsd + r.costUsd,
-          turns: acc.turns + r.turns,
-        }),
-        { inputTokens: 0, outputTokens: 0, costUsd: 0, turns: 0 },
-      )
-  return {
-    entries: rows.map(({ offset, ...rest }) => ({ day: dayStr(offset), ...rest })),
-    today: win(0),
-    last7d: win(6),
-    last30d: win(29),
+  const weekend = (offset: number): boolean => {
+    const d = new Date()
+    d.setHours(12, 0, 0, 0)
+    d.setDate(d.getDate() - offset)
+    return d.getDay() === 0 || d.getDay() === 6
   }
+
+  const entries: UsageLedgerEntry[] = []
+  for (let offset = LEDGER_DAYS - 1; offset >= 0; offset -= 1) {
+    const idle = rand() < (weekend(offset) ? 0.55 : 0.12)
+    if (idle) continue
+    // Recent weeks are heavier than the archive — a trend the deltas can report.
+    const trend = 0.55 + (1 - offset / LEDGER_DAYS) * 0.9
+    const burst = offset === SPIKE_OFFSET ? 3.4 : 1
+    const rows = 1 + Math.floor(rand() * (weekend(offset) ? 2 : 3))
+    const used = new Set<string>()
+    for (let r = 0; r < rows; r += 1) {
+      const mix = pick(MIX)
+      const key = `${mix.provider}/${mix.model}`
+      if (used.has(key)) continue
+      used.add(key)
+      const turns = Math.max(1, Math.round((1 + rand() * 11) * trend * burst))
+      const inputTokens = Math.round(turns * (900 + rand() * 5200))
+      const outputTokens = Math.round(turns * (400 + rand() * 2400))
+      entries.push({
+        day: dayStr(offset),
+        provider: mix.provider,
+        model: mix.model,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens: Math.round(inputTokens * mix.cache),
+        cacheCreateTokens: Math.round(inputTokens * mix.cache * 0.08),
+        costUsd:
+          Math.round(
+            ((inputTokens + outputTokens * 4) / 1000) * mix.costPerKTok * 100,
+          ) / 100,
+        turns,
+      })
+    }
+  }
+
+  const win = (days: number): UsageWindowTotals => {
+    const from = dayStr(days - 1)
+    return entries
+      .filter((e) => e.day >= from)
+      .reduce(
+        (acc, e) => ({
+          inputTokens: acc.inputTokens + e.inputTokens,
+          outputTokens: acc.outputTokens + e.outputTokens,
+          cacheReadTokens: acc.cacheReadTokens + e.cacheReadTokens,
+          cacheCreateTokens: acc.cacheCreateTokens + e.cacheCreateTokens,
+          costUsd: acc.costUsd + e.costUsd,
+          turns: acc.turns + e.turns,
+        }),
+        {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheCreateTokens: 0,
+          costUsd: 0,
+          turns: 0,
+        },
+      )
+  }
+  return { entries, today: win(1), last7d: win(7), last30d: win(30) }
 })()
 
 const permissions: PermissionRequestInfo[] = [
