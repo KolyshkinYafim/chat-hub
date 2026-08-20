@@ -1,4 +1,8 @@
 import type { BrowserActivity } from "@shared/browser"
+import type {
+  SurfaceOpenRequest,
+  SurfaceStateReport,
+} from "@shared/surface-control"
 import type { ProjectScript, ScriptsFile } from "@shared/scripts"
 import type { ContextDocId, ProjectContext } from "@shared/project-context"
 import type {
@@ -42,6 +46,11 @@ import { humanizeFsError } from "./fs-error"
 
 export type { BrowserActivity } from "@shared/browser"
 
+export type {
+  SurfaceOpenRequest,
+  SurfaceStateReport,
+} from "@shared/surface-control"
+
 export type GrokTrustStatus = { trusted: boolean; path: string }
 
 export type SurfaceBridge = {
@@ -84,6 +93,8 @@ export type SurfaceBridge = {
   browserDetach: (sessionId: string) => Promise<boolean>
   onBrowserActivity: (cb: (event: BrowserActivity) => void) => () => void
   onBrowserOpen: (cb: (sessionId: string) => void) => () => void
+  onSurfaceOpen: (cb: (request: SurfaceOpenRequest) => void) => () => void
+  reportSurfaceState: (state: SurfaceStateReport) => void
   grokTrustStatus: (cwd: string) => Promise<GrokTrustStatus>
   grokTrustFolder: (cwd: string) => Promise<boolean>
 }
