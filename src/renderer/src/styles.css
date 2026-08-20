@@ -445,6 +445,36 @@ select:focus-visible {
   color: var(--danger);
 }
 
+/* ===== sidebar favorites ===== */
+
+.favorites-group {
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.favorites-group .folder-ico {
+  color: var(--accent);
+  opacity: 1;
+}
+
+.row-act.row-fav:hover,
+.row-fav.on {
+  color: var(--accent);
+}
+
+/* A favourite says so without waiting for a hover, while the row's destructive
+   neighbours keep hiding until the cursor asks for them. */
+.session-row-actions:has(.row-fav.on) {
+  opacity: 1;
+}
+
+.session-row:not(:hover):not(:focus-within)
+  .session-row-actions:has(.row-fav.on)
+  > :not(.row-fav) {
+  opacity: 0;
+}
+
 .new-in-project {
   display: block;
   width: calc(100% - 16px);
