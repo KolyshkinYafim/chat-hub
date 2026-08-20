@@ -38,12 +38,14 @@ import type {
   TerminalHandle,
 } from "@shared/surfaces"
 import type {
+  BuildInfo,
   DataPaths,
   GeneralConfig,
   ProviderConfig,
   ProviderInstance,
   ProviderStatus,
   SettingsSnapshot,
+  StorageStats,
 } from "@shared/settings-types"
 import type {
   McpGitignoreResult,
@@ -331,6 +333,12 @@ const api = {
     ipcRenderer.invoke(IpcChannels.setGeneralConfig, patch),
   getDataPaths: (): Promise<DataPaths> =>
     ipcRenderer.invoke(IpcChannels.getDataPaths),
+  /** App version + build commit, for the Advanced tab and support threads. */
+  getBuildInfo: (): Promise<BuildInfo> =>
+    ipcRenderer.invoke(IpcChannels.getBuildInfo),
+  /** Walks the data folder, so callers should treat it as slow. */
+  getStorageStats: (): Promise<StorageStats> =>
+    ipcRenderer.invoke(IpcChannels.getStorageStats),
   /** Merged daily usage ledger with today / 7d / 30d rollups. */
   usageSummary: (): Promise<UsageSummary> =>
     ipcRenderer.invoke(IpcChannels.usageSummary),

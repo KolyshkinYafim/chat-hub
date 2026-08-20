@@ -64,6 +64,8 @@ export const IpcChannels = {
   removeProject: "projects:remove",
   setGeneralConfig: "settings:general",
   getDataPaths: "settings:data-paths",
+  getBuildInfo: "app:build-info",
+  getStorageStats: "app:storage-stats",
   revealPath: "shell:reveal-path",
   wipeSessions: "session:wipe-all",
   testProvider: "providers:test",
