@@ -421,6 +421,27 @@ export class SessionManager {
     return next
   }
 
+  /**
+   * Favouriting is orthogonal to settling: a favourite is pinned to the top of
+   * the sidebar and stays there once its thread is put away, which is the whole
+   * reason to favourite one.
+   */
+  setSessionFavorite(sessionId: string, favorite: boolean): SessionMeta {
+    const session = this.sessions.get(sessionId)
+    if (!session) throw new Error("Session not found")
+    const next: SessionMeta = { ...session, updatedAt: Date.now() }
+    if (favorite) {
+      next.favorite = true
+    } else {
+      delete next.favorite
+    }
+    this.sessions.set(sessionId, next)
+    this.publishSessionEvent({ type: "session.upsert", session: next })
+    this.bus.emit({ type: "sessions.replaced", sessions: this.listSessions() })
+    this.scheduleSave()
+    return next
+  }
+
   /** Archiving implies settled; unarchiving does not unsettle. */
   setSessionArchived(sessionId: string, archived: boolean): SessionMeta {
     const session = this.sessions.get(sessionId)

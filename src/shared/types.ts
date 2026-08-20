@@ -61,6 +61,8 @@ export type SessionMeta = {
   /** Set when the thread settled (turn done, nothing pending); cleared on activity. */
   settledAt?: number
   settledBy?: "auto" | "user"
+  /** Pinned to the sidebar's Favorites group, settled or not. */
+  favorite?: boolean
   archived?: boolean
   /**
    * Who owns this session's card on the island: "hub" for one we spawned,

@@ -528,6 +528,17 @@ export default function App() {
       })
   }
 
+  function setSessionFavorite(id: string, favorite: boolean) {
+    void window.chatHub
+      .setSessionFavorite(id, favorite)
+      .then((next) =>
+        setSessions((curr) => curr.map((s) => (s.id === next.id ? next : s))),
+      )
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : String(err))
+      })
+  }
+
   async function jumpToMessage(sessionId: string, messageId: string) {
     setHighlight({ sessionId, messageId })
     if (sessionId !== activeIdRef.current) await selectSession(sessionId)
@@ -1202,6 +1213,7 @@ export default function App() {
         onSelect={(id) => void selectSession(id)}
         onArchive={setSessionArchived}
         onSettle={setSessionSettled}
+        onFavorite={setSessionFavorite}
         onJumpToMessage={(sessionId, messageId) =>
           void jumpToMessage(sessionId, messageId)
         }

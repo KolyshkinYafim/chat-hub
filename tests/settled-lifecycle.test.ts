@@ -234,6 +234,45 @@ describe("persistence", () => {
   })
 })
 
+describe("favorites", () => {
+  it("toggles the flag off by removing it, not by storing false", async () => {
+    const { sm, dir } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+
+    expect(sm.setSessionFavorite(session.id, true).favorite).toBe(true)
+    expect(sm.setSessionFavorite(session.id, false).favorite).toBeUndefined()
+  })
+
+  it("survives settling, archiving and a turn that unsettles the thread", async () => {
+    const { sm, dir } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    sm.setSessionFavorite(session.id, true)
+
+    expect(sm.setSessionSettled(session.id, true).favorite).toBe(true)
+    expect(sm.setSessionArchived(session.id, true).favorite).toBe(true)
+    sm.setSessionArchived(session.id, false)
+
+    await runTurn(sm, session.id, "back to work")
+    expect(sm.getSession(session.id)?.settledAt).toBeUndefined()
+    expect(sm.getSession(session.id)?.favorite).toBe(true)
+  })
+
+  it("round-trips through state.json", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    sm.setSessionFavorite(session.id, true)
+    await sm.flush()
+
+    const saved = (await persistence.load()).sessions.find(
+      (s) => s.id === session.id,
+    )
+    expect(saved?.favorite).toBe(true)
+
+    const { sm: reborn } = await makeManager(dir)
+    expect(reborn.getSession(session.id)?.favorite).toBe(true)
+  })
+})
+
 describe("failed and stopped turns", () => {
   it("does not settle a turn whose CLI exited non-zero without rejecting", async () => {
     const { sm, dir } = await makeManager()

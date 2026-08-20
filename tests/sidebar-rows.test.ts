@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest"
 
 import type { SessionMeta } from "../src/shared/types"
 import {
+  belongsInFavoritesGroup,
   belongsInProjectGroups,
   belongsInSettledGroup,
+  type RowContext,
 } from "../src/renderer/src/lib/sidebar-rows"
 
 function session(patch: Partial<SessionMeta> = {}): SessionMeta {
@@ -29,6 +31,17 @@ describe("project groups", () => {
 
   it("drops a settled session so the groups stay a list of live work", () => {
     expect(belongsInProjectGroups(session({ settledAt: 5 }), idle)).toBe(false)
+  })
+
+  it("drops a favourite, which the group above already lists", () => {
+    expect(belongsInProjectGroups(session({ favorite: true }), idle)).toBe(false)
+  })
+
+  it("drops the open session when it is a favourite, not to lose it twice", () => {
+    const open = session({ id: "s9", favorite: true, settledAt: 5 })
+    expect(
+      belongsInProjectGroups(open, { searching: false, activeId: "s9" }),
+    ).toBe(false)
   })
 
   it("keeps the open session listed even once it settles", () => {
@@ -82,20 +95,79 @@ describe("settled group", () => {
       belongsInSettledGroup(session({ settledAt: 5, archived: true }), idle),
     ).toBe(false)
   })
+
+  it("lets Favorites keep a settled favourite, rather than repeating it", () => {
+    expect(
+      belongsInSettledGroup(session({ settledAt: 5, favorite: true }), idle),
+    ).toBe(false)
+  })
 })
 
-describe("the two groups partition the sidebar", () => {
+describe("favorites group", () => {
+  it("holds a favourite from any project", () => {
+    expect(belongsInFavoritesGroup(session({ favorite: true }), idle)).toBe(true)
+  })
+
+  it("still holds it once the thread settles", () => {
+    expect(
+      belongsInFavoritesGroup(session({ favorite: true, settledAt: 5 }), idle),
+    ).toBe(true)
+  })
+
+  it("ignores a session nobody favourited", () => {
+    expect(belongsInFavoritesGroup(session(), idle)).toBe(false)
+  })
+
+  it("never holds an archived favourite", () => {
+    expect(
+      belongsInFavoritesGroup(session({ favorite: true, archived: true }), idle),
+    ).toBe(false)
+  })
+
+  it("stays empty while searching, so hits are not listed twice", () => {
+    expect(
+      belongsInFavoritesGroup(session({ favorite: true }), {
+        searching: true,
+        activeId: null,
+      }),
+    ).toBe(false)
+  })
+})
+
+describe("the three groups partition the sidebar", () => {
+  const all = [
+    session({ id: "live" }),
+    session({ id: "settled", settledAt: 5 }),
+    session({ id: "open", settledAt: 5 }),
+    session({ id: "fav", favorite: true }),
+    session({ id: "fav-settled", favorite: true, settledAt: 5 }),
+  ]
+
+  const groupsHolding = (s: SessionMeta, ctx: RowContext) =>
+    [
+      belongsInFavoritesGroup(s, ctx),
+      belongsInProjectGroups(s, ctx),
+      belongsInSettledGroup(s, ctx),
+    ].filter(Boolean)
+
   it("puts every unarchived session in exactly one of them", () => {
     const ctx = { searching: false, activeId: "open" }
-    const all = [
-      session({ id: "live" }),
-      session({ id: "settled", settledAt: 5 }),
-      session({ id: "open", settledAt: 5 }),
-    ]
     for (const s of all) {
-      const inGroups = belongsInProjectGroups(s, ctx)
-      const inSettled = belongsInSettledGroup(s, ctx)
-      expect(inGroups !== inSettled).toBe(true)
+      expect(groupsHolding(s, ctx)).toHaveLength(1)
+    }
+  })
+
+  it("still puts each in exactly one once a query is typed", () => {
+    const ctx = { searching: true, activeId: "open" }
+    for (const s of all) {
+      expect(groupsHolding(s, ctx)).toHaveLength(1)
+    }
+  })
+
+  it("leaves an archived session out of all three", () => {
+    const ctx = { searching: false, activeId: "open" }
+    for (const s of all) {
+      expect(groupsHolding({ ...s, archived: true }, ctx)).toHaveLength(0)
     }
   })
 })

@@ -996,6 +996,19 @@ function registerIpc(
   )
 
   ipcMain.handle(
+    IpcChannels.sessionSetFavorite,
+    (_e, sessionId: unknown, favorite: unknown) => {
+      if (typeof sessionId !== "string" || !sessionId) {
+        throw new Error("Invalid sessionId")
+      }
+      if (typeof favorite !== "boolean") {
+        throw new Error("Invalid favorite flag")
+      }
+      return sm.setSessionFavorite(sessionId, favorite)
+    },
+  )
+
+  ipcMain.handle(
     IpcChannels.sessionRename,
     (_e, sessionId: unknown, title: unknown) => {
       if (typeof sessionId !== "string" || !sessionId) {
