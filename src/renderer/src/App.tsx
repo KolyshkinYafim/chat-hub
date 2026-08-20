@@ -1355,6 +1355,8 @@ export default function App() {
           projectCwd={
             activeSession?.cwd ?? projects[0]?.cwd ?? null
           }
+          sessions={sessions}
+          usageBySession={usageBySession}
         />
       ) : null}
       {wizardOpen ? (
