@@ -6,6 +6,7 @@ import {
   CONTEXT_DOC_LIMIT_CHARS,
   CONTEXT_SETTINGS_REL,
   DEFAULT_CONTEXT_SHARE,
+  SHARE_WHEN_UNRECORDED,
   buildContextBrief,
   contextDocSpec,
   parseContextSettings,
@@ -84,13 +85,13 @@ async function readSettings(root: string): Promise<ContextSettings> {
   try {
     text = await readFile(settingsPath(root), "utf8")
   } catch (e) {
-    if (isEnoent(e)) return { share: DEFAULT_CONTEXT_SHARE, updatedAt: 0 }
+    if (isEnoent(e)) return { share: SHARE_WHEN_UNRECORDED, updatedAt: 0 }
     throw e
   }
   try {
     return parseContextSettings(JSON.parse(text))
   } catch {
-    return { share: DEFAULT_CONTEXT_SHARE, updatedAt: 0 }
+    return { share: SHARE_WHEN_UNRECORDED, updatedAt: 0 }
   }
 }
 

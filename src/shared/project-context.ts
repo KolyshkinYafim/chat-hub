@@ -83,8 +83,16 @@ export type ProjectContext = {
   updatedAt: number
 }
 
-/** Fresh folders share by default: an owner who wrote context wants it used. */
+/** What we record when the owner creates the folder here: they wrote it to be used. */
 export const DEFAULT_CONTEXT_SHARE = true
+
+/**
+ * What an unrecorded folder means. A `.chathub/context/` that arrived with
+ * someone else's checkout has never been anyone's decision on this machine, and
+ * sharing it would quietly add its tokens to every turn — so it stays silent
+ * until the switch is thrown. Creating the folder here records `true` instead.
+ */
+export const SHARE_WHEN_UNRECORDED = false
 
 /** Ceiling on one document, so a stray paste cannot become the system prompt. */
 export const CONTEXT_DOC_LIMIT_CHARS = 32_000
@@ -193,7 +201,7 @@ export type ContextSettings = { share: boolean; updatedAt: number }
 /** Hand-editable file: anything unparseable falls back to sharing. */
 export function parseContextSettings(raw: unknown): ContextSettings {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { share: DEFAULT_CONTEXT_SHARE, updatedAt: 0 }
+    return { share: SHARE_WHEN_UNRECORDED, updatedAt: 0 }
   }
   const o = raw as Record<string, unknown>
   const updatedAt =
@@ -201,7 +209,7 @@ export function parseContextSettings(raw: unknown): ContextSettings {
       ? o.updatedAt
       : 0
   return {
-    share: typeof o.share === "boolean" ? o.share : DEFAULT_CONTEXT_SHARE,
+    share: typeof o.share === "boolean" ? o.share : SHARE_WHEN_UNRECORDED,
     updatedAt,
   }
 }

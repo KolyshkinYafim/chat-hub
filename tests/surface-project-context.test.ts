@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { realpathSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -153,6 +153,7 @@ describe("writeContextDoc", () => {
 
 describe("projectContextBrief", () => {
   it("sends the documents plus the board's open todos", async () => {
+    await setContextShare(root, true)
     await agentWrite("overview.md", "# Overview\n\nAn API.\n")
     await agentWrite("focus.md", "# Current focus\n\nStreaming cutover.\n")
     await mkdir(join(root, ".chathub"), { recursive: true })
@@ -201,5 +202,17 @@ describe("setContextShare", () => {
     expect(off.share).toBe(false)
     expect((await readProjectContext(root)).share).toBe(false)
     await expect(setContextShare(root, "off")).rejects.toThrow(/Invalid share flag/)
+  })
+})
+
+describe("a context folder that arrived with someone else's checkout", () => {
+  it("costs nothing until sharing is switched on here", async () => {
+    await seedProjectContext(root)
+    await rm(join(root, ".chathub", "context.json"), { force: true })
+
+    expect(await projectContextBrief(root)).toBe("")
+
+    await setContextShare(root, true)
+    expect(await projectContextBrief(root)).not.toBe("")
   })
 })
