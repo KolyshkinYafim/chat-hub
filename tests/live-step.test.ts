@@ -230,6 +230,25 @@ describe("itemStep", () => {
     expect(itemStep([reasoning, shell])).toMatchObject({ label: "Shell" })
   })
 
+  it("names the running call, not one queued behind it", () => {
+    expect(
+      itemStep([
+        { ...readFile, status: "completed" },
+        shell,
+        { id: "exec-2", kind: "command", status: "pending", command: "pnpm lint" },
+      ]),
+    ).toMatchObject({ label: "Shell", detail: "sed -n '2p' notes.txt && echo hi" })
+  })
+
+  it("names the first queued call once nothing is running", () => {
+    expect(
+      itemStep([
+        { id: "exec-2", kind: "command", status: "pending", command: "pnpm lint" },
+        { id: "exec-3", kind: "command", status: "pending", command: "pnpm build" },
+      ]),
+    ).toMatchObject({ label: "Shell", detail: "pnpm lint" })
+  })
+
   it("falls back to thinking while only reasoning is open", () => {
     expect(
       itemStep([
