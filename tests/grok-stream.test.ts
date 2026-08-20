@@ -39,6 +39,12 @@ const PLAN_AND_FAILURE = [
   '{"type":"plan","entries":[{"content":"Run ls /definitely-not-here-xyz","priority":"medium","status":"completed"},{"content":"Report what happened from the command","priority":"medium","status":"completed"}]}',
 ]
 
+/** An edit reports itself as ACP `diff` content blocks, not as tool output. */
+const EDIT = [
+  '{"type":"tool_call","toolCallId":"call-f35f5812-1","title":"search_replace","kind":"edit","status":"pending","toolName":"search_replace","rawInput":{"file_path":"/p/math.ts","old_string":"export const answer = 42","new_string":"export const answer = 43"},"content":[],"locations":[]}',
+  '{"type":"tool_call_update","toolCallId":"call-f35f5812-1","status":"completed","content":[{"type":"diff","path":"/p/math.ts","oldText":"export const answer = 42","newText":"export const answer = 43","_meta":{"old_line":1,"new_line":1}}],"rawOutput":{"type":"SearchReplace","EditsApplied":{"old_string":"export const answer = 42","new_string":"export const answer = 43","absolute_path":"/p/math.ts"}},"locations":[{"path":"/p/math.ts"}]}',
+]
+
 /** Grok streams reasoning one word at a time under `thought`. */
 const THOUGHTS = [
   '{"type":"thought","data":"The"}',
@@ -132,6 +138,19 @@ describe("Grok streaming-json activity", () => {
         { text: "Report what happened from the command" },
       ],
     })
+  })
+
+  it("turns an edit into a file change card carrying the diff", () => {
+    const edit = replay(EDIT).get("grok-call-f35f5812-1")
+    expect(edit).toMatchObject({
+      kind: "file_change",
+      status: "completed",
+      changes: [{ path: "/p/math.ts", kind: "edit" }],
+    })
+    const diff = (edit as { changes: { diff?: string }[] }).changes[0]!.diff
+    expect(diff).toBe(
+      "@@ -1,1 +1,1 @@\n- export const answer = 42\n+ export const answer = 43",
+    )
   })
 
   it("puts the model's own reasoning on the card instead of a placeholder", () => {
