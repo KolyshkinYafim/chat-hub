@@ -441,6 +441,7 @@ export class GrokActivityStream {
       this.planSteps = steps.map((step) => ({
         text: step.text,
         status: step.status === "in_progress" ? "running" : step.status,
+        ...(step.id ? { id: step.id } : {}),
       }))
     }
     if (this.planSteps.length === 0) return null

@@ -13,6 +13,7 @@ import {
   estimateContextTokens,
   type ContextDocId,
 } from "@shared/project-context"
+import { isBoardTodoOpen } from "@shared/surfaces"
 import {
   surfaceBridge,
   errorText,
@@ -65,7 +66,9 @@ export function ContextSurface({ cwd, onOpenSurface }: Props) {
         .boardRead(cwd)
         .then((board) => {
           if (!alive) return
-          setOpenTodos(board.todos.filter((t) => !t.done).map((t) => t.text))
+          setOpenTodos(
+            board.todos.filter((t) => isBoardTodoOpen(t)).map((t) => t.text),
+          )
         })
         .catch(() => undefined)
 

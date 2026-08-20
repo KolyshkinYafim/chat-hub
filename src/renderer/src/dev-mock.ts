@@ -799,8 +799,15 @@ const mockMcpEnvKeys: Record<string, string[]> = {}
 
 let mockBoard: Board = {
   todos: [
-    { id: "d1", text: "Wire the composer", done: true, createdAt: 1 },
-    { id: "d2", text: "Ship the board surface", done: false, createdAt: 2 },
+    { id: "d1", text: "Wire the composer", done: true, status: "done", createdAt: 1 },
+    {
+      id: "d2",
+      text: "Ship the board surface",
+      done: false,
+      status: "in_progress",
+      source: "plan",
+      createdAt: 2,
+    },
   ],
   notes: [
     { id: "n1", text: "Board file lives at .chathub/board.json", createdAt: 1 },

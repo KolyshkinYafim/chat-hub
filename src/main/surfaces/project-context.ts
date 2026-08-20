@@ -22,6 +22,7 @@ import {
 } from "@shared/project-detect"
 import { writeFileAtomic } from "../atomic-write"
 import { isEnoent } from "../fs-util"
+import { isBoardTodoOpen } from "@shared/surfaces"
 import { readBoard } from "./board"
 import {
   SurfacePathError,
@@ -252,7 +253,9 @@ export async function setContextShare(
 /** Open todos, newest last, as the "right now" half of the brief. */
 async function openTodoTexts(cwd: unknown): Promise<string[]> {
   const board = await readBoard(cwd).catch(() => null)
-  return (board?.todos ?? []).filter((todo) => !todo.done).map((todo) => todo.text)
+  return (board?.todos ?? [])
+    .filter((todo) => isBoardTodoOpen(todo))
+    .map((todo) => todo.text)
 }
 
 /**

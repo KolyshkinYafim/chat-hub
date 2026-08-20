@@ -12,18 +12,74 @@ export type SurfaceKind =
   | "context"
   | "fleet"
 
+export const BOARD_TODO_STATUSES = [
+  "pending",
+  "in_progress",
+  "blocked",
+  "done",
+  "cancelled",
+] as const
+
+export type BoardTodoStatus = (typeof BOARD_TODO_STATUSES)[number]
+
 /**
- * One task on the project board. `done` toggles from the UI or the agent.
+ * One task on the project board. `done` stays as a boolean so hand-written
+ * `board.json` files and older UI snapshots keep working; `status` is the
+ * richer state. Reads without `status` derive it from `done`.
+ *
  * `updatedAt` is per item so concurrent writes merge row by row instead of
- * board by board; it's optional because hand-written board.json files don't
- * have it (reads fall back to the file's stamp).
+ * board by board; it's optional because hand-written files don't have it
+ * (reads fall back to the file's stamp).
  */
 export type BoardTodo = {
   id: string
   text: string
   done: boolean
+  status?: BoardTodoStatus
+  blockedReason?: string
+  result?: string
+  /** `plan` when the row was mirrored from a session TodoWrite / plan card. */
+  source?: "user" | "plan"
+  /** Stable match key for plan mirroring (`id:…` or `text:…`). */
+  planKey?: string
   createdAt: number
   updatedAt?: number
+}
+
+export function isBoardTodoStatus(value: unknown): value is BoardTodoStatus {
+  return (
+    typeof value === "string" &&
+    (BOARD_TODO_STATUSES as readonly string[]).includes(value)
+  )
+}
+
+/** Effective status: explicit field, else the legacy `done` flag. */
+export function boardTodoStatus(todo: Pick<BoardTodo, "done" | "status">): BoardTodoStatus {
+  if (todo.status && isBoardTodoStatus(todo.status)) return todo.status
+  return todo.done ? "done" : "pending"
+}
+
+/** Still on the plate: not done and not cancelled. */
+export function isBoardTodoOpen(todo: Pick<BoardTodo, "done" | "status">): boolean {
+  const status = boardTodoStatus(todo)
+  return status !== "done" && status !== "cancelled"
+}
+
+/** Live work: currently moving, or stuck. */
+export function isBoardTodoNow(todo: Pick<BoardTodo, "done" | "status">): boolean {
+  const status = boardTodoStatus(todo)
+  return status === "in_progress" || status === "blocked"
+}
+
+export function withBoardTodoStatus(
+  todo: BoardTodo,
+  status: BoardTodoStatus,
+): BoardTodo {
+  return {
+    ...todo,
+    status,
+    done: status === "done",
+  }
 }
 
 /** A dynamic note the agent (or user) drops onto the board. */

@@ -87,8 +87,8 @@ export const DEFAULT_MODES: Mode[] = [
     name: "Planner",
     systemPrompt:
       "Maintain a project board at `.chathub/board.json` in the workspace root. It is JSON of the shape " +
-      '{"todos":[{"id":string,"text":string,"done":boolean,"createdAt":number}],"notes":[{"id":string,"text":string,"createdAt":number}]}. ' +
-      "At the start of a task, read it (create it if missing) and add the todos you plan to do. As you work, flip todos to done:true and append short notes about decisions or findings. Keep it current — it is shown live in the UI.",
+      '{"todos":[{"id":string,"text":string,"done":boolean,"status":"pending"|"in_progress"|"blocked"|"done"|"cancelled","blockedReason"?:string,"result"?:string,"createdAt":number}],"notes":[{"id":string,"text":string,"createdAt":number}]}. ' +
+      "At the start of a task, read it (create it if missing) and add the todos you plan to do. As you work, set status (in_progress / blocked / done) and done:true when finished; put a short blockedReason or result when useful. Append notes about decisions. Keep it current — it is shown live in the Board panel.",
     effort: "high",
   },
 ]
