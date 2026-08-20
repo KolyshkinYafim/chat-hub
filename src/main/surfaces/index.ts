@@ -9,6 +9,12 @@ import {
   saveFileText,
 } from "./files"
 import { readBoard, writeBoard } from "./board"
+import {
+  readProjectContext,
+  seedProjectContext,
+  setContextShare,
+  writeContextDoc,
+} from "./project-context"
 import { listProjectFiles, searchProjectContent } from "./project-search"
 import { readScripts, writeScripts } from "./scripts"
 import { grantMediaUrl } from "./media"
@@ -23,6 +29,13 @@ export {
   saveFileText,
 } from "./files"
 export { readBoard, writeBoard } from "./board"
+export {
+  projectContextBrief,
+  readProjectContext,
+  seedProjectContext,
+  setContextShare,
+  writeContextDoc,
+} from "./project-context"
 export { listProjectFiles, searchProjectContent } from "./project-search"
 export {
   readScripts,
@@ -53,6 +66,25 @@ export function registerSurfaceIpc(terminals: TerminalSessions): void {
 
   ipcMain.handle(IpcChannels.boardWrite, (_e, cwd: unknown, board: unknown) =>
     writeBoard(cwd, board),
+  )
+
+  ipcMain.handle(IpcChannels.contextRead, (_e, cwd: unknown) =>
+    readProjectContext(cwd),
+  )
+
+  ipcMain.handle(
+    IpcChannels.contextWriteDoc,
+    (_e, cwd: unknown, id: unknown, text: unknown) =>
+      writeContextDoc(cwd, id, text),
+  )
+
+  ipcMain.handle(IpcChannels.contextSeed, (_e, cwd: unknown, id: unknown) =>
+    seedProjectContext(cwd, id),
+  )
+
+  ipcMain.handle(
+    IpcChannels.contextSetShare,
+    (_e, cwd: unknown, share: unknown) => setContextShare(cwd, share),
   )
 
   ipcMain.handle(IpcChannels.scriptsList, (_e, cwd: unknown) => readScripts(cwd))

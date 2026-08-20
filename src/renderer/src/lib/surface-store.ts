@@ -7,6 +7,7 @@ const AUTO_OPEN_KEY = "chat-hub.surfaceDock.autoOpen"
 
 export const SURFACE_KINDS: readonly SurfaceKind[] = [
   "board",
+  "context",
   "browser",
   "terminal",
   "files",

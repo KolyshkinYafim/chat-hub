@@ -54,6 +54,7 @@ import type {
 } from "@shared/mcp"
 import type { BrowserActivity } from "@shared/browser"
 import type { ProjectScript, ScriptsFile } from "@shared/scripts"
+import type { ContextDocId, ProjectContext } from "@shared/project-context"
 
 const api = {
   getSnapshot: (): Promise<SessionSnapshot> =>
@@ -480,6 +481,20 @@ const api = {
     ipcRenderer.invoke(IpcChannels.voiceToggle, intent),
   voiceCancel: (): Promise<boolean> =>
     ipcRenderer.invoke(IpcChannels.voiceCancel),
+  /** Project context (.chathub/context/*.md) — overview, stack, conventions, focus. */
+  contextRead: (cwd: string): Promise<ProjectContext> =>
+    ipcRenderer.invoke(IpcChannels.contextRead, cwd),
+  contextWriteDoc: (
+    cwd: string,
+    id: ContextDocId,
+    text: string,
+  ): Promise<ProjectContext> =>
+    ipcRenderer.invoke(IpcChannels.contextWriteDoc, cwd, id, text),
+  /** No id = create what is missing; an id = re-detect that one document. */
+  contextSeed: (cwd: string, id?: ContextDocId): Promise<ProjectContext> =>
+    ipcRenderer.invoke(IpcChannels.contextSeed, cwd, id ?? null),
+  contextSetShare: (cwd: string, share: boolean): Promise<ProjectContext> =>
+    ipcRenderer.invoke(IpcChannels.contextSetShare, cwd, share),
 }
 
 contextBridge.exposeInMainWorld("chatHub", api)
