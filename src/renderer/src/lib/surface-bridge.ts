@@ -32,6 +32,7 @@ export type {
   TerminalChunk,
   TerminalExit,
 } from "@shared/surfaces"
+import { humanizeFsError } from "./fs-error"
 
 export type { BrowserActivity } from "@shared/browser"
 
@@ -87,5 +88,5 @@ const IPC_WRAPPER = /^Error invoking remote method '[^']*':\s*(?:\w*Error:\s*)?/
 
 export function errorText(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err)
-  return message.replace(IPC_WRAPPER, "")
+  return humanizeFsError(message.replace(IPC_WRAPPER, ""))
 }
