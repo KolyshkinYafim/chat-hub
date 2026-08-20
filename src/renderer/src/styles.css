@@ -923,13 +923,31 @@ select:focus-visible {
   min-width: 0;
 }
 
-.turn-result-label {
+.turn-result-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 7px;
+}
+
+.turn-result-label {
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-faint);
+}
+
+/* Stays out of the way until the turn is under the pointer or keyboard focus. */
+.turn-copy {
+  opacity: 0;
+}
+
+.turn:hover .turn-copy,
+.turn-copy:focus-visible,
+.turn-copy.done,
+.turn-copy.failed {
+  opacity: 1;
 }
 
 .streaming-tag {
@@ -965,6 +983,7 @@ select:focus-visible {
 /* The body itself spans the column so code, diffs and tool cards can use it;
    only the prose inside is capped, which is what actually gets unreadable. */
 .md-body {
+  min-width: 0;
   color: var(--text-secondary);
   font-size: 13.5px;
   line-height: 1.55;
@@ -972,6 +991,10 @@ select:focus-visible {
 
 .md-body .md-p,
 .md-body .md-ul,
+.md-body .md-ol,
+.md-body .md-dl,
+.md-body .md-quote,
+.md-body .md-footnotes,
 .md-body .md-h {
   max-width: var(--prose-w);
 }
@@ -1006,8 +1029,14 @@ select:focus-visible {
   font-weight: 650;
 }
 
+.md-h1 {
+  font-size: 18px;
+  margin-top: 18px;
+}
+
 .md-h2 {
   font-size: 16px;
+  margin-top: 16px;
 }
 
 .md-h3 {
@@ -1016,39 +1045,37 @@ select:focus-visible {
   color: var(--text);
 }
 
+.md-h4,
+.md-h5,
+.md-h6 {
+  margin-top: 12px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.md-h5,
+.md-h6 {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* First heading of a message has nothing above it to breathe against. */
+.md-body > .md-h:first-child {
+  margin-top: 0;
+}
+
 .md-p {
   margin: 0 0 10px;
-}
-
-.md-ul {
-  margin: 0 0 12px;
-  padding: 0 0 0 2px;
-  list-style: none;
-}
-
-.md-ul li {
-  position: relative;
-  padding: 3px 0 3px 18px;
-}
-
-.md-ul li::before {
-  content: "•";
-  position: absolute;
-  left: 4px;
-  color: var(--text-faint);
-}
-
-.md-ul li:has(strong)::before,
-.md-body .md-ul li {
-  /* keep simple bullets; checkmarks come from text */
 }
 
 .md-inline-code {
   font-family: var(--mono);
   font-size: 12px;
-  background: rgba(124, 140, 255, 0.1);
-  border: 1px solid rgba(124, 140, 255, 0.18);
-  color: #c8d0ff;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  color: color-mix(in srgb, var(--accent) 45%, var(--text));
   border-radius: 5px;
   padding: 1px 5px;
 }
@@ -1064,68 +1091,14 @@ select:focus-visible {
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1.5;
-  color: #d4d7e2;
-}
-
-.md-code-lang {
-  position: absolute;
-  top: 6px;
-  right: 10px;
-  font-size: 10px;
-  color: var(--text-faint);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  color: var(--text-secondary);
 }
 
 .md-code code {
   font-family: inherit;
 }
 
-/* ——— Mermaid diagram ——— */
-
-.md-mermaid {
-  position: relative;
-  margin: 0 0 12px;
-  padding: 12px 14px;
-  background: var(--code-bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: auto;
-  text-align: center;
-}
-
-.md-mermaid svg {
-  max-width: 100%;
-  height: auto;
-}
-
-.md-mermaid-loading {
-  text-align: left;
-}
-
-.md-mermaid-source {
-  margin: 0;
-  font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.5;
-  color: #d4d7e2;
-  white-space: pre-wrap;
-}
-
-.md-mermaid-error {
-  text-align: left;
-  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
-}
-
-.md-mermaid-error-msg {
-  margin: 0 0 8px;
-  font-size: 11.5px;
-  color: var(--danger);
-}
-
-.md-mermaid-error .md-code {
-  margin: 0;
-}
+/* Mermaid, code, table and diagram containers all live in transcript.css. */
 
 /* ——— Reasoning (thinking) block ——— */
 
@@ -7330,7 +7303,6 @@ select:focus-visible {
 }
 
 :root.theme-light .md-code,
-:root.theme-light .md-mermaid-source,
 :root.theme-light .tool-body,
 :root.theme-light .tool-args {
   color: var(--text-secondary);

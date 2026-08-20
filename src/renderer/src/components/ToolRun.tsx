@@ -1,27 +1,15 @@
-import { useState, type ReactNode } from "react"
+import { type ReactNode } from "react"
 import { splitToolName } from "@shared/tool-card"
+import { useExpanded } from "../lib/expansion"
 import {
   collapseOutput,
   isFailed,
   startsOpen,
   type ToolCall,
 } from "../lib/tool-runs"
+import { CopyButton } from "./CopyButton"
 import { DiffBody } from "./DiffBody"
 import { DiffCard } from "./DiffCard"
-
-const expansionRememberedAcrossMounts = new Map<string, boolean>()
-
-function useExpanded(key: string, initial: boolean) {
-  const [open, setOpen] = useState(
-    () => expansionRememberedAcrossMounts.get(key) ?? initial,
-  )
-  const toggle = () => {
-    const next = !open
-    expansionRememberedAcrossMounts.set(key, next)
-    setOpen(next)
-  }
-  return [open, toggle] as const
-}
 
 function StatusChip({
   call,
@@ -90,6 +78,11 @@ function Output({ call }: { call: ToolCall }) {
   const showAll = open || hidden === 0
   return (
     <div className="tool-output">
+      <CopyButton
+        className="tool-output-copy"
+        text={() => text}
+        title="Copy the whole output"
+      />
       <pre>
         <code>{showAll ? text : head}</code>
       </pre>

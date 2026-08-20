@@ -56,6 +56,8 @@ import {
   contextWindowFor,
   formatContextMeter,
 } from "@shared/context-window"
+import { messageToPlainText } from "../lib/copy-text"
+import { CopyButton } from "./CopyButton"
 import { MarkdownBody } from "./MarkdownBody"
 import { TopBar } from "./TopBar"
 import { AttachmentGallery } from "./AttachmentGallery"
@@ -1307,8 +1309,18 @@ export function ChatView({
                   <TurnItems items={m.items} streaming={m.streaming === true} />
                   {m.content.trim() ? (
                     <section className="turn-result">
-                      <div className="turn-result-label">
-                        {m.streaming ? "Response" : "Result"}
+                      <div className="turn-result-head">
+                        <span className="turn-result-label">
+                          {m.streaming ? "Response" : "Result"}
+                        </span>
+                        {m.streaming ? null : (
+                          <CopyButton
+                            className="turn-copy"
+                            label="copy reply"
+                            title="Copy the whole reply as markdown"
+                            text={() => messageToPlainText(m.content)}
+                          />
+                        )}
                       </div>
                       <MarkdownBody
                         text={m.content}
