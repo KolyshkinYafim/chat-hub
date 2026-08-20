@@ -70,6 +70,8 @@ function entry(patch: Partial<UsageLedgerEntry>): UsageLedgerEntry {
     model: "opus",
     inputTokens: 0,
     outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreateTokens: 0,
     costUsd: 0,
     turns: 1,
     ...patch,
@@ -137,9 +139,15 @@ describe("file persistence", () => {
     await ledger.record("claude", "opus", {
       inputTokens: 100,
       outputTokens: 10,
+      cacheReadTokens: 9000,
+      cacheCreateTokens: 300,
       costUsd: 0.5,
     })
-    await ledger.record("claude", "opus", { inputTokens: 40, costUsd: 0.25 })
+    await ledger.record("claude", "opus", {
+      inputTokens: 40,
+      cacheReadTokens: 1000,
+      costUsd: 0.25,
+    })
 
     const reopened = new UsageLedger(path, () => now)
     await reopened.init()
@@ -150,6 +158,8 @@ describe("file persistence", () => {
         model: "opus",
         inputTokens: 140,
         outputTokens: 10,
+        cacheReadTokens: 10_000,
+        cacheCreateTokens: 300,
         costUsd: 0.75,
         turns: 2,
       },
@@ -171,6 +181,37 @@ describe("file persistence", () => {
       { provider: "codex", model: "unknown", costUsd: 0.1, turns: 1 },
     ])
     expect(JSON.parse(await readFile(path, "utf8")).entries).toHaveLength(1)
+  })
+
+  it("reads a pre-cache-column ledger back with zeroed cache counts", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "chat-hub-ledger-"))
+    const path = join(dir, "usage-ledger.json")
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            day: "2026-08-19",
+            provider: "claude",
+            model: "opus",
+            inputTokens: 100,
+            outputTokens: 10,
+            costUsd: 0.5,
+            turns: 1,
+          },
+        ],
+      }),
+      "utf8",
+    )
+
+    const ledger = new UsageLedger(path)
+    await ledger.init()
+    expect(ledger.summary().entries[0]).toMatchObject({
+      inputTokens: 100,
+      cacheReadTokens: 0,
+      cacheCreateTokens: 0,
+    })
   })
 
   it("seeds a missing file from per-session totals on their updatedAt day", async () => {
@@ -201,7 +242,15 @@ describe("file persistence", () => {
           updatedAt,
         },
       ],
-      { s1: { turns: 3, costUsd: 1.2, inputTokens: 500, outputTokens: 50 } },
+      {
+        s1: {
+          turns: 3,
+          costUsd: 1.2,
+          inputTokens: 500,
+          outputTokens: 50,
+          cacheReadTokens: 12_000,
+        },
+      },
     )
 
     const ledger = new UsageLedger(path)
@@ -213,6 +262,8 @@ describe("file persistence", () => {
         model: "opus",
         inputTokens: 500,
         outputTokens: 50,
+        cacheReadTokens: 12_000,
+        cacheCreateTokens: 0,
         costUsd: 1.2,
         turns: 3,
       },
@@ -265,6 +316,8 @@ describe("session-manager hook", () => {
         model: "unknown",
         inputTokens: 130,
         outputTokens: 20,
+        cacheReadTokens: 0,
+        cacheCreateTokens: 0,
         costUsd: 0.75,
         turns: 2,
       },
