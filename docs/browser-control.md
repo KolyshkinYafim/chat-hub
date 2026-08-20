@@ -29,7 +29,7 @@ share. There is no provider-specific browser code.
 | File | Role |
 |---|---|
 | `src/shared/browser.ts` | The contract. Ops, result shapes, node/console/network types, `renderSnapshot`, env names, limits |
-| `resources/mcp/browser-mcp.mjs` | The MCP server the CLI spawns. Translates 13 tools into requests and shapes results back into MCP content blocks |
+| `resources/mcp/browser-mcp.mjs` | The MCP server the CLI spawns. Translates 13 browser tools (and the 6 dock tools below) into requests and shapes results back into MCP content blocks |
 | `src/main/browser-socket.ts` | The transport. One long-lived connection carries many requests, correlated by `id` |
 | `src/main/browser-service.ts` | Opens the surface on demand, then dispatches |
 | `src/main/surfaces/browser-control.ts` | The executor. Owns the guest registry, real input events, screenshots, console and network buffers |
@@ -59,6 +59,43 @@ example.com". `BrowserService` notices there is no guest for the session, asks
 the renderer to open the panel, and waits up to 4 s for the attach before
 dispatching. Only if nothing appears does it answer with a sentence the agent can
 act on. This is why `browser_navigate` works from a cold start.
+
+## The rest of the dock
+
+The same server, the same socket and the same session id also carry six tools
+that open and read Chat Hub's other panels, under the `surface.*` op namespace. No browser
+op contains a dot, so `BrowserService` routes on the op alone and dock calls skip
+the guest check entirely.
+
+`surface_open` · `surface_close` · `surface_status` · `surface_run_script` ·
+`surface_board_add` · `surface_board_check`
+
+| File | Role |
+|---|---|
+| `src/shared/surface-control.ts` | Ops, the open request and the renderer's state mirror |
+| `src/main/surfaces/surface-control.ts` | Decides what a call may do, pushes it, writes the trace |
+| `App.tsx` | Applies the push; reports the dock's visible state back to main |
+
+Three rules hold the design together.
+
+**No call takes the window.** Opening a panel sends one IPC message. It never
+calls `show()`, `focus()` or `setSize()` — unlike the browser path, which shows
+the window because the guest has to exist before it can be driven.
+
+**A call acts on the session that made it.** The session id comes from
+`CHATHUB_BROWSER_SESSION`, the same variable the browser tools use. A call from a
+session that is not on screen records the panel choice for that session and stops
+there: nothing moves, no file is focused, and `surface_run_script` does not start
+the script — a command the user never saw start is worse than no command. Board
+writes still land, because those are workspace files, not panels.
+
+**Every open is in the transcript.** `SessionManager.note` writes one system line
+into the calling session's thread, so a panel that changed under the user says
+who changed it and why. `surface_status` writes nothing; it changes nothing.
+
+Paths go through `resolveContainedPath`, so a dock tool can only name something
+inside the session's project. `surface_run_script` runs only scripts already
+saved in `.chathub/scripts.json`; there is no way to pass a command through.
 
 ## Where the server is registered, per provider
 

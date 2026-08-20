@@ -1,10 +1,11 @@
 /*
- * SHARED CONTRACT — duplicated from src/shared/browser.ts, which is the source
- * of truth. This file is spawned as plain Node (ELECTRON_RUN_AS_NODE=1) and
- * cannot import TypeScript, so the values below are copies. tests/browser-mcp-
- * server.test.ts asserts they still equal the TypeScript originals, including
- * the snapshot renderer's byte-for-byte output. Change src/shared/browser.ts
- * first, then mirror it here.
+ * SHARED CONTRACT — duplicated from src/shared/browser.ts, src/shared/surface-
+ * control.ts and src/shared/surfaces.ts, which are the source of truth. This
+ * file is spawned as plain Node (ELECTRON_RUN_AS_NODE=1) and cannot import
+ * TypeScript, so the values below are copies. tests/browser-mcp-server.test.ts
+ * and tests/surface-mcp-server.test.ts assert they still equal the TypeScript
+ * originals, including the snapshot renderer's byte-for-byte output. Change
+ * the TypeScript first, then mirror it here.
  */
 
 export const BROWSER_SOCKET_ENV = "CHATHUB_BROWSER_SOCKET"
@@ -14,6 +15,26 @@ export const BROWSER_SNAPSHOT_CHAR_LIMIT = 24_000
 export const BROWSER_TEXT_CHAR_LIMIT = 24_000
 export const BROWSER_OP_TIMEOUT_MS = 30_000
 export const BROWSER_MODIFIERS = ["shift", "control", "alt", "meta"]
+
+export const SURFACE_OP_PREFIX = "surface."
+export const SURFACE_OPS = {
+  open: "surface.open",
+  close: "surface.close",
+  status: "surface.status",
+  script: "surface.script",
+  boardAdd: "surface.board-add",
+  boardCheck: "surface.board-check",
+}
+export const SURFACE_KINDS = [
+  "board",
+  "context",
+  "browser",
+  "terminal",
+  "files",
+  "diff",
+  "history",
+  "fleet",
+]
 
 export function renderSnapshot(snapshot) {
   const head = `url: ${snapshot.url}\ntitle: ${snapshot.title}\n`
@@ -51,6 +72,9 @@ const TIMEOUT_MARGIN_MS = 2_000
 
 const UNREACHABLE_MESSAGE =
   "Chat Hub's browser surface is not reachable. Open the Browser surface in Chat Hub and retry."
+
+const SURFACE_UNREACHABLE_MESSAGE =
+  "Chat Hub is not reachable, so its panels cannot be opened from here."
 
 const POINTER_HINT =
   'point at an element with "ref" from browser_snapshot, or give both "x" and "y"'
@@ -255,9 +279,104 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  /* The dock: the same socket and the same session, aimed at Chat Hub's own
+     right-hand panels instead of at a web page. */
+  {
+    name: "surface_open",
+    op: SURFACE_OPS.open,
+    description:
+      "Open one of Chat Hub's right-hand panels for this session. Pass \"path\" to land diff on one file, or to reveal a file or folder in files. Changes what the panel shows; never raises or focuses the app window.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        surface: {
+          type: "string",
+          enum: SURFACE_KINDS,
+          description: "Which panel to show.",
+        },
+        path: {
+          type: "string",
+          description:
+            "Project-relative file for diff, or file or folder for files. Rejected for the other surfaces.",
+        },
+        line: {
+          type: "number",
+          description: "1-based line to scroll to, files surface only.",
+        },
+      },
+      required: ["surface"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "surface_close",
+    op: SURFACE_OPS.close,
+    description:
+      "Close the right-hand panel again, leaving the chosen surface as it is. Use it to put the window back the way surface_status found it.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "surface_status",
+    op: SURFACE_OPS.status,
+    description:
+      "Report which panel this session's dock is on and whether this session is the one on screen — read it before opening something, so the panel can be put back.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "surface_run_script",
+    op: SURFACE_OPS.script,
+    description:
+      "Open the Terminal panel and run one of the project's saved scripts by name. Only scripts the user already saved in .chathub/scripts.json can be run; arbitrary commands cannot.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        script: { type: "string", description: "Name of a saved project script." },
+      },
+      required: ["script"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "surface_board_add",
+    op: SURFACE_OPS.boardAdd,
+    description:
+      "Add a todo to the project board (.chathub/board.json) and open the Board panel.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "What the todo says." },
+      },
+      required: ["text"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "surface_board_check",
+    op: SURFACE_OPS.boardCheck,
+    description:
+      'Tick a board todo off, or untick it with done=false, and open the Board panel. Match by the todo\'s exact text, a unique part of it, or its id.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        todo: {
+          type: "string",
+          description: "Todo text, a unique part of it, or its id.",
+        },
+        done: { type: "boolean", description: "false unticks it; default true." },
+      },
+      required: ["todo"],
+      additionalProperties: false,
+    },
+  },
 ]
 
 const POINTER_TOOLS = new Set(["browser_click", "browser_hover"])
+
+function unreachableFor(tool) {
+  return tool.op.startsWith(SURFACE_OP_PREFIX)
+    ? SURFACE_UNREACHABLE_MESSAGE
+    : UNREACHABLE_MESSAGE
+}
 
 const TOOLS_BY_NAME = new Map(TOOLS.map((tool) => [tool.name, tool]))
 
@@ -374,7 +493,7 @@ async function callBrowser(op, params) {
   return new Promise((resolveCall, rejectCall) => {
     const timer = setTimeout(() => {
       pending.delete(id)
-      rejectCall(new Error(`Browser ${op} did not answer within ${budget} ms.`))
+      rejectCall(new Error(`Chat Hub did not answer ${op} within ${budget} ms.`))
     }, budget)
     if (typeof timer.unref === "function") timer.unref()
     pending.set(id, { resolve: resolveCall, reject: rejectCall, timer })
@@ -543,7 +662,9 @@ async function callTool(name, rawArgs) {
   try {
     response = await callBrowser(tool.op, buildParams(tool, args))
   } catch (err) {
-    if (err && err.code === "browser-unavailable") return errorResult(UNREACHABLE_MESSAGE)
+    if (err && err.code === "browser-unavailable") {
+      return errorResult(unreachableFor(tool))
+    }
     return errorResult(err instanceof Error ? err.message : String(err))
   }
 

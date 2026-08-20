@@ -91,6 +91,7 @@ import {
 import { inspectAttachmentPaths } from "./attachments"
 import { chatHubBrowserSocketPath } from "@shared/bridge-path"
 import { BrowserControl } from "./surfaces/browser-control"
+import { SurfaceControl } from "./surfaces/surface-control"
 import { BrowserService } from "./browser-service"
 import { browserMcpServerPath, registerBrowserMcp } from "./browser-mcp"
 
@@ -161,6 +162,17 @@ const browserControl = new BrowserControl({
     sendToRenderer(IpcChannels.browserActivity, activity),
 })
 
+/**
+ * Deliberately window-quiet: a dock tool may switch what the panel shows, but
+ * never raises, focuses or resizes the window the way the browser path does —
+ * the user may be typing somewhere else entirely.
+ */
+const surfaceControl = new SurfaceControl({
+  session: (sessionId) => manager?.getSession(sessionId) ?? null,
+  note: (sessionId, text) => manager?.note(sessionId, text),
+  open: (request) => sendToRenderer(IpcChannels.surfaceOpen, request),
+})
+
 const browserService = new BrowserService(
   chatHubBrowserSocketPath(),
   browserControl,
@@ -169,6 +181,7 @@ const browserService = new BrowserService(
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
       sendToRenderer(IpcChannels.browserOpen, sessionId)
     },
+    surfaces: (request) => surfaceControl.handle(request),
   },
 )
 
@@ -181,6 +194,9 @@ function registerBrowserIpc(): void {
   ipcMain.handle(IpcChannels.browserDetach, (_e, sessionId: string) =>
     browserService.detach(sessionId),
   )
+  ipcMain.on(IpcChannels.surfaceState, (_e, state: unknown) => {
+    surfaceControl.setState(state)
+  })
 }
 
 function isSafeExternalUrl(url: string): boolean {

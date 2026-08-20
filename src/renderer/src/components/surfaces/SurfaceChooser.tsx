@@ -1,16 +1,8 @@
+import { SURFACE_LABEL } from "@shared/surfaces"
 import type { SurfaceKind } from "../../lib/surface-bridge"
 import { SurfaceIcon } from "./SurfaceIcon"
 
-export const SURFACE_LABEL: Record<SurfaceKind, string> = {
-  board: "Board",
-  context: "Context",
-  browser: "Browser",
-  terminal: "Terminal",
-  files: "Files",
-  diff: "Diff",
-  history: "History",
-  fleet: "Agents",
-}
+export { SURFACE_LABEL } from "@shared/surfaces"
 
 const SURFACE_HINT: Record<SurfaceKind, string> = {
   board: "Todos and the agent's notes for this project.",

@@ -55,6 +55,10 @@ import type {
   McpServerStatus,
 } from "@shared/mcp"
 import type { BrowserActivity } from "@shared/browser"
+import type {
+  SurfaceOpenRequest,
+  SurfaceStateReport,
+} from "@shared/surface-control"
 import type { ProjectScript, ScriptsFile } from "@shared/scripts"
 import type { ContextDocId, ProjectContext } from "@shared/project-context"
 
@@ -446,6 +450,19 @@ const api = {
     return () => {
       ipcRenderer.removeListener(IpcChannels.browserOpen, handler)
     }
+  },
+  /** An agent's dock tool asking for a surface; the renderer decides what shows. */
+  onSurfaceOpen: (cb: (request: SurfaceOpenRequest) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, request: SurfaceOpenRequest) =>
+      cb(request)
+    ipcRenderer.on(IpcChannels.surfaceOpen, handler)
+    return () => {
+      ipcRenderer.removeListener(IpcChannels.surfaceOpen, handler)
+    }
+  },
+  /** Mirror the dock's visible state into main, so a tool can report it. */
+  reportSurfaceState: (state: SurfaceStateReport): void => {
+    ipcRenderer.send(IpcChannels.surfaceState, state)
   },
   mcpList: (cwd: string): Promise<McpListResult> =>
     ipcRenderer.invoke(IpcChannels.mcpList, cwd),

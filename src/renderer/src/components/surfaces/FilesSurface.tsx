@@ -27,7 +27,13 @@ function childOf(dir: string, name: string): string {
   return dir === ROOT ? name : `${dir}/${name}`
 }
 
-export type FilesFocus = { path: string; line: number | null; at: number }
+export type FilesFocus = {
+  path: string
+  line: number | null
+  /** Expand `path` as a folder instead of opening it as a file. */
+  directory?: boolean
+  at: number
+}
 
 type Props = {
   cwd: string
@@ -108,15 +114,17 @@ export function FilesSurface({ cwd, focus = null }: Props) {
     for (let dir = parentOf(focus.path); dir !== ROOT; dir = parentOf(dir)) {
       ancestors.unshift(dir)
     }
+    const open = focus.directory === true ? [...ancestors, focus.path] : ancestors
     setExpanded((curr) => {
       const next = new Set(curr)
-      for (const dir of ancestors) next.add(dir)
+      for (const dir of open) next.add(dir)
       return next
     })
-    for (const dir of ancestors) {
+    for (const dir of open) {
       if (!listings[dir]) void loadDir(dir)
     }
-    selectFile(focus.path)
+    if (focus.directory === true) setActiveDir(focus.path)
+    else selectFile(focus.path)
   }, [focus?.at])
 
   function toggleDir(path: string) {

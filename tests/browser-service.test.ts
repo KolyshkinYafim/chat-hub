@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { BrowserRequest, BrowserResponse } from "../src/shared/browser"
+import { SURFACE_OPS, type SurfaceHandler } from "../src/shared/surface-control"
 import { BrowserService, type BrowserExecutor } from "../src/main/browser-service"
 
 class FakeExecutor implements BrowserExecutor {
@@ -34,6 +35,7 @@ const services: BrowserService[] = []
 async function makeService(
   requestOpen: (sessionId: string) => void,
   openWaitMs = 50,
+  surfaces?: SurfaceHandler,
 ): Promise<{ service: BrowserService; executor: FakeExecutor }> {
   const dir = await mkdtemp(join(tmpdir(), "browser-service-"))
   dirs.push(dir)
@@ -41,6 +43,7 @@ async function makeService(
   const service = new BrowserService(join(dir, "browser.sock"), executor, {
     requestOpen,
     openWaitMs,
+    surfaces,
   })
   services.push(service)
   return { service, executor }
@@ -122,6 +125,42 @@ describe("BrowserService", () => {
     const pending = service.handle(request())
     await service.stop()
     await expect(pending).resolves.toMatchObject({ ok: false })
+  })
+
+  it("routes a dock op away from the browser, without asking for a webview", async () => {
+    const open = vi.fn()
+    const surfaces: SurfaceHandler = async (req) => ({
+      id: req.id,
+      ok: true,
+      result: { summary: `handled ${req.op}` },
+    })
+    const { service, executor } = await makeService(open, 50, surfaces)
+    const response = await service.handle({
+      id: "r1",
+      sessionId: "s1",
+      op: SURFACE_OPS.open as BrowserRequest["op"],
+      params: { surface: "diff" },
+    })
+    expect(response).toMatchObject({
+      ok: true,
+      result: { summary: "handled surface.open" },
+    })
+    expect(open).not.toHaveBeenCalled()
+    expect(executor.seen).toHaveLength(0)
+  })
+
+  it("refuses a dock op when nothing is wired to answer it", async () => {
+    const { service } = await makeService(() => {})
+    const response = await service.handle({
+      id: "r1",
+      sessionId: "s1",
+      op: SURFACE_OPS.status as BrowserRequest["op"],
+      params: {},
+    })
+    expect(response.ok).toBe(false)
+    expect(response.ok === false && response.error).toMatch(
+      /not accepting panel commands/,
+    )
   })
 
   it("listens on the socket it was given", async () => {
