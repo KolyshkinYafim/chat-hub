@@ -17,9 +17,11 @@ import type {
   UsageWindowTotals,
 } from "@shared/types"
 import type {
+  BuildInfo,
   ProviderInstance,
   ProviderStatus,
   SettingsSnapshot,
+  StorageStats,
 } from "@shared/settings-types"
 import type { McpServerDef } from "@shared/mcp"
 import type { ProjectScript } from "@shared/scripts"
@@ -490,6 +492,26 @@ const dataPaths = {
   bridgeExists: true,
   bridgeSize: 20480,
   bridgeMtime: now - 20000,
+}
+
+const buildInfo: BuildInfo = {
+  version: "0.1.0",
+  commit: "a1b2c3d",
+  builtAt: "2026-08-19T09:41:00Z",
+  packaged: true,
+  electron: "35.2.1",
+  chrome: "134.0.6998.205",
+  node: "22.14.0",
+  platform: "darwin",
+  arch: "arm64",
+}
+
+const storageStats: StorageStats = {
+  dataDirBytes: 48 * 1024 * 1024 + 512 * 1024,
+  fileCount: 187,
+  sessionCount: 4,
+  archivedSessionCount: 1,
+  messageCount: 1362,
 }
 
 const snapshot: SessionSnapshot = wantWizard
@@ -1053,6 +1075,13 @@ export function installDevMock(): void {
     listProjects: async () => projects,
     getBridgePath: async () => dataPaths.bridgePath,
     getDataPaths: async () => dataPaths,
+    getBuildInfo: async () => buildInfo,
+    // Slow in the real app (it walks the data folder), so the mock stalls too —
+    // the loading state on the Advanced tab has to be reviewable in a browser.
+    getStorageStats: async () => {
+      await new Promise((r) => setTimeout(r, 600))
+      return storageStats
+    },
     usageSummary: async () => mockUsageSummary,
     getGitInfo: async () => ({ branch: "main", dirty: true, root: projects[0].cwd }),
     setActiveSession: async () => snapshot,
