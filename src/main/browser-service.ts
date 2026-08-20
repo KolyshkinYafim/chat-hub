@@ -1,4 +1,5 @@
 import type { BrowserRequest, BrowserResponse } from "@shared/browser"
+import { isSurfaceOp, type SurfaceHandler } from "@shared/surface-control"
 import { BrowserSocketServer } from "./browser-socket"
 
 export type BrowserExecutor = {
@@ -11,12 +12,21 @@ export type BrowserExecutor = {
 export type BrowserServiceDeps = {
   requestOpen: (sessionId: string) => void
   openWaitMs?: number
+  /**
+   * The `surface.*` half of the socket — opening and reading the rest of the
+   * dock. It shares this socket, and therefore this session id, precisely so
+   * an agent's panel call is attributed to the session that made it.
+   */
+  surfaces?: SurfaceHandler
 }
 
 const DEFAULT_OPEN_WAIT_MS = 4000
 
 const NO_SURFACE =
   "Chat Hub could not open a browser surface for this session. Open the Browser surface in the right-hand panel and retry."
+
+const NO_SURFACE_CONTROL =
+  "Chat Hub is not accepting panel commands right now."
 
 /**
  * An agent that has never seen the Browser surface should still be able to say
@@ -72,6 +82,15 @@ export class BrowserService {
   }
 
   async handle(request: BrowserRequest): Promise<BrowserResponse> {
+    // Dock ops never want a webview, so they are routed before the guest check
+    // that would otherwise pull the Browser surface open under the user.
+    if (isSurfaceOp(request.op)) {
+      const surfaces = this.deps.surfaces
+      if (!surfaces) {
+        return { id: request.id, ok: false, error: NO_SURFACE_CONTROL }
+      }
+      return surfaces(request)
+    }
     if (!this.executor.hasGuest(request.sessionId)) {
       const opened = await this.openSurface(request.sessionId)
       if (!opened) {

@@ -128,6 +128,8 @@ export default function App() {
   const [filesFocus, setFilesFocus] = useState<{
     path: string
     line: number | null
+    /** A folder to expand rather than a file to open. */
+    directory: boolean
     at: number
   } | null>(null)
   const [projectSearch, setProjectSearch] = useState<ProjectSearchMode | null>(
@@ -506,6 +508,56 @@ export default function App() {
     })
   }, [])
 
+  // An agent's dock tool. The surface is remembered for whichever session asked,
+  // but only the session on screen may pull the panel open, focus a file or
+  // start a script — a background turn must not rearrange what the user is
+  // looking at, and must not run anything the user never saw start.
+  useEffect(() => {
+    return window.chatHub.onSurfaceOpen((request) => {
+      if (request.surface === null) {
+        if (request.sessionId !== activeIdRef.current) return
+        setDockOpen(false)
+        saveDockOpen(false)
+        return
+      }
+      const surface = request.surface
+      setSurfaceBySession((curr) => {
+        if (curr[request.sessionId] === surface) return curr
+        const next = { ...curr, [request.sessionId]: surface }
+        saveSurfaceBySession(next)
+        return next
+      })
+      if (request.sessionId !== activeIdRef.current) return
+      if (request.command) {
+        stashTerminalCommand(request.sessionId, request.command)
+      }
+      if (request.path !== null && surface === "diff") {
+        setDiffFocus({ path: request.path, at: request.at })
+        setGitRefresh((n) => n + 1)
+      }
+      if (request.path !== null && surface === "files") {
+        setFilesFocus({
+          path: request.path,
+          line: request.line,
+          directory: request.directory,
+          at: request.at,
+        })
+      }
+      setDockOpen(true)
+      saveDockOpen(true)
+    })
+  }, [])
+
+  // Main answers "what is open?" from this mirror rather than asking a renderer
+  // that may be mid-turn.
+  useEffect(() => {
+    window.chatHub.reportSurfaceState({
+      activeSessionId: activeId,
+      dockOpen: dockOpen && activeId !== null,
+      surfaceBySession,
+    })
+  }, [activeId, dockOpen, surfaceBySession])
+
   function setSessionArchived(id: string, archive: boolean) {
     void window.chatHub
       .setSessionArchived(id, archive)
@@ -699,7 +751,12 @@ export default function App() {
 
   const openProjectFile = useCallback(
     (path: string, line?: number) => {
-      setFilesFocus({ path, line: line ?? null, at: Date.now() })
+      setFilesFocus({
+        path,
+        line: line ?? null,
+        directory: false,
+        at: Date.now(),
+      })
       openSurface("files")
     },
     [openSurface],

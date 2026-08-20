@@ -1115,6 +1115,8 @@ function makeSurfaceBridge(): SurfaceBridge &
     browserDetach: async () => false,
     onBrowserActivity: () => () => {},
     onBrowserOpen: () => () => {},
+    onSurfaceOpen: () => () => {},
+    reportSurfaceState: () => {},
     grokTrustStatus: async () => ({
       trusted: mockGrokTrusted,
       path: "/Users/mock/.grok/trusted_folders.toml",

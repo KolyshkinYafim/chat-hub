@@ -280,11 +280,13 @@ describe("browser MCP tool catalogue", () => {
   it("lists all thirteen browser tools with object schemas", async () => {
     const client = track(startMcpServer())
     const message = await client.request("tools/list")
-    const tools = (message.result?.tools ?? []) as Array<{
+    const all = (message.result?.tools ?? []) as Array<{
       name: string
       description: string
       inputSchema: { type: string; properties?: Record<string, unknown>; required?: string[] }
     }>
+    // The same server also carries the dock tools; see surface-mcp-server.test.ts.
+    const tools = all.filter((t) => t.name.startsWith("browser_"))
     expect(tools.map((t) => t.name).sort()).toEqual([
       "browser_click",
       "browser_console",
@@ -512,7 +514,9 @@ describe("browser MCP stdio framing", () => {
     const first = await client.waitFor(101)
     const second = await client.waitFor(102)
     expect(first.result).toEqual({})
-    expect((second.result?.tools as unknown[]).length).toBe(13)
+    expect((second.result?.tools as { name: string }[]).map((t) => t.name)).toContain(
+      "browser_navigate",
+    )
   })
 
   it("buffers a half line until the rest arrives", async () => {
