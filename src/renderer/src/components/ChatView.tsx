@@ -24,7 +24,6 @@ import type {
 } from "@shared/types"
 import type { PermissionMode } from "@shared/permission"
 import { PERMISSION_LABELS } from "@shared/permission"
-import { summarizeToolArgs } from "@shared/tool-card"
 import type { ProjectScript } from "@shared/scripts"
 import type { Mode, ModelInfo } from "@shared/settings-types"
 import { formatClock, formatRelative } from "../lib/format"
@@ -48,9 +47,16 @@ import {
 } from "../lib/voice-state"
 import { PlanSteps, toPlanSteps } from "./PlanSteps"
 import { ComposerMenu } from "./ComposerMenu"
+import { FeedLabel, FeedRunRow } from "./ToolFeed"
 import { LiveStepTicker } from "./LiveStepTicker"
 import { TurnTimeline } from "./TurnTimeline"
 import { buildTranscript } from "../lib/tool-runs"
+import {
+  groupFeed,
+  statusWord,
+  stepsFromItems,
+  type FeedStep,
+} from "../lib/tool-feed"
 import {
   currentStep,
   itemPlanProgress,
@@ -182,32 +188,6 @@ function ContextMeter({
   )
 }
 
-function itemLabel(item: AgentTurnItem): string {
-  switch (item.kind) {
-    case "reasoning": return "Reasoning"
-    case "plan": return "Plan"
-    case "command": return item.command.split("\n")[0] || "Command"
-    case "file_change": {
-      if (item.changes.length === 0) {
-        return item.status === "running"
-          ? item.aggregateDiff ? "Preparing diff" : "Preparing file changes"
-          : "No file changes"
-      }
-      return item.changes.length === 1 ? item.changes[0]!.path : `${item.changes.length} file changes`
-    }
-    case "tool": {
-      const args = summarizeToolArgs(item.arguments, 60)
-      const name = item.server ? `${item.server} · ${item.name}` : item.name
-      return args ? `${name} · ${args}` : name
-    }
-    case "web_search": return `Search · ${item.query}`
-    case "image": return `Viewed · ${item.path}`
-    case "review": return "Review"
-    case "compaction": return "Context compacted"
-    case "error": return "Error"
-  }
-}
-
 function ItemBody({ item }: { item: AgentTurnItem }) {
   switch (item.kind) {
     case "reasoning":
@@ -266,7 +246,8 @@ function TurnItems({
   onJumpToItem: (itemId: string) => void
 }) {
   if (!items?.length && !streaming) return null
-  const activity = (items ?? []).filter((item) => item.kind !== "reasoning")
+  const byId = new Map((items ?? []).map((item) => [item.id, item]))
+  const nodes = groupFeed(stepsFromItems(items))
   return (
     <div className="turn-activity">
       {/* The header is the whole sequence, at a height that does not move. The
@@ -278,26 +259,58 @@ function TurnItems({
         streaming={streaming}
         onJump={onJumpToItem}
       />
-      {activity.map((item, index) => (
-        <details
-          key={item.id}
-          data-item-id={item.id}
-          className={`activity-item activity-${item.kind}`}
-          open={item.kind === "error"}
-        >
-          <summary>
-            <span className="activity-index">{index + 1}</span>
-            <span className={`activity-status status-${item.status}`} aria-label={item.status} />
-            <span className="activity-label">{itemLabel(item)}</span>
-            {item.kind === "command" && typeof item.exitCode === "number" ? (
-              <span className="activity-exit">exit {item.exitCode}</span>
-            ) : null}
-            <span className="activity-state">{item.status}</span>
-          </summary>
-          <ItemBody item={item} />
-        </details>
-      ))}
+      {nodes.map((node) => {
+        if (node.kind === "step") {
+          return <ItemCard key={node.key} step={node.step} byId={byId} />
+        }
+        if (node.steps.length === 1) {
+          return <ItemCard key={node.key} step={node.steps[0]!} byId={byId} quiet />
+        }
+        return (
+          <FeedRunRow key={node.key} run={node}>
+            {node.steps.map((step) => (
+              <li key={step.id} className="feed-quiet-row">
+                <ItemCard step={step} byId={byId} quiet />
+              </li>
+            ))}
+          </FeedRunRow>
+        )
+      })}
     </div>
+  )
+}
+
+function ItemCard({
+  step,
+  byId,
+  quiet = false,
+}: {
+  step: FeedStep
+  byId: Map<string, AgentTurnItem>
+  /** A cheap step is one dense line, whether it is alone or inside a run. */
+  quiet?: boolean
+}) {
+  const item = byId.get(step.id)
+  if (!item) return null
+  const word = statusWord(step.status)
+  const exitCode = item.kind === "command" ? item.exitCode : undefined
+  return (
+    <details
+      data-item-id={item.id}
+      className={`activity-item activity-${item.kind}${quiet ? " is-quiet" : ""}`}
+      open={item.kind === "error"}
+    >
+      <summary>
+        <span className="activity-index">{step.index}</span>
+        <span className={`activity-status status-${step.status}`} aria-label={step.status} />
+        <FeedLabel step={step} />
+        {exitCode !== undefined && exitCode !== 0 ? (
+          <span className="activity-exit">exit {exitCode}</span>
+        ) : null}
+        {word ? <span className="activity-state">{word}</span> : null}
+      </summary>
+      <ItemBody item={item} />
+    </details>
   )
 }
 
@@ -703,8 +716,12 @@ export function ChatView({
     atBottomRef.current = false
     setAtBottom(false)
     // React only writes `open` when the prop changes, and it never does for a
-    // card outside the error case — so opening it here sticks.
-    if (card instanceof HTMLDetailsElement) card.open = true
+    // card outside the error case — so opening it here sticks. The card may sit
+    // inside a collapsed run, which has to open too or the jump lands on
+    // nothing.
+    for (let node: Element | null = card; node; node = node.parentElement) {
+      if (node instanceof HTMLDetailsElement) node.open = true
+    }
     card.scrollIntoView({
       behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
         ? "auto"

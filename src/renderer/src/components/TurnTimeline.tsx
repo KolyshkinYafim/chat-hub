@@ -159,7 +159,7 @@ function Row({
       <button
         type="button"
         className="turn-timeline-row-btn"
-        title={row.detail || row.label}
+        title={row.detailFull || row.label}
         onClick={() => onJump(row.id)}
       >
         <span className="turn-timeline-num">{row.index}</span>

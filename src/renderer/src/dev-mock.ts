@@ -194,6 +194,14 @@ const busyTurn =
     ].join("\n"),
     { id: "t3" },
   ) +
+  // A short run of reads on the fence path too, so the same folding is
+  // reviewable for a provider that emits tool blocks in its prose.
+  call("Read", "/Users/dev/code/orbit-api/src/middleware/auth.ts", { id: "t3b" }) +
+  result("Read", "export function requireAuth(req, res, next) { … }", { id: "t3b" }) +
+  call("Read", "/Users/dev/code/orbit-api/src/routes/session.ts", { id: "t3c" }) +
+  result("Read", 'router.post("/session", requireAuth, createSession)', { id: "t3c" }) +
+  call("Read", "/Users/dev/code/orbit-api/tests/expiry.test.ts", { id: "t3d" }) +
+  result("Read", 'it("rejects a token past its exp", async () => { … })', { id: "t3d" }) +
   "\nThere it is: the guard compares `iat` (issued-at) instead of `exp`, so every token looks expired the moment it is issued. Three files need touching — the check itself, a small clock helper, and the middleware that duplicates the guard.\n\n" +
   call("Edit", "/Users/dev/code/orbit-api/src/lib/jwt.ts", {
     id: "t4",
@@ -556,6 +564,67 @@ const settledItems: AgentTurnItem[] = [
   { id: "si11", kind: "review", status: "completed", text: "Backoff caps at five attempts with full jitter." },
 ]
 
+const retryDiff = [
+  "@@ -18,6 +18,11 @@",
+  "  export class BaseHttpCollector {",
+  "-   protected async get(url: string): Promise<Response> {",
+  "-     return fetch(url, { headers: this.headers })",
+  "+   protected async get(url: string): Promise<Response> {",
+  "+     return withRetry(() => fetch(url, { headers: this.headers }), {",
+  "+       attempts: 5,",
+  "+       backoff: \"full-jitter\",",
+  "+     })",
+  "    }",
+]
+
+// The exploration phase of a structured-item turn: a long run of reads, a
+// couple of greps, one read that failed, an edit and the suite. Before the feed
+// grouped, this arrived as eighteen full-width cards under one shared prefix,
+// every one of them truncated at the right and reading COMPLETED.
+const explorePaths = [
+  "src/collectors/http/base-http-collector.ts",
+  "src/collectors/http/request-headers.ts",
+  "src/collectors/boards/greenhouse.ts",
+  "src/collectors/boards/lever.ts",
+  "src/collectors/boards/ashby.ts",
+  "src/collectors/feeds/wordpress-feed.ts",
+  "src/collectors/feeds/algolia-index.ts",
+  "src/collectors/registry.ts",
+  "src/pipeline/queue/enqueue-batch.ts",
+  "src/pipeline/queue/drain-worker.ts",
+  "src/pipeline/normalize/posting.ts",
+  "src/config/collector-timeouts.ts",
+  "src/config/http-defaults.ts",
+  "tests/collectors/base-http-collector.test.ts",
+]
+
+function exploreRead(path: string, at: number): AgentTurnItem {
+  return {
+    id: `xr${at}`,
+    kind: "tool",
+    status: "completed",
+    name: "read_file",
+    arguments: { file_path: `${projects[0].cwd}/${path}` },
+    durationMs: 60 + at * 9,
+  }
+}
+
+const exploreItems: AgentTurnItem[] = [
+  {
+    id: "xi1",
+    kind: "reasoning",
+    status: "completed",
+    summary:
+      "Every collector goes out through one HTTP base class, so the retry policy belongs there rather than in fourteen call sites.",
+  },
+  { id: "xi2", kind: "tool", status: "completed", name: "grep", arguments: { pattern: "await fetch\\(", path: "src/collectors" }, durationMs: 210 },
+  ...explorePaths.map(exploreRead),
+  { id: "xi3", kind: "tool", status: "completed", name: "grep", arguments: { pattern: "collectorTimeoutMs" }, durationMs: 170 },
+  { id: "xi4", kind: "tool", status: "failed", name: "read_file", arguments: { file_path: `${projects[0].cwd}/src/collectors/legacy/rss-collector.ts` }, error: "ENOENT: no such file or directory", durationMs: 30 },
+  { id: "xi5", kind: "file_change", status: "completed", changes: [{ path: `${projects[0].cwd}/src/collectors/http/base-http-collector.ts`, kind: "edit", diff: retryDiff.join("\n") }] },
+  { id: "xi6", kind: "command", status: "completed", command: "pnpm test -- collectors", cwd: projects[0].cwd, output: " ok tests/collectors (21 tests) 340ms", exitCode: 0, durationMs: 8600 },
+]
+
 const messages: Record<string, ChatMessage[]> = {
   s1: [
     { id: "m1", sessionId: "s1", role: "user", content: "Extract the JWT verification into a reusable middleware and add tests.", createdAt: now - 25e4 },
@@ -566,6 +635,8 @@ const messages: Record<string, ChatMessage[]> = {
     { id: "m12", sessionId: "s1", role: "assistant", content: richTurn, createdAt: now - 18e4, usage: { inputTokens: 22400, outputTokens: 2600, cacheReadTokens: 111000, costUsd: 0.44, durationMs: 31200 } },
     { id: "m13", sessionId: "s1", role: "user", content: "Make the webhook retry back off instead of giving up on the first failure.", createdAt: now - 17e4 },
     { id: "m14", sessionId: "s1", role: "assistant", content: "Retries now back off exponentially with full jitter and stop after five attempts. The cleanup command I asked for was refused, so `node_modules` is untouched.", createdAt: now - 16e4, items: settledItems, usage: { inputTokens: 18600, outputTokens: 1900, cacheReadTokens: 104000, costUsd: 0.31, durationMs: 26400 } },
+    { id: "m15", sessionId: "s1", role: "user", content: "Every collector retries on its own. Find where the HTTP calls actually go out and put one policy behind them.", createdAt: now - 15e4 },
+    { id: "m16", sessionId: "s1", role: "assistant", content: "All fourteen collectors go out through `BaseHttpCollector.get()`, so the retry now lives there — five attempts with full jitter. The legacy RSS collector the registry still lists is gone from disk; nothing imports it.", createdAt: now - 14e4, items: exploreItems, usage: { inputTokens: 32800, outputTokens: 2400, cacheReadTokens: 118000, costUsd: 0.52, durationMs: 37100 } },
     { id: "m10", sessionId: "s1", role: "user", content: "Use these three screens as the visual reference for the final polish.", attachments: mockAttachments, createdAt: now - 3e4 },
     { id: "m3", sessionId: "s1", role: "assistant", content: "Running the suite now…", createdAt: now - 2e4, streaming: true, items: liveItems },
   ],
