@@ -474,6 +474,7 @@ export class CodexAdapter implements AgentAdapter {
               description: option.description,
             })),
             secret: question.isSecret,
+            allowOther: question.isOther,
           })),
         }) ?? {}
         await client.respond(request.id, {

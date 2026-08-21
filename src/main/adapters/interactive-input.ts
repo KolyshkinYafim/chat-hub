@@ -86,6 +86,9 @@ export function parseInteractiveQuestion(value: string): InteractiveQuestion | n
         header: string(item.header) || "Question",
         prompt,
         options: options?.length ? options : undefined,
+        // The answer is fed back as prose on the next turn, so anything the
+        // owner writes is as usable to the CLI as one of its own labels.
+        allowOther: true,
       }],
     }
   } catch {

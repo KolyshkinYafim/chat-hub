@@ -63,6 +63,16 @@ import {
   itemStep,
   planProgress,
 } from "../lib/live-step"
+import {
+  answerPayload,
+  answersReady,
+  askerLabel,
+  EMPTY_ANSWER,
+  questionContext,
+  toQuestionCards,
+  type QuestionAnswer,
+  type QuestionContext,
+} from "../lib/agent-question"
 import { formatSessionUsage, formatUsage, usageDetail } from "../lib/usage"
 import {
   contextUsedTokens,
@@ -320,56 +330,152 @@ function stringifyPayload(value: unknown): string {
   return JSON.stringify(value, null, 2) ?? String(value)
 }
 
+/**
+ * A CLI stopped mid-task to ask something. The card has to stand on its own:
+ * it sits above the transcript, so the turn that raised it may be scrolled out
+ * of sight — hence the context strip of what the agent had just done.
+ */
 function AgentInputCard({
   request,
+  context,
   onSubmit,
 }: {
   request: AgentInputRequestInfo
+  context: QuestionContext
   onSubmit: (answers: Record<string, string[]>) => void
 }) {
-  const [answers, setAnswers] = useState<Record<string, string>>({})
-  const complete = request.questions.every((question) => Boolean(answers[question.id]?.trim()))
+  const cards = useMemo(() => toQuestionCards(request), [request])
+  const [answers, setAnswers] = useState<Record<string, QuestionAnswer>>({})
+  const ready = answersReady(cards, answers)
+  const update = (id: string, patch: Partial<QuestionAnswer>): void => {
+    setAnswers((curr) => ({
+      ...curr,
+      [id]: { ...EMPTY_ANSWER, ...curr[id], ...patch },
+    }))
+  }
   return (
     <form
       className="agent-input-card"
       onSubmit={(event) => {
         event.preventDefault()
-        if (!complete) return
-        onSubmit(Object.fromEntries(Object.entries(answers).map(([id, answer]) => [id, [answer]])))
+        if (!ready) return
+        onSubmit(answerPayload(cards, answers))
       }}
     >
-      <span className="permission-tag">{providerAsksLabel(request.source)}</span>
-      {request.questions.map((question) => (
-        <fieldset key={question.id}>
-          <legend>{question.header || "Question"}</legend>
-          <p>{question.prompt}</p>
-          {question.options?.length ? (
-            <div className="agent-input-options">
-              {question.options.map((option) => (
-                <button
-                  type="button"
-                  key={option.label}
-                  className={answers[question.id] === option.label ? "selected" : ""}
-                  title={option.description}
-                  onClick={() => setAnswers((curr) => ({ ...curr, [question.id]: option.label }))}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+      <div className="agent-input-head">
+        <span className="permission-tag">{askerLabel(request.source)}</span>
+        <span className="agent-input-when">
+          {cards.length > 1
+            ? `${cards.length} questions · the turn waits for all of them`
+            : "The turn is paused until this is answered"}
+        </span>
+      </div>
+
+      {context.lead || context.steps.length ? (
+        <div className="agent-input-context">
+          {context.lead ? (
+            <p className="agent-input-lead">{context.lead}</p>
           ) : null}
-          <input
-            type={question.secret ? "password" : "text"}
-            value={answers[question.id] ?? ""}
-            placeholder={question.options?.length ? "Or type another answer…" : "Your answer…"}
-            onChange={(event) => {
-              const value = event.currentTarget.value
-              setAnswers((curr) => ({ ...curr, [question.id]: value }))
-            }}
-          />
-        </fieldset>
-      ))}
-      <button type="submit" className="tb-btn primary" disabled={!complete}>Send answer</button>
+          {context.steps.length ? (
+            <ul className="agent-input-steps">
+              {context.steps.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+
+      {cards.map((card) => {
+        const answer = answers[card.id] ?? EMPTY_ANSWER
+        const picking = card.options.length > 0
+        const writing = !picking || answer.own
+        return (
+          <fieldset key={card.id} className="agent-input-question">
+            {card.topic ? <legend>{card.topic}</legend> : null}
+            <p className="agent-input-prompt">{card.prompt}</p>
+            {picking ? (
+              <div className="agent-input-options">
+                {card.options.map((option) => {
+                  const chosen = !answer.own && answer.choice === option.label
+                  return (
+                    <label
+                      key={option.label}
+                      className={`agent-input-option${chosen ? " selected" : ""}`}
+                    >
+                      <input
+                        type="radio"
+                        name={`${request.requestId}-${card.id}`}
+                        checked={chosen}
+                        onChange={() =>
+                          update(card.id, { choice: option.label, own: false })
+                        }
+                      />
+                      <span className="agent-input-option-label">
+                        {option.label}
+                      </span>
+                      {option.description ? (
+                        <span className="agent-input-option-why">
+                          {option.description}
+                        </span>
+                      ) : null}
+                    </label>
+                  )
+                })}
+                {card.allowOther ? (
+                  <label
+                    className={`agent-input-option is-own${answer.own ? " selected" : ""}`}
+                  >
+                    <input
+                      type="radio"
+                      name={`${request.requestId}-${card.id}`}
+                      checked={answer.own}
+                      onChange={() => update(card.id, { own: true })}
+                    />
+                    <span className="agent-input-option-label">
+                      Something else
+                    </span>
+                    <span className="agent-input-option-why">
+                      Answer in your own words
+                    </span>
+                  </label>
+                ) : null}
+              </div>
+            ) : null}
+            {writing ? (
+              <label className="agent-input-own">
+                <span className="agent-input-own-label">
+                  {card.secret
+                    ? "Sent straight to the CLI — the Hub does not keep it"
+                    : "Your answer"}
+                </span>
+                <input
+                  type={card.secret ? "password" : "text"}
+                  value={answer.text}
+                  // Mounts only once "Something else" is picked, so the focus
+                  // it takes is one the owner just asked for.
+                  autoFocus={picking}
+                  placeholder={
+                    card.secret ? "Value…" : "Type the answer the agent needs…"
+                  }
+                  onChange={(event) =>
+                    update(card.id, {
+                      text: event.currentTarget.value,
+                      own: true,
+                    })
+                  }
+                />
+              </label>
+            ) : null}
+          </fieldset>
+        )
+      })}
+
+      <div className="agent-input-actions">
+        <button type="submit" className="tb-btn primary" disabled={!ready}>
+          Send answer
+        </button>
+      </div>
     </form>
   )
 }
@@ -377,11 +483,6 @@ function AgentInputCard({
 function stashPreview(text: string): string {
   const flat = text.replace(/\s+/g, " ").trim()
   return flat.length > 80 ? `${flat.slice(0, 80)}…` : flat
-}
-
-function providerAsksLabel(source: string): string {
-  const provider = source.split(":", 1)[0] || "Agent"
-  return `${provider.slice(0, 1).toUpperCase()}${provider.slice(1)} asks`
 }
 
 export function ChatView({
@@ -503,6 +604,17 @@ export function ChatView({
       plan: itemPlanProgress(liveMessage.items) ?? planProgress(blocks),
     }
   }, [liveMessage])
+
+  // A pending question is drawn above the transcript, where the turn that
+  // raised it is often already scrolled away — so the card carries its own.
+  const askedAfter = useMemo(() => {
+    if (pendingInputRequests.length === 0) return questionContext(null)
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i]
+      if (message?.role === "assistant") return questionContext(message)
+    }
+    return questionContext(null)
+  }, [pendingInputRequests.length, messages])
 
   const revertBlocked = sending || session?.status === "running"
 
@@ -1141,6 +1253,7 @@ export function ChatView({
         <AgentInputCard
           key={request.requestId}
           request={request}
+          context={askedAfter}
           onSubmit={(answers) => onResolveInput(request.requestId, answers)}
         />
       ))}
@@ -1191,8 +1304,22 @@ export function ChatView({
             >
               {m.role === "user" ? (
                 <>
+                  {/* Right-aligned bubble, no role label: the side already
+                      says who spoke, so the meta row only carries the clock
+                      and the revert this message can still reach. */}
+                  <div className="user-bubble">{m.content}</div>
+                  {m.attachments?.length ? (
+                    <AttachmentGallery
+                      attachments={m.attachments}
+                      className="message-attachments"
+                      onOpen={(attachment, trigger) => setPreview({
+                        attachments: m.attachments ?? [],
+                        path: attachment.path,
+                        returnFocus: trigger,
+                      })}
+                    />
+                  ) : null}
                   <div className="turn-meta">
-                    <span className="turn-role">You</span>
                     <span className="turn-time">{formatClock(m.createdAt)}</span>
                     {m.checkpointRef &&
                     liveRefs.has(m.checkpointRef) &&
@@ -1247,25 +1374,14 @@ export function ChatView({
                       </div>
                     </div>
                   ) : null}
-                  <div className="user-bubble">{m.content}</div>
-                  {m.attachments?.length ? (
-                    <AttachmentGallery
-                      attachments={m.attachments}
-                      className="message-attachments"
-                      onOpen={(attachment, trigger) => setPreview({
-                        attachments: m.attachments ?? [],
-                        path: attachment.path,
-                        returnFocus: trigger,
-                      })}
-                    />
-                  ) : null}
                 </>
               ) : m.role === "system" ? (
                 <div className="system-line">{m.content}</div>
               ) : (
                 <>
                   <div className="turn-meta">
-                    <span className="turn-role agent">Agent</span>
+                    {/* The left side is the agent's by position — the provider
+                        name is who, so no second label above it. */}
                     <span className="turn-provider">{session.provider}</span>
                     {/* No STREAMING tag: the caret at the end of the body is
                         already saying it, right where the eye is. */}

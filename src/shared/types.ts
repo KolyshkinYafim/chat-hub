@@ -302,6 +302,11 @@ export type AgentInputQuestion = {
   prompt: string
   options?: { label: string; description?: string }[]
   secret?: boolean
+  /**
+   * The CLI accepts an answer outside its own options. Unset means it does not,
+   * except when there are no options at all and free text is the only answer.
+   */
+  allowOther?: boolean
 }
 
 export type AgentInputRequestInfo = {
