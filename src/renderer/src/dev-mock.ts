@@ -4,6 +4,7 @@
  * Activated only with `?mock=1` in dev — never ships in the Electron app.
  */
 import type {
+  AgentInputRequestInfo,
   AgentTurnItem,
   ChatMessage,
   HubEvent,
@@ -556,6 +557,14 @@ const settledItems: AgentTurnItem[] = [
   { id: "si11", kind: "review", status: "completed", text: "Backoff caps at five attempts with full jitter." },
 ]
 
+// The turn behind the pending question: the card above the transcript quotes
+// its last line and the steps that led there, so both have to be here.
+const askedItems: AgentTurnItem[] = [
+  { id: "ai1", kind: "tool", status: "completed", name: "Grep", arguments: { pattern: "maxRetryMs", path: "src" }, durationMs: 210 },
+  { id: "ai2", kind: "tool", status: "completed", name: "Read", arguments: { file_path: "src/queue/worker.ts" }, durationMs: 140 },
+  { id: "ai3", kind: "file_change", status: "completed", changes: [{ path: "src/webhooks/backoff.ts", kind: "add" }] },
+]
+
 const messages: Record<string, ChatMessage[]> = {
   s1: [
     { id: "m1", sessionId: "s1", role: "user", content: "Extract the JWT verification into a reusable middleware and add tests.", createdAt: now - 25e4 },
@@ -572,6 +581,12 @@ const messages: Record<string, ChatMessage[]> = {
   s2: [
     { id: "m4", sessionId: "s2", role: "user", content: "The webhook retry loop gives up after the first 500. Make it back off instead.", createdAt: now - 12e4 },
     { id: "m5", sessionId: "s2", role: "assistant", content: "Switched the retry to exponential backoff with jitter, capped at 5 attempts. I need to run the webhook tests to confirm.", createdAt: now - 9e4, usage: { inputTokens: 5100, outputTokens: 890, costUsd: 0.06, durationMs: 9400 } },
+    { id: "m15", sessionId: "s2", role: "user", content: "Tests are green. Keep the whole retry budget under the queue worker's timeout, though.", createdAt: now - 7e4 },
+    { id: "m16", sessionId: "s2", role: "assistant", content: "The five attempts add up to 62 seconds in the worst case, so the budget has to come from a single number both sides read.", createdAt: now - 65e3, usage: { inputTokens: 6400, outputTokens: 720, costUsd: 0.05, durationMs: 7100 } },
+    // The Hub's own voice: neither side of the conversation wrote this.
+    { id: "m16b", sessionId: "s2", role: "system", content: "Agent opened the Diff panel (src/webhooks/retry.ts).", createdAt: now - 6e4 },
+    { id: "m17", sessionId: "s2", role: "user", content: "Pull it into one place then, and leave the dead-letter path alone for now.", createdAt: now - 45e3 },
+    { id: "m18", sessionId: "s2", role: "assistant", content: "Moved the backoff table into `src/webhooks/backoff.ts`, which both the client and the worker can import.\n\nThe two of them already disagree about the ceiling: the worker enforces 90s, the webhook client caps its own retries at 120s.", createdAt: now - 3e4, items: askedItems, usage: { inputTokens: 8200, outputTokens: 940, costUsd: 0.07, durationMs: 11800 } },
   ],
   s3: [
     { id: "m6", sessionId: "s3", role: "user", content: "Reward curve is too flat past level 30 — players stop grinding there.", createdAt: now - 31e4 },
@@ -739,7 +754,32 @@ const mockUsageSummary: UsageSummary = (() => {
 })()
 
 const permissions: PermissionRequestInfo[] = [
-  { requestId: "req1", sessionId: "s2", agentSessionId: "codex-2f1c", source: "codex", summary: "Run `pnpm test -- webhooks`", toolName: "Bash", cwd: projects[0].cwd, createdAt: now - 8e3 },
+  { requestId: "req1", sessionId: "s1", agentSessionId: "claude-2f1c", source: "claude", summary: "Run `pnpm test -- expiry auth`", toolName: "Bash", cwd: projects[0].cwd, createdAt: now - 8e3 },
+]
+
+// A live question, on the session whose status is already waiting_input. The
+// options carry descriptions and the CLI accepts an answer outside them, so
+// the card has to draw both.
+const inputRequests: AgentInputRequestInfo[] = [
+  {
+    requestId: "ask1",
+    sessionId: "s2",
+    source: "codex",
+    createdAt: now - 6e3,
+    questions: [
+      {
+        id: "ceiling",
+        header: "Retry ceiling",
+        prompt: "Which ceiling should the shared backoff table use?",
+        allowOther: true,
+        options: [
+          { label: "90s — the worker's timeout", description: "Retries always finish before the queue worker gives up. The client stops one attempt earlier than it does today." },
+          { label: "120s — the client's current cap", description: "Nothing about the webhook client changes, but the worker can time out mid-retry and the last attempt is wasted." },
+          { label: "Read it from config", description: "One setting both sides import, defaulting to 90s. Two more files, and the number has to be decided again per deploy." },
+        ],
+      },
+    ],
+  },
 ]
 
 const base = { instanceId: "", homeDir: null as string | null, isExtra: false }
@@ -813,7 +853,7 @@ const snapshot: SessionSnapshot = wantWizard
       inputRequests: [],
       activeSessionId: null,
     }
-  : { sessions, messages, queued, usage, permissions, inputRequests: [], activeSessionId: "s1" }
+  : { sessions, messages, queued, usage, permissions, inputRequests, activeSessionId: "s1" }
 
 // Real bytes on disk, served by the dev server: a viewer that only ever sees
 // hand-written strings proves nothing about images, video or binary sniffing.
@@ -1396,7 +1436,15 @@ export function installDevMock(): void {
     },
     revealPath: async () => true,
     wipeSessions: async () => ({ sessions: [], messages: {}, queued: {}, usage: {}, permissions: [], inputRequests: [], activeSessionId: null }),
-    resolveInput: async () => true,
+    resolveInput: async (requestId) => {
+      // The real broker withdraws the card the moment it has an answer.
+      const request = inputRequests.find((r) => r.requestId === requestId)
+      if (!request) return false
+      for (const listener of hubListeners) {
+        listener({ type: "input.resolved", requestId, sessionId: request.sessionId })
+      }
+      return true
+    },
     providerLogin: async () => ({ ok: true, command: "…" }),
     testProvider: async (id) => ({
       ok: id !== "opencode",

@@ -42,6 +42,9 @@
   --column-w: 1060px;
   /* Prose only — code, diffs and tool cards get the full column. */
   --prose-w: 74ch;
+  /* What the owner said hugs its own text up to here, so the agent's side of
+     the column stays visibly wider even when a prompt is long. */
+  --bubble-w: 52ch;
 }
 
 * {
@@ -1128,24 +1131,237 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
 .activity-output { color: var(--text-muted); }
 .activity-diff { color: #b8c5a3; white-space: pre; }
 
+/* ——— The agent asks something ———
+   Lines up with the transcript column and reads top-down: who is asking, what
+   it had just done, the question, then what each answer decides. */
+
 .agent-input-card {
   display: grid;
-  gap: 10px;
-  margin: 0 18px 12px;
-  padding: 12px;
-  border: 1px solid rgba(124, 140, 255, 0.38);
-  border-radius: 10px;
-  background: rgba(124, 140, 255, 0.07);
+  gap: 12px;
+  width: calc(100% - 40px);
+  max-width: var(--column-w);
+  margin: 0 auto 12px;
+  padding: 13px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-elevated));
 }
 
-.agent-input-card fieldset { display: grid; gap: 7px; margin: 0; padding: 0; border: 0; }
-.agent-input-card legend { color: var(--accent); font-size: 11px; font-weight: 650; text-transform: uppercase; }
-.agent-input-card p { margin: 0; color: var(--text-secondary); font-size: 12px; }
-.agent-input-card input { width: 100%; padding: 8px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--composer-bg); color: var(--text); }
-.agent-input-options { display: flex; flex-wrap: wrap; gap: 6px; }
-.agent-input-options button { padding: 6px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--composer-bg); color: var(--text-muted); }
-.agent-input-options button.selected { border-color: var(--accent); color: var(--text); background: rgba(124, 140, 255, 0.16); }
-.agent-input-card > .tb-btn { justify-self: end; }
+.agent-input-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.agent-input-head .permission-tag {
+  color: var(--accent);
+}
+
+.agent-input-when {
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.agent-input-context {
+  display: grid;
+  gap: 6px;
+  padding-left: 10px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+.agent-input-lead {
+  margin: 0;
+  max-width: var(--prose-w);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.agent-input-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-input-steps li {
+  max-width: 100%;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  font: 11px/1.6 var(--mono);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-input-question {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.agent-input-question legend {
+  padding: 0;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.agent-input-prompt {
+  margin: 0;
+  max-width: var(--prose-w);
+  font-size: 14px;
+  font-weight: 560;
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* One row per option: what it is called, and under it what picking it decides.
+   That second line used to be a `title` tooltip, which nobody opens. */
+.agent-input-options {
+  display: grid;
+  gap: 6px;
+  /* A long option list scrolls inside itself rather than pushing the whole
+     transcript off screen; the question and Send stay put around it. */
+  max-height: 42vh;
+  overflow-y: auto;
+}
+
+.agent-input-option {
+  position: relative;
+  display: grid;
+  grid-template-columns: 13px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 9px;
+  row-gap: 3px;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--composer-bg);
+  cursor: pointer;
+  transition: border-color var(--speed-fast) ease,
+    background var(--speed-fast) ease;
+}
+
+/* The dot keeps column one to itself; both text rows stack in column two. */
+.agent-input-option::before {
+  content: "";
+  grid-column: 1;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+.agent-input-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.agent-input-option:hover {
+  border-color: var(--border-strong);
+}
+
+.agent-input-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+}
+
+.agent-input-option.selected {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--composer-bg));
+}
+
+.agent-input-option.selected::before {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 3px var(--bg-elevated);
+}
+
+/* The escape hatch, drawn as one — it is an answer the CLI did not list. */
+.agent-input-option.is-own {
+  border-style: dashed;
+}
+
+.agent-input-option-label {
+  grid-column: 2;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.agent-input-option-why {
+  grid-column: 2;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.agent-input-own {
+  display: grid;
+  gap: 5px;
+}
+
+.agent-input-own-label {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.agent-input-own input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--composer-bg);
+  color: var(--text);
+}
+
+.agent-input-own input::placeholder {
+  color: var(--text-faint);
+}
+
+.agent-input-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ——— Two sides ———
+   The owner's messages sit right in a bubble that hugs its text; the agent's
+   stay left and keep the whole column, because a turn carries code, diffs,
+   tables and tool cards that are unreadable in a narrowed one. */
+
+.turn-user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.turn-system {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
 
 .turn-meta {
   display: flex;
@@ -1154,19 +1370,15 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   margin-bottom: 8px;
 }
 
-.turn-role {
+.turn-user .turn-meta {
+  margin: 5px 2px 0;
+}
+
+.turn-provider {
   font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--text-muted);
 }
 
-.turn-role.agent {
-  color: var(--accent);
-}
-
-.turn-provider,
 .turn-time {
   font-size: 11px;
   color: var(--text-faint);
@@ -1212,23 +1424,41 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   animation: pulse-dot 1.2s ease-in-out infinite;
 }
 
+/* `88%` rather than `100%`: on a thin column a long prompt must still leave a
+   gutter on the left, or the side it is on stops reading as a side. */
 .user-bubble {
-  display: inline-block;
-  max-width: 100%;
+  max-width: min(var(--bubble-w), 88%);
   padding: 10px 14px;
-  border-radius: 12px 12px 4px 12px;
+  border-radius: 14px 14px 4px 14px;
   background: var(--user-bg);
-  border: 1px solid #2a3548;
-  color: var(--text-secondary);
+  border: 1px solid color-mix(in srgb, var(--user-bg) 55%, var(--border));
+  color: var(--text);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   line-height: 1.5;
 }
 
+/* An auto margin beats `align-items` on a flex item, so the gallery needs one
+   to land on the owner's side instead of centring itself. */
+.turn-user .message-attachments {
+  max-width: min(var(--bubble-w), 88%);
+  margin: 8px 0 0 auto;
+}
+
+.turn-user .checkpoint-confirm {
+  max-width: min(var(--bubble-w), 88%);
+}
+
+/* Neither side wrote this — the Hub did. Centred, so it reads as a note
+   between the two rather than as something the agent said. */
 .system-line {
+  max-width: min(var(--prose-w), 100%);
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-faint) 10%, transparent);
+  text-align: center;
   font-size: 12px;
-  color: var(--text-faint);
-  border-left: 2px solid var(--border);
-  padding-left: 10px;
+  color: var(--text-muted);
 }
 
 /* markdown body */
@@ -1249,10 +1479,6 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
 .md-body .md-quote,
 .md-body .md-footnotes,
 .md-body .md-h {
-  max-width: var(--prose-w);
-}
-
-.user-bubble {
   max-width: var(--prose-w);
 }
 
