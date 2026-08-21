@@ -55,7 +55,8 @@ describe("universal interactive questions", () => {
     expect(stream.finish()).toEqual({
       visible: "",
       question: {
-        questions: [{ id: "answer", header: "Deploy", prompt: "Where should I deploy?", options: undefined }],
+        // allowOther: the answer goes back as prose, so any wording works.
+        questions: [{ id: "answer", header: "Deploy", prompt: "Where should I deploy?", options: undefined, allowOther: true }],
       },
     })
   })
