@@ -20,7 +20,6 @@ import type {
   SessionMeta,
   SessionUsage,
 } from "@shared/types"
-import { collectAgentActions, editedPathsInMessage } from "./lib/agent-actions"
 import type { PermissionMode } from "@shared/permission"
 import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
 import type {
@@ -41,13 +40,32 @@ import { prunePreviewPicks } from "./lib/preview-picks"
 import { pruneScriptTerminals } from "./lib/script-terminals"
 import { mergeReplacedMessages } from "./lib/transcript-window"
 import { Sidebar } from "./components/Sidebar"
-import { ChatView } from "./components/ChatView"
-import { SurfaceDock } from "./components/surfaces/SurfaceDock"
+import { Workspace, type WorkspaceDrop } from "./components/Workspace"
+import type { PaneActions } from "./components/WorkspacePane"
 import type { SurfaceKind } from "./lib/surface-bridge"
 import {
+  assignSession,
+  closePane,
+  focusedPane,
+  focusPane,
+  isNoopMove,
+  loadLayout,
+  movePane,
+  nextPaneId,
+  openPaneAt,
+  PANE_MIME,
+  paneForSession,
+  pruneLayout,
+  saveLayout,
+  setPaneDock,
+  stepFocus,
+  type DropTarget,
+  type PaneLayout,
+} from "./lib/pane-layout"
+import {
+  clampDockWidth,
   loadAutoOpenDock,
   loadDockOpen,
-  clampDockWidth,
   loadDockWidth,
   loadSurfaceBySession,
   saveAutoOpenDock,
@@ -93,9 +111,12 @@ export default function App() {
   const [overflowHasMore, setOverflowHasMore] = useState<
     Record<string, boolean>
   >({})
-  const [loadingOlder, setLoadingOlder] = useState(false)
-  const loadingOlderRef = useRef(false)
-  const [activeId, setActiveId] = useState<string | null>(null)
+  /** The session whose scroll-back is being fetched, if any. */
+  const [loadingOlderFor, setLoadingOlderFor] = useState<string | null>(null)
+  const loadingOlderRef = useRef<string | null>(null)
+  const [layout, setLayout] = useState<PaneLayout>(() =>
+    loadLayout(loadDockOpen()),
+  )
   const [projects, setProjects] = useState<Project[]>([])
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>(
@@ -115,35 +136,46 @@ export default function App() {
   const [newSessionHint, setNewSessionHint] = useState<{
     project?: string
     cwd?: string
+    /** Pane the finished session lands in; a fresh one when a drop made it. */
+    paneId?: string
   }>({})
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [sending, setSending] = useState(false)
-  const [git, setGit] = useState<GitCheckoutInfo | null>(null)
-  const [dockOpen, setDockOpen] = useState(loadDockOpen)
+  const [sendingIds, setSendingIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  )
+  const [gitByCwd, setGitByCwd] = useState<
+    Record<string, GitCheckoutInfo | null>
+  >({})
   const [dockWidth, setDockWidth] = useState(loadDockWidth)
+  const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth)
   const [surfaceBySession, setSurfaceBySession] = useState<
     Record<string, SurfaceKind>
   >(loadSurfaceBySession)
   const [autoOpenDock, setAutoOpenDock] = useState(loadAutoOpenDock)
   const [gitRefresh, setGitRefresh] = useState(0)
+  /** Pane that most recently asked for the single `<webview>` browser guest. */
+  const [browserClaim, setBrowserClaim] = useState<string | null>(null)
   // `at` re-fires the focus even when the same path is clicked twice.
-  const [diffFocus, setDiffFocus] = useState<{
-    path: string
-    at: number
-  } | null>(null)
-  const [filesFocus, setFilesFocus] = useState<{
-    path: string
-    line: number | null
-    /** A folder to expand rather than a file to open. */
-    directory: boolean
-    at: number
-  } | null>(null)
+  const [diffFocusBySession, setDiffFocusBySession] = useState<
+    Record<string, { path: string; at: number }>
+  >({})
+  const [filesFocusBySession, setFilesFocusBySession] = useState<
+    Record<
+      string,
+      {
+        path: string
+        line: number | null
+        /** A folder to expand rather than a file to open. */
+        directory: boolean
+        at: number
+      }
+    >
+  >({})
   const [projectSearch, setProjectSearch] = useState<ProjectSearchMode | null>(
     null,
   )
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth)
   const [onboardDismissed, setOnboardDismissed] = useState(
     () => localStorage.getItem(AUTH_NAG_KEY) === "1",
   )
@@ -159,13 +191,21 @@ export default function App() {
   const [hooksBySession, setHooksBySession] = useState<
     Record<string, HookRun[]>
   >({})
-  const [scripts, setScripts] = useState<ProjectScript[]>([])
+  const [scriptsByCwd, setScriptsByCwd] = useState<
+    Record<string, ProjectScript[]>
+  >({})
   const [highlight, setHighlight] = useState<{
     sessionId: string
     messageId: string
   } | null>(null)
 
-  const activeIdRef = useRef<string | null>(null)
+  const pane = focusedPane(layout)
+  const activeId = pane.sessionId
+
+  const activeIdRef = useRef<string | null>(activeId)
+  const overflowRef = useRef(overflowHasMore)
+  const layoutRef = useRef(layout)
+  const sessionsRef = useRef(sessions)
   const selectSessionRef = useRef<(id: string) => void>(() => {})
   // Read after an await, where the value this render closed over is already old.
   const messagesBySessionRef = useRef(messagesBySession)
@@ -173,13 +213,8 @@ export default function App() {
   // events into state; it needs the latest dock/surface/pref values without
   // taking them as deps (which would re-subscribe the IPC listener on every
   // toggle), so they ride in refs kept fresh by the effects further down.
-  const dockOpenRef = useRef(dockOpen)
   const surfaceBySessionRef = useRef(surfaceBySession)
   const autoOpenDockRef = useRef(autoOpenDock)
-  const autoOpenSeenRef = useRef<{ messageId: string; count: number }>({
-    messageId: "",
-    count: 0,
-  })
 
   const applyEvent = useCallback((event: HubEvent) => {
     switch (event.type) {
@@ -198,8 +233,8 @@ export default function App() {
         // main keeps (and persists) the previous session as the active one.
         if (event.sessionId && event.sessionId !== activeIdRef.current) {
           selectSessionRef.current(event.sessionId)
-        } else {
-          setActiveId(event.sessionId)
+        } else if (!event.sessionId) {
+          setLayout((curr) => assignSession(curr, curr.focusedPaneId, null))
         }
         break
       case "session.upsert":
@@ -379,11 +414,22 @@ export default function App() {
         setUsageBySession(snap.usage)
         setPermissions(snap.permissions)
         setInputRequests(snap.inputRequests)
-        setActiveId(snap.activeSessionId)
-        // A session restored as the active one never goes through
-        // selectSession, and would show no scroll-back without this.
-        if (snap.activeSessionId) {
-          void seedOverflowFlag(snap.activeSessionId)
+        // A restored layout already says which chat each pane holds; only a
+        // pane left empty by it falls back to the session main remembers.
+        const live = new Set(snap.sessions.map((s) => s.id))
+        const pruned = pruneLayout(layoutRef.current, live)
+        const restored =
+          focusedPane(pruned).sessionId === null && snap.activeSessionId
+            ? assignSession(pruned, pruned.focusedPaneId, snap.activeSessionId)
+            : pruned
+        setLayout(restored)
+        activeIdRef.current = focusedPane(restored).sessionId
+        // A session restored into a pane never goes through selectSession, and
+        // would show no scroll-back without this.
+        for (const restoredPane of restored.panes) {
+          if (restoredPane.sessionId) {
+            void seedOverflowFlag(restoredPane.sessionId)
+          }
         }
         setProjects(pinned)
         setProviders(prov)
@@ -447,12 +493,25 @@ export default function App() {
   }, [activeId])
 
   useEffect(() => {
-    messagesBySessionRef.current = messagesBySession
-  }, [messagesBySession])
+    layoutRef.current = layout
+    saveLayout(layout)
+    // A workspace that is back to one pane keeps writing the app-wide dock
+    // preference, so nothing about single-pane persistence changed.
+    const only = layout.panes.length === 1 ? layout.panes[0] : null
+    if (only) saveDockOpen(only.dockOpen)
+  }, [layout])
 
   useEffect(() => {
-    dockOpenRef.current = dockOpen
-  }, [dockOpen])
+    sessionsRef.current = sessions
+  }, [sessions])
+
+  useEffect(() => {
+    overflowRef.current = overflowHasMore
+  }, [overflowHasMore])
+
+  useEffect(() => {
+    messagesBySessionRef.current = messagesBySession
+  }, [messagesBySession])
 
   useEffect(() => {
     surfaceBySessionRef.current = surfaceBySession
@@ -462,46 +521,215 @@ export default function App() {
     autoOpenDockRef.current = autoOpenDock
   }, [autoOpenDock])
 
-  const messages = activeId ? (messagesBySession[activeId] ?? []) : []
-  // Diff surface audit trail: same tool cards the transcript already parsed.
-  const agentActions = useMemo(() => collectAgentActions(messages), [messages])
+  /** The sessions on screen right now, left to right. */
+  const paneSessions = useMemo(() => {
+    const out: SessionMeta[] = []
+    for (const item of layout.panes) {
+      const found = item.sessionId
+        ? sessions.find((s) => s.id === item.sessionId)
+        : undefined
+      if (found) out.push(found)
+    }
+    return out
+  }, [layout.panes, sessions])
 
-  // Auto-open the diff dock off the same parse the transcript draws, so there
-  // is one answer to "what did this turn change" rather than two. Only the
-  // session in view may steal the dock, and only while its turn is still
-  // streaming — a transcript restored from disk must not yank the panel open.
+  // Effects below fan out over every open pane, so they key off a string
+  // rather than an array whose identity changes on every render.
+  const paneCwdKey = useMemo(
+    () => JSON.stringify([...new Set(paneSessions.map((s) => s.cwd))]),
+    [paneSessions],
+  )
+
   useEffect(() => {
-    const sessionId = activeId
-    if (!sessionId) return
-    const last = messages[messages.length - 1]
-    if (!last || last.role !== "assistant" || !last.streaming) return
-    const edited = editedPathsInMessage(last)
-    const seen = autoOpenSeenRef.current
-    const known = seen.messageId === last.id ? seen.count : 0
-    if (edited.length <= known) return
-    autoOpenSeenRef.current = { messageId: last.id, count: edited.length }
-    const decision = shouldAutoOpenDock(
-      {
-        showDock: dockOpenRef.current,
-        activeSurface: surfaceBySessionRef.current[sessionId] ?? null,
-      },
-      edited,
-      autoOpenDockRef.current,
-    )
-    if (!decision) return
+    let cancelled = false
+    for (const cwd of JSON.parse(paneCwdKey) as string[]) {
+      void window.chatHub.getGitInfo(cwd).then((info) => {
+        if (!cancelled) setGitByCwd((curr) => ({ ...curr, [cwd]: info }))
+      })
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [paneCwdKey, gitRefresh])
+
+  useEffect(() => {
+    let cancelled = false
+    for (const cwd of JSON.parse(paneCwdKey) as string[]) {
+      void window.chatHub
+        .scriptsList(cwd)
+        .then((file) => {
+          if (!cancelled) {
+            setScriptsByCwd((curr) => ({ ...curr, [cwd]: file.scripts }))
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setScriptsByCwd((curr) => ({ ...curr, [cwd]: [] }))
+        })
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [paneCwdKey])
+
+  // A finished turn is exactly when the working copy changed under us, so the
+  // source-control panel re-reads then instead of polling while an agent runs.
+  const settledKey = useMemo(
+    () =>
+      paneSessions
+        .filter((s) => s.status !== "running")
+        .map((s) => s.id)
+        .join("|"),
+    [paneSessions],
+  )
+  useEffect(() => {
+    setGitRefresh((n) => n + 1)
+  }, [settledKey])
+
+  const refreshGit = useCallback(() => setGitRefresh((n) => n + 1), [])
+
+  const permissionsBySession = useMemo(() => {
+    const out: Record<string, PermissionRequestInfo[]> = {}
+    for (const request of permissions) {
+      // A request whose agent id matched no session belongs to no pane.
+      if (request.sessionId === null) continue
+      ;(out[request.sessionId] ??= []).push(request)
+    }
+    return out
+  }, [permissions])
+
+  const inputRequestsBySession = useMemo(() => {
+    const out: Record<string, AgentInputRequestInfo[]> = {}
+    for (const request of inputRequests) {
+      ;(out[request.sessionId] ??= []).push(request)
+    }
+    return out
+  }, [inputRequests])
+
+  const enabledProviderIds = useMemo<ProviderId[]>(() => {
+    if (providerStatuses.length === 0) return providers.map((p) => p.id)
+    // Provider pickers care about the base provider = its default instance.
+    return providerStatuses
+      .filter((s) => !s.isExtra && s.enabled)
+      .map((s) => s.id)
+  }, [providerStatuses, providers])
+
+  const activeSurface = activeId ? (surfaceBySession[activeId] ?? null) : null
+
+  useEffect(() => {
+    if (sessions.length === 0) return
+    const live = new Set(sessions.map((s) => s.id))
+    prunePendingRuns(live)
+    prunePendingPrompts(live)
+    pruneDiffComments(live)
+    prunePreviewPicks(live)
+    pruneScriptTerminals(live)
+    setLayout((curr) => pruneLayout(curr, live))
     setSurfaceBySession((curr) => {
-      const next = { ...curr, [sessionId]: decision }
+      const next = Object.fromEntries(
+        Object.entries(curr).filter(([id]) => live.has(id)),
+      )
+      if (Object.keys(next).length === Object.keys(curr).length) return curr
       saveSurfaceBySession(next)
       return next
     })
-    setDockOpen(true)
-    saveDockOpen(true)
-    // The diff surface only refetches when its refreshKey bumps — if it was
-    // already open and showing "diff"/"files", switching kind to the same
-    // "diff" value doesn't remount SourceControl, so without this the panel
-    // would keep showing a stale diff from before the edit.
-    setGitRefresh((n) => n + 1)
-  }, [activeId, messages])
+  }, [sessions])
+
+  // Main answers "what is open?" from this mirror rather than asking a renderer
+  // that may be mid-turn. With several panes it is the focused one that counts.
+  useEffect(() => {
+    window.chatHub.reportSurfaceState({
+      activeSessionId: activeId,
+      dockOpen: pane.dockOpen && activeId !== null,
+      surfaceBySession,
+    })
+  }, [activeId, pane.dockOpen, surfaceBySession])
+
+  const setDockFor = useCallback((paneId: string, open: boolean) => {
+    setLayout((curr) => setPaneDock(curr, paneId, open))
+  }, [])
+
+  const toggleDockFor = useCallback((paneId: string) => {
+    setLayout((curr) => {
+      const target = curr.panes.find((p) => p.id === paneId)
+      return target ? setPaneDock(curr, paneId, !target.dockOpen) : curr
+    })
+  }, [])
+
+  const chooseSurface = useCallback(
+    (paneId: string, sessionId: string, kind: SurfaceKind | null) => {
+      setSurfaceBySession((curr) => {
+        const next = { ...curr }
+        if (kind === null) delete next[sessionId]
+        else next[sessionId] = kind
+        saveSurfaceBySession(next)
+        return next
+      })
+      if (kind === "browser") setBrowserClaim(paneId)
+      setLayout((curr) => focusPane(curr, paneId))
+    },
+    [],
+  )
+
+  const openSurface = useCallback(
+    (paneId: string, sessionId: string, kind: SurfaceKind) => {
+      chooseSurface(paneId, sessionId, kind)
+      setDockFor(paneId, true)
+    },
+    [chooseSurface, setDockFor],
+  )
+
+  const claimBrowser = useCallback((paneId: string) => {
+    setBrowserClaim(paneId)
+  }, [])
+
+  const toggleDiffSurface = useCallback(() => {
+    if (!activeId) return
+    if (pane.dockOpen && activeSurface === "diff") {
+      setDockFor(pane.id, false)
+      return
+    }
+    openSurface(pane.id, activeId, "diff")
+  }, [activeId, pane.dockOpen, pane.id, activeSurface, openSurface, setDockFor])
+
+  const toggleHistorySurface = useCallback(() => {
+    if (!activeId) return
+    if (pane.dockOpen && activeSurface === "history") {
+      setDockFor(pane.id, false)
+      return
+    }
+    openSurface(pane.id, activeId, "history")
+  }, [activeId, pane.dockOpen, pane.id, activeSurface, openSurface, setDockFor])
+
+  // A path clicked in a turn's changed-files row: open the Diff panel already
+  // showing that file, rather than the working copy the reader has to hunt in.
+  const openDiffForPath = useCallback(
+    (paneId: string, sessionId: string, path: string) => {
+      setDiffFocusBySession((curr) => ({
+        ...curr,
+        [sessionId]: { path, at: Date.now() },
+      }))
+      openSurface(paneId, sessionId, "diff")
+    },
+    [openSurface],
+  )
+
+  const openProjectFile = useCallback(
+    (path: string, line?: number) => {
+      const sessionId = activeIdRef.current
+      if (!sessionId) return
+      setFilesFocusBySession((curr) => ({
+        ...curr,
+        [sessionId]: {
+          path,
+          line: line ?? null,
+          directory: false,
+          at: Date.now(),
+        },
+      }))
+      openSurface(layoutRef.current.focusedPaneId, sessionId, "files")
+    },
+    [openSurface],
+  )
 
   useEffect(() => {
     return window.chatHub.onBrowserOpen((sessionId) => {
@@ -511,21 +739,22 @@ export default function App() {
         saveSurfaceBySession(next)
         return next
       })
-      setDockOpen(true)
-      saveDockOpen(true)
+      const target = paneForSession(layoutRef.current, sessionId)
+      if (!target) return
+      setDockFor(target.id, true)
+      setBrowserClaim(target.id)
     })
-  }, [])
+  }, [setDockFor])
 
   // An agent's dock tool. The surface is remembered for whichever session asked,
-  // but only the session on screen may pull the panel open, focus a file or
-  // start a script — a background turn must not rearrange what the user is
-  // looking at, and must not run anything the user never saw start.
+  // but only a session that is actually on screen may pull a panel open, focus a
+  // file or start a script — a background turn must not rearrange what the user
+  // is looking at, and must not run anything the user never saw start.
   useEffect(() => {
     return window.chatHub.onSurfaceOpen((request) => {
+      const target = paneForSession(layoutRef.current, request.sessionId)
       if (request.surface === null) {
-        if (request.sessionId !== activeIdRef.current) return
-        setDockOpen(false)
-        saveDockOpen(false)
+        if (target) setDockFor(target.id, false)
         return
       }
       const surface = request.surface
@@ -535,36 +764,65 @@ export default function App() {
         saveSurfaceBySession(next)
         return next
       })
-      if (request.sessionId !== activeIdRef.current) return
+      if (!target) return
       if (request.command) {
         stashTerminalCommand(request.sessionId, request.command)
       }
       if (request.path !== null && surface === "diff") {
-        setDiffFocus({ path: request.path, at: request.at })
+        setDiffFocusBySession((curr) => ({
+          ...curr,
+          [request.sessionId]: { path: request.path as string, at: request.at },
+        }))
         setGitRefresh((n) => n + 1)
       }
       if (request.path !== null && surface === "files") {
-        setFilesFocus({
-          path: request.path,
-          line: request.line,
-          directory: request.directory,
-          at: request.at,
-        })
+        setFilesFocusBySession((curr) => ({
+          ...curr,
+          [request.sessionId]: {
+            path: request.path as string,
+            line: request.line,
+            directory: request.directory,
+            at: request.at,
+          },
+        }))
       }
-      setDockOpen(true)
-      saveDockOpen(true)
+      if (surface === "browser") setBrowserClaim(target.id)
+      setDockFor(target.id, true)
     })
-  }, [])
+  }, [setDockFor])
 
-  // Main answers "what is open?" from this mirror rather than asking a renderer
-  // that may be mid-turn.
-  useEffect(() => {
-    window.chatHub.reportSurfaceState({
-      activeSessionId: activeId,
-      dockOpen: dockOpen && activeId !== null,
-      surfaceBySession,
-    })
-  }, [activeId, dockOpen, surfaceBySession])
+  /**
+   * A turn that edited files wants this pane's dock on the diff. The pane asks;
+   * the decision of whether that would yank the reader off something else is
+   * still the surface store's.
+   */
+  const autoOpenDiff = useCallback(
+    (paneId: string, sessionId: string, edited: string[]) => {
+      const target = layoutRef.current.panes.find((p) => p.id === paneId)
+      if (!target) return
+      const decision = shouldAutoOpenDock(
+        {
+          showDock: target.dockOpen,
+          activeSurface: surfaceBySessionRef.current[sessionId] ?? null,
+        },
+        edited,
+        autoOpenDockRef.current,
+      )
+      if (!decision) return
+      setSurfaceBySession((curr) => {
+        const next = { ...curr, [sessionId]: decision }
+        saveSurfaceBySession(next)
+        return next
+      })
+      setDockFor(paneId, true)
+      // The diff surface only refetches when its refreshKey bumps — if it was
+      // already open and showing "diff"/"files", switching kind to the same
+      // "diff" value doesn't remount SourceControl, so without this the panel
+      // would keep showing a stale diff from before the edit.
+      setGitRefresh((n) => n + 1)
+    },
+    [setDockFor],
+  )
 
   function setSessionArchived(id: string, archive: boolean) {
     void window.chatHub
@@ -599,17 +857,52 @@ export default function App() {
       })
   }
 
+  // ProjectSearch unmounts with its session, and an unmounted overlay never
+  // calls onClose — leaving anyOverlayOpen stuck true, which silently disables
+  // the bare-Escape abort for the rest of the run.
+  useEffect(() => {
+    if (!activeSession) setProjectSearch(null)
+  }, [activeSession])
+
+  // Both widths are restored from a previous window that may have been wider,
+  // and a resize can invalidate them at any time; the transcript floor is only
+  // a floor if it is re-checked whenever the viewport moves.
+  useEffect(() => {
+    const fit = () => {
+      const rail = sidebarCollapsed ? RAIL_WIDTH : sidebarWidth
+      const dock = clampDockWidth(dockWidth, window.innerWidth, rail)
+      if (dock !== dockWidth) {
+        setDockWidth(dock)
+        saveDockWidth(dock)
+      }
+      const bar = clampSidebarWidth(
+        sidebarWidth,
+        window.innerWidth,
+        pane.dockOpen && activeSession ? dock : 0,
+      )
+      if (bar !== sidebarWidth) {
+        setSidebarWidth(bar)
+        saveSidebarWidth(bar)
+      }
+    }
+    fit()
+    window.addEventListener("resize", fit)
+    return () => window.removeEventListener("resize", fit)
+  }, [activeSession, pane.dockOpen, dockWidth, sidebarCollapsed, sidebarWidth])
+
   async function jumpToMessage(sessionId: string, messageId: string) {
     setHighlight({ sessionId, messageId })
-    if (sessionId !== activeIdRef.current) await selectSession(sessionId)
+    if (!paneForSession(layoutRef.current, sessionId)) {
+      await selectSession(sessionId)
+    }
 
     const loaded = messagesBySessionRef.current[sessionId] ?? []
     if (loaded.some((m) => m.id === messageId)) return
 
     // The hit came out of archive.jsonl, so nothing on screen can scroll to it
     // until the pages between here and there are pulled in.
-    loadingOlderRef.current = true
-    setLoadingOlder(true)
+    loadingOlderRef.current = sessionId
+    setLoadingOlderFor(sessionId)
     try {
       const page = await window.chatHub.loadArchiveThrough(
         sessionId,
@@ -635,188 +928,12 @@ export default function App() {
       setHighlight(null)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      loadingOlderRef.current = false
-      setLoadingOlder(false)
+      loadingOlderRef.current = null
+      setLoadingOlderFor(null)
     }
   }
 
   const clearHighlight = useCallback(() => setHighlight(null), [])
-
-  const sessionModels = useMemo(() => {
-    if (activeSession) {
-      const wantInstance = activeSession.instanceId ?? activeSession.provider
-      const byInst = providerStatuses.find((s) => s.instanceId === wantInstance)
-      if (byInst) return byInst.models
-    }
-    const id = activeSession?.provider ?? provider
-    return providerStatuses.find((s) => s.id === id && !s.isExtra)?.models ?? []
-  }, [activeSession, provider, providerStatuses])
-
-  const enabledProviderIds = useMemo<ProviderId[]>(() => {
-    if (providerStatuses.length === 0) return providers.map((p) => p.id)
-    // Provider pickers care about the base provider = its default instance.
-    return providerStatuses
-      .filter((s) => !s.isExtra && s.enabled)
-      .map((s) => s.id)
-  }, [providerStatuses, providers])
-
-  useEffect(() => {
-    if (!activeSession?.cwd) {
-      setGit(null)
-      return
-    }
-    let cancelled = false
-    void window.chatHub.getGitInfo(activeSession.cwd).then((info) => {
-      if (!cancelled) setGit(info)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [activeSession?.id, activeSession?.cwd, activeSession?.status, gitRefresh])
-
-  useEffect(() => {
-    // A finished turn is exactly when the working copy changed under us, so the
-    // source-control panel re-reads then instead of polling while the agent runs.
-    if (activeSession && activeSession.status !== "running") {
-      setGitRefresh((n) => n + 1)
-    }
-  }, [activeSession?.id, activeSession?.status])
-
-  const refreshGit = useCallback(() => setGitRefresh((n) => n + 1), [])
-
-  const activeSurface = activeId ? (surfaceBySession[activeId] ?? null) : null
-
-  useEffect(() => {
-    if (sessions.length === 0) return
-    const live = new Set(sessions.map((s) => s.id))
-    prunePendingRuns(live)
-    prunePendingPrompts(live)
-    pruneDiffComments(live)
-    prunePreviewPicks(live)
-    pruneScriptTerminals(live)
-    setSurfaceBySession((curr) => {
-      const next = Object.fromEntries(
-        Object.entries(curr).filter(([id]) => live.has(id)),
-      )
-      if (Object.keys(next).length === Object.keys(curr).length) return curr
-      saveSurfaceBySession(next)
-      return next
-    })
-  }, [sessions])
-
-  const setDock = useCallback((open: boolean) => {
-    setDockOpen(open)
-    saveDockOpen(open)
-  }, [])
-
-  const chooseSurface = useCallback(
-    (kind: SurfaceKind | null) => {
-      if (!activeId) return
-      setSurfaceBySession((curr) => {
-        const next = { ...curr }
-        if (kind === null) delete next[activeId]
-        else next[activeId] = kind
-        saveSurfaceBySession(next)
-        return next
-      })
-    },
-    [activeId],
-  )
-
-  const openSurface = useCallback(
-    (kind: SurfaceKind) => {
-      chooseSurface(kind)
-      setDock(true)
-    },
-    [chooseSurface, setDock],
-  )
-
-  const toggleDiffSurface = useCallback(() => {
-    if (dockOpen && activeSurface === "diff") {
-      setDock(false)
-      return
-    }
-    openSurface("diff")
-  }, [dockOpen, activeSurface, openSurface, setDock])
-
-  const toggleHistorySurface = useCallback(() => {
-    if (dockOpen && activeSurface === "history") {
-      setDock(false)
-      return
-    }
-    openSurface("history")
-  }, [dockOpen, activeSurface, openSurface, setDock])
-
-  // A path clicked in a turn's changed-files row: open the Diff panel already
-  // showing that file, rather than the working copy the reader has to hunt in.
-  const openDiffForPath = useCallback(
-    (path: string) => {
-      setDiffFocus({ path, at: Date.now() })
-      openSurface("diff")
-    },
-    [openSurface],
-  )
-
-  const openProjectFile = useCallback(
-    (path: string, line?: number) => {
-      setFilesFocus({
-        path,
-        line: line ?? null,
-        directory: false,
-        at: Date.now(),
-      })
-      openSurface("files")
-    },
-    [openSurface],
-  )
-
-  useEffect(() => {
-    const cwd = activeSession?.cwd
-    if (!cwd) {
-      setScripts([])
-      return
-    }
-    let cancelled = false
-    void window.chatHub
-      .scriptsList(cwd)
-      .then((file) => {
-        if (!cancelled) setScripts(file.scripts)
-      })
-      .catch(() => {
-        if (!cancelled) setScripts([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [activeSession?.id, activeSession?.cwd])
-
-  const saveScripts = useCallback(
-    async (next: ProjectScript[]) => {
-      const cwd = activeSession?.cwd
-      if (!cwd) return
-      const saved = await window.chatHub.scriptsSave(cwd, next)
-      setScripts(saved.scripts)
-    },
-    [activeSession?.cwd],
-  )
-
-  const runScript = useCallback(
-    (script: ProjectScript) => {
-      const sessionId = activeIdRef.current
-      if (!sessionId) return
-      stashTerminalCommand(sessionId, script.command)
-      openSurface("terminal")
-      if (script.autoOpenPreview && script.previewUrl) {
-        const url = script.previewUrl
-        window.setTimeout(() => {
-          if (activeIdRef.current !== sessionId) return
-          stashBrowserUrl(sessionId, url)
-          openSurface("browser")
-        }, SCRIPT_PREVIEW_SWITCH_MS)
-      }
-    },
-    [openSurface],
-  )
 
   async function resolvePermission(requestId: string, allow: boolean) {
     // Optimistic: main echoes permission.resolved, but the island may have
@@ -844,16 +961,33 @@ export default function App() {
     }
   }
 
-  function openNewSession(hint?: { project?: string; cwd?: string }) {
+  function openNewSession(hint?: {
+    project?: string
+    cwd?: string
+    paneId?: string
+  }) {
     const projectHint = hint?.project
     let cwd = hint?.cwd
-    if (!cwd && projectHint && activeSession?.project === projectHint) {
-      cwd = activeSession.cwd
+    const known = sessionsRef.current
+    const current = known.find((s) => s.id === activeIdRef.current) ?? null
+    if (!cwd && projectHint && current?.project === projectHint) {
+      cwd = current.cwd
     } else if (!cwd && projectHint) {
-      cwd = sessions.find((s) => s.project === projectHint)?.cwd
+      cwd = known.find((s) => s.project === projectHint)?.cwd
     }
-    setNewSessionHint({ project: projectHint, cwd })
+    setNewSessionHint({ project: projectHint, cwd, paneId: hint?.paneId })
     setNewSessionOpen(true)
+  }
+
+  /** A pane opened for a chat that never happened has nothing left to show. */
+  function closeNewSession() {
+    setNewSessionOpen(false)
+    const paneId = newSessionHint.paneId
+    if (!paneId) return
+    setLayout((curr) => {
+      const target = curr.panes.find((p) => p.id === paneId)
+      return target && target.sessionId === null ? closePane(curr, paneId) : curr
+    })
   }
 
   async function addProject() {
@@ -888,6 +1022,7 @@ export default function App() {
   async function createSessionFromDraft(draft: NewSessionDraft) {
     setError(null)
     setBusy(true)
+    const intoPane = newSessionHint.paneId ?? layoutRef.current.focusedPaneId
     try {
       if (draft.permissionMode !== permissionMode) {
         await window.chatHub.setPermissionMode(draft.permissionMode)
@@ -903,7 +1038,8 @@ export default function App() {
         title: draft.title,
         worktree: draft.worktree,
       })
-      setActiveId(session.id)
+      setLayout((curr) => assignSession(curr, intoPane, session.id))
+      activeIdRef.current = session.id
       setSessions((curr) => {
         if (curr.some((s) => s.id === session.id)) return curr
         return [session, ...curr]
@@ -929,15 +1065,13 @@ export default function App() {
     }
   }
 
-  async function selectSession(id: string) {
-    setActiveId(id)
-    // Kept in step synchronously: main echoes session.active back at us, and a
-    // ref that is one render stale would bounce the selection forever.
+  /** Fetch what a session needs to be shown, wherever it just landed. */
+  async function adoptSession(id: string) {
     activeIdRef.current = id
     setError(null)
     try {
       await window.chatHub.setActiveSession(id)
-      if (!messagesBySession[id]) {
+      if (!messagesBySessionRef.current[id]) {
         const msgs = await window.chatHub.getMessages(id)
         setMessagesBySession((curr) => ({ ...curr, [id]: msgs }))
       }
@@ -947,14 +1081,20 @@ export default function App() {
     }
   }
 
-  async function loadOlderMessages() {
-    const sessionId = activeId
-    if (!sessionId || loadingOlderRef.current) return
-    if (overflowHasMore[sessionId] === false) return
-    const list = messagesBySession[sessionId] ?? []
+  async function selectSession(id: string) {
+    // Kept in step synchronously: main echoes session.active back at us, and a
+    // ref that is one render stale would bounce the selection forever.
+    setLayout((curr) => assignSession(curr, curr.focusedPaneId, id))
+    await adoptSession(id)
+  }
+
+  async function loadOlderMessages(sessionId: string) {
+    if (loadingOlderRef.current !== null) return
+    if (overflowRef.current[sessionId] === false) return
+    const list = messagesBySessionRef.current[sessionId] ?? []
     const beforeId = list[0]?.id ?? null
-    loadingOlderRef.current = true
-    setLoadingOlder(true)
+    loadingOlderRef.current = sessionId
+    setLoadingOlderFor(sessionId)
     try {
       const page = await window.chatHub.loadArchivedMessages(
         sessionId,
@@ -976,8 +1116,8 @@ export default function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      loadingOlderRef.current = false
-      setLoadingOlder(false)
+      loadingOlderRef.current = null
+      setLoadingOlderFor(null)
     }
   }
 
@@ -1004,40 +1144,51 @@ export default function App() {
         setUsageBySession(snap.usage)
         setPermissions(snap.permissions)
         setInputRequests(snap.inputRequests)
-      setActiveId(snap.activeSessionId)
+      const live = new Set(snap.sessions.map((s) => s.id))
+      setLayout((curr) => {
+        const pruned = pruneLayout(curr, live)
+        return focusedPane(pruned).sessionId === null && snap.activeSessionId
+          ? assignSession(pruned, pruned.focusedPaneId, snap.activeSessionId)
+          : pruned
+      })
       activeIdRef.current = snap.activeSessionId
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
   }
 
-  async function sendMessage(
-    text: string,
-    opts?: { effort?: EffortLevel; attachments?: string[] },
-  ) {
-    if (!activeId) return
-    setError(null)
-    setSending(true)
-    try {
-      // Always straight through: main owns the queue, so a follow-up typed
-      // mid-turn lands in the transcript and is flushed when the turn ends —
-      // queueing here too would leave the notch island's replies invisible.
-      await window.chatHub.sendMessage(activeId, text, {
-        effort: opts?.effort ?? effort,
-        attachments: opts?.attachments,
-      })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-      // Rethrown so the composer can hand the typed prompt back.
-      throw err
-    } finally {
-      setSending(false)
-    }
-  }
+  const sendMessage = useCallback(
+    async (
+      sessionId: string,
+      text: string,
+      opts?: { effort?: EffortLevel; attachments?: string[] },
+    ) => {
+      setError(null)
+      setSendingIds((curr) => new Set(curr).add(sessionId))
+      try {
+        // Always straight through: main owns the queue, so a follow-up typed
+        // mid-turn lands in the transcript and is flushed when the turn ends —
+        // queueing here too would leave the notch island's replies invisible.
+        await window.chatHub.sendMessage(sessionId, text, {
+          effort: opts?.effort ?? effort,
+          attachments: opts?.attachments,
+        })
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+        // Rethrown so the composer can hand the typed prompt back.
+        throw err
+      } finally {
+        setSendingIds((curr) => {
+          const next = new Set(curr)
+          next.delete(sessionId)
+          return next
+        })
+      }
+    },
+    [effort],
+  )
 
-  function cancelQueued(queuedId: string) {
-    if (!activeId) return
-    const sessionId = activeId
+  const cancelQueued = useCallback((sessionId: string, queuedId: string) => {
     void window.chatHub
       .cancelQueued(sessionId, queuedId)
       .then((queued) =>
@@ -1046,41 +1197,25 @@ export default function App() {
       .catch((err) => {
         setError(err instanceof Error ? err.message : String(err))
       })
-  }
+  }, [])
 
-  async function renameSession() {
-    if (!activeSession) return
-    const next = window.prompt("Rename session", activeSession.title)
+  const renameSession = useCallback((sessionId: string) => {
+    const session = sessionsRef.current.find((s) => s.id === sessionId)
+    if (!session) return
+    const next = window.prompt("Rename session", session.title)
     if (!next?.trim()) return
-    try {
-      const s = await window.chatHub.renameSession(activeSession.id, next.trim())
-      setSessions((curr) => curr.map((x) => (x.id === s.id ? s : x)))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
+    void window.chatHub
+      .renameSession(session.id, next.trim())
+      .then((s) => setSessions((curr) => curr.map((x) => (x.id === s.id ? s : x))))
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : String(err))
+      })
+  }, [])
 
-  function changeEffort(next: EffortLevel) {
+  const changeEffort = useCallback((next: EffortLevel) => {
     setEffort(next)
     void window.chatHub.setGeneralConfig({ defaultEffort: next }).catch(() => {})
-  }
-
-  /**
-   * The composer chip belongs to the session in front of you. Without an active
-   * session there is nothing to scope it to, so it falls back to editing the
-   * global default — which is also what Settings edits.
-   */
-  async function changePermission(mode: PermissionMode) {
-    try {
-      if (activeId) {
-        await window.chatHub.setSessionPermission(activeId, mode)
-        return
-      }
-      await changeGlobalPermission(mode)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
+  }, [])
 
   /** Settings edits the default for sessions that have no override of their own. */
   async function changeGlobalPermission(mode: PermissionMode) {
@@ -1093,13 +1228,206 @@ export default function App() {
     }
   }
 
-  async function abortSession() {
-    if (!activeId) return
-    try {
-      await window.chatHub.abortSession(activeId)
-    } catch (err) {
+  const changePermission = useCallback(
+    (sessionId: string, mode: PermissionMode) => {
+      void window.chatHub.setSessionPermission(sessionId, mode).catch((err) => {
+        setError(err instanceof Error ? err.message : String(err))
+      })
+    },
+    [],
+  )
+
+  const abortSession = useCallback((sessionId: string) => {
+    void window.chatHub.abortSession(sessionId).catch((err) => {
       setError(err instanceof Error ? err.message : String(err))
+    })
+  }, [])
+
+  const changeModel = useCallback((sessionId: string, model: string) => {
+    void window.chatHub
+      .setSessionModel(sessionId, model)
+      .then((next) =>
+        setSessions((curr) => curr.map((s) => (s.id === next.id ? next : s))),
+      )
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : String(err))
+      })
+  }, [])
+
+  const applyMode = useCallback(
+    (sessionId: string, modeId: string) => {
+      // Empty id = "No mode": clears the preset but leaves model/permission alone.
+      const mode = modeId ? modes.find((m) => m.id === modeId) : undefined
+      void window.chatHub
+        .applySessionMode(sessionId, {
+          modeId: mode?.id,
+          systemPrompt: mode?.systemPrompt,
+          model: mode?.model,
+          permissionMode: mode?.permissionMode,
+        })
+        .then((next) => {
+          setSessions((curr) => curr.map((s) => (s.id === next.id ? next : s)))
+          // Effort is composer state, not a session field — set it here so the
+          // mode's effort actually takes hold on the next turn.
+          if (mode?.effort) setEffort(mode.effort)
+        })
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : String(err))
+        })
+    },
+    [modes],
+  )
+
+  const openFolder = useCallback((cwd: string) => {
+    void window.chatHub.openPath(cwd).catch((err) => {
+      setError(err instanceof Error ? err.message : String(err))
+    })
+  }, [])
+
+  const openEditor = useCallback((cwd: string) => {
+    void window.chatHub.openInEditor(cwd).catch((err) => {
+      setError(err instanceof Error ? err.message : String(err))
+    })
+  }, [])
+
+  const saveScripts = useCallback(
+    async (cwd: string, next: ProjectScript[]) => {
+      const saved = await window.chatHub.scriptsSave(cwd, next)
+      setScriptsByCwd((curr) => ({ ...curr, [cwd]: saved.scripts }))
+    },
+    [],
+  )
+
+  const runScript = useCallback(
+    (paneId: string, sessionId: string, script: ProjectScript) => {
+      stashTerminalCommand(sessionId, script.command)
+      openSurface(paneId, sessionId, "terminal")
+      if (script.autoOpenPreview && script.previewUrl) {
+        const url = script.previewUrl
+        window.setTimeout(() => {
+          const still = layoutRef.current.panes.find((p) => p.id === paneId)
+          if (still?.sessionId !== sessionId) return
+          stashBrowserUrl(sessionId, url)
+          openSurface(paneId, sessionId, "browser")
+        }, SCRIPT_PREVIEW_SWITCH_MS)
+      }
+    },
+    [openSurface],
+  )
+
+  const focusPaneById = useCallback((paneId: string) => {
+    setLayout((curr) => focusPane(curr, paneId))
+  }, [])
+
+  const closePaneById = useCallback((paneId: string) => {
+    setLayout((curr) => closePane(curr, paneId))
+  }, [])
+
+  /** Everything a pane can ask for, bundled so panes stay memoized. */
+  const paneActions = useMemo<PaneActions>(
+    () => ({
+      onFocusPane: focusPaneById,
+      onClosePane: closePaneById,
+      onToggleDock: toggleDockFor,
+      onSelectSurface: chooseSurface,
+      onClaimBrowser: claimBrowser,
+      onAutoOpenDiff: autoOpenDiff,
+      // Through the ref: this object is memoized, and a direct call would pin
+      // the first render's closure.
+      onSelectSession: (id) => selectSessionRef.current(id),
+      onSend: sendMessage,
+      onAbort: abortSession,
+      onCancelQueued: cancelQueued,
+      onRenameSession: renameSession,
+      onUnsettle: (id) => setSessionSettled(id, false),
+      onModelChange: changeModel,
+      onApplyMode: applyMode,
+      onPermissionChange: changePermission,
+      onEffortChange: changeEffort,
+      onOpenFolder: openFolder,
+      onOpenEditor: openEditor,
+      onLoadOlder: (id) => void loadOlderMessages(id),
+      onHighlightShown: clearHighlight,
+      onResolvePermission: (id, allow) => void resolvePermission(id, allow),
+      onResolveInput: (id, answers) => void resolveAgentInput(id, answers),
+      onRunScript: runScript,
+      onSaveScripts: saveScripts,
+      onOpenDiff: openDiffForPath,
+      onCreate: () => openNewSession(),
+      onShowShortcuts: () => setShortcutsOpen(true),
+      onGitChanged: refreshGit,
+      onDockWidthChange: setDockWidth,
+      onDockWidthCommit: saveDockWidth,
+      onPaneDragStart: (paneId, event) => {
+        event.dataTransfer.effectAllowed = "move"
+        event.dataTransfer.setData(PANE_MIME, paneId)
+      },
+      onPaneDragEnd: () => undefined,
+    }),
+    // Only the handlers that close over changing state re-bind; the rest are
+    // stable, which is what lets an idle pane skip a re-render.
+    [
+      abortSession,
+      applyMode,
+      autoOpenDiff,
+      cancelQueued,
+      changeEffort,
+      changeModel,
+      changePermission,
+      chooseSurface,
+      claimBrowser,
+      clearHighlight,
+      closePaneById,
+      focusPaneById,
+      openDiffForPath,
+      openEditor,
+      openFolder,
+      refreshGit,
+      renameSession,
+      runScript,
+      saveScripts,
+      sendMessage,
+      toggleDockFor,
+    ],
+  )
+
+  function onWorkspaceDrop(drop: WorkspaceDrop) {
+    if (drop.kind === "pane") {
+      const target = drop.target
+      if (target.kind !== "insert") return
+      setLayout((curr) =>
+        isNoopMove(curr, drop.paneId, target.index)
+          ? curr
+          : movePane(curr, drop.paneId, target.index),
+      )
+      return
     }
+    if (drop.kind === "session") {
+      const target = drop.target
+      const sessionId = drop.sessionId
+      setLayout((curr) =>
+        target.kind === "into"
+          ? assignSession(curr, target.paneId, sessionId)
+          : openPaneAt(curr, sessionId, target.index, nextPaneId(curr)),
+      )
+      void adoptSession(sessionId)
+      return
+    }
+    // A project has no chat yet: make the pane the drop asked for and let the
+    // dialog fill it. Cancelling takes the empty pane away again.
+    const target: DropTarget = drop.target
+    if (target.kind === "into") {
+      setLayout((curr) => focusPane(curr, target.paneId))
+      openNewSession({ project: drop.project.name, cwd: drop.project.cwd })
+      return
+    }
+    const paneId = nextPaneId(layoutRef.current)
+    setLayout((curr) => openPaneAt(curr, null, target.index, paneId))
+    openNewSession({
+      project: drop.project.name,
+      cwd: drop.project.cwd,
+      paneId,
+    })
   }
 
   const anyOverlayOpen =
@@ -1130,18 +1458,35 @@ export default function App() {
         openNewSession()
         return
       }
-      // Guard before preventDefault: with no session these do nothing, and
-      // swallowing the key makes the shortcut look broken rather than inapplicable.
-      if (meta && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "p") {
-        if (!activeSession) return
+      // Pane walk. Every other binding below resolves against the focused
+      // pane, so this is the one that decides which chat they all mean.
+      if (meta && e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
         e.preventDefault()
-        setProjectSearch((m) => (m === "files" ? null : "files"))
+        const delta = e.key === "ArrowLeft" ? -1 : 1
+        setLayout((curr) =>
+          e.shiftKey
+            ? movePane(
+                curr,
+                curr.focusedPaneId,
+                curr.panes.findIndex((p) => p.id === curr.focusedPaneId) +
+                  (delta === 1 ? 2 : -1),
+              )
+            : stepFocus(curr, delta),
+        )
+        return
+      }
+      if (meta && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "p") {
+        e.preventDefault()
+        if (activeSession) {
+          setProjectSearch((m) => (m === "files" ? null : "files"))
+        }
         return
       }
       if (meta && e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") {
-        if (!activeSession) return
         e.preventDefault()
-        setProjectSearch((m) => (m === "content" ? null : "content"))
+        if (activeSession) {
+          setProjectSearch((m) => (m === "content" ? null : "content"))
+        }
         return
       }
       if (meta && e.key === "/") {
@@ -1150,28 +1495,27 @@ export default function App() {
         return
       }
       if (meta && e.key.toLowerCase() === "g") {
-        if (!activeSession) return
         e.preventDefault()
-        toggleDiffSurface()
+        if (activeSession) toggleDiffSurface()
         return
       }
       if (meta && e.key.toLowerCase() === "y") {
-        if (!activeSession) return
         e.preventDefault()
-        toggleHistorySurface()
+        if (activeSession) toggleHistorySurface()
         return
       }
       if (meta && e.key.toLowerCase() === "b") {
-        if (!activeSession) return
         e.preventDefault()
-        setDock(!dockOpen)
+        if (activeSession) toggleDockFor(pane.id)
         return
       }
       if (meta && e.altKey && e.code.startsWith("Digit")) {
-        const script = scripts.find((s) => s.hotkey === e.code.slice(5))
+        const script = (
+          activeSession ? (scriptsByCwd[activeSession.cwd] ?? []) : []
+        ).find((s) => s.hotkey === e.code.slice(5))
         if (script && activeSession) {
           e.preventDefault()
-          runScript(script)
+          runScript(pane.id, activeSession.id, script)
         }
         return
       }
@@ -1179,7 +1523,7 @@ export default function App() {
       if (e.key === "Escape" && !anyOverlayOpen) {
         if (activeSession?.status === "running") {
           e.preventDefault()
-          void abortSession()
+          abortSession(activeSession.id)
         }
       }
     }
@@ -1187,96 +1531,17 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey)
   }, [
     anyOverlayOpen,
+    activeSession,
     activeSession?.id,
     activeSession?.status,
-    dockOpen,
-    scripts,
+    pane.id,
+    scriptsByCwd,
     runScript,
-    setDock,
+    abortSession,
+    toggleDockFor,
     toggleDiffSurface,
     toggleHistorySurface,
   ])
-
-  // ProjectSearch unmounts with its session, and an unmounted overlay never
-  // calls onClose — leaving anyOverlayOpen stuck true, which silently disables
-  // the bare-Escape abort for the rest of the run.
-  useEffect(() => {
-    if (!activeSession) setProjectSearch(null)
-  }, [activeSession])
-
-  // Both widths are restored from a previous window that may have been wider,
-  // and a resize can invalidate them at any time; the transcript floor is only
-  // a floor if it is re-checked whenever the viewport moves.
-  useEffect(() => {
-    const fit = () => {
-      const rail = sidebarCollapsed ? RAIL_WIDTH : sidebarWidth
-      const dock = clampDockWidth(dockWidth, window.innerWidth, rail)
-      if (dock !== dockWidth) {
-        setDockWidth(dock)
-        saveDockWidth(dock)
-      }
-      const bar = clampSidebarWidth(
-        sidebarWidth,
-        window.innerWidth,
-        dockOpen && activeSession ? dock : 0,
-      )
-      if (bar !== sidebarWidth) {
-        setSidebarWidth(bar)
-        saveSidebarWidth(bar)
-      }
-    }
-    fit()
-    window.addEventListener("resize", fit)
-    return () => window.removeEventListener("resize", fit)
-  }, [activeSession, dockOpen, dockWidth, sidebarCollapsed, sidebarWidth])
-
-  async function openFolder() {
-    if (!activeSession) return
-    try {
-      await window.chatHub.openPath(activeSession.cwd)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function openEditor() {
-    if (!activeSession) return
-    try {
-      await window.chatHub.openInEditor(activeSession.cwd)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function changeModel(model: string) {
-    if (!activeId) return
-    try {
-      const next = await window.chatHub.setSessionModel(activeId, model)
-      setSessions((curr) => curr.map((s) => (s.id === next.id ? next : s)))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function applyMode(modeId: string) {
-    if (!activeId) return
-    // Empty id = "No mode": clears the preset but leaves model/permission alone.
-    const mode = modeId ? modes.find((m) => m.id === modeId) : undefined
-    try {
-      const next = await window.chatHub.applySessionMode(activeId, {
-        modeId: mode?.id,
-        systemPrompt: mode?.systemPrompt,
-        model: mode?.model,
-        permissionMode: mode?.permissionMode,
-      })
-      setSessions((curr) => curr.map((s) => (s.id === next.id ? next : s)))
-      // Effort is composer state, not a session field — set it here so the mode's
-      // effort actually takes hold on the next turn.
-      if (mode?.effort) setEffort(mode.effort)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
 
   // Only the agent this Hub is set to use — a CLI the user installed but never
   // signed into is not a problem worth a banner on every launch.
@@ -1293,12 +1558,30 @@ export default function App() {
   const showOnboard =
     !onboardDismissed && (noneInstalled || needsAuth) && !settingsOpen
 
-  const showDock = dockOpen && activeSession !== null
+  const onboard = useMemo(
+    () =>
+      showOnboard
+        ? {
+            text: noneInstalled
+              ? "No agent CLIs found on PATH."
+              : "Some agents need login.",
+            onOpenSettings: () => setSettingsOpen(true),
+            onDismiss: () => {
+              setOnboardDismissed(true)
+              localStorage.setItem(AUTH_NAG_KEY, "1")
+            },
+          }
+        : null,
+    [showOnboard, noneInstalled],
+  )
+
+  const tiled = layout.panes.length > 1
+  const showDock = pane.dockOpen && activeSession !== null
 
   return (
     <div
       className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""} ${
-        showDock ? "dock-is-open" : ""
+        tiled ? "is-tiled" : showDock ? "dock-is-open" : ""
       }`}
       style={
         {
@@ -1340,102 +1623,40 @@ export default function App() {
           })
         }}
       />
-      <div className="main-column">
-        <ChatView
-          session={activeSession}
-          sessions={sessions}
-          anyOverlayOpen={anyOverlayOpen}
-          onboard={
-            showOnboard
-              ? {
-                  text: noneInstalled
-                    ? "No agent CLIs found on PATH."
-                    : "Some agents need login.",
-                  onOpenSettings: () => setSettingsOpen(true),
-                  onDismiss: () => {
-                    setOnboardDismissed(true)
-                    localStorage.setItem(AUTH_NAG_KEY, "1")
-                  },
-                }
-              : null
-          }
-          highlightMessageId={
-            highlight && highlight.sessionId === activeId
-              ? highlight.messageId
-              : null
-          }
-          onHighlightShown={clearHighlight}
-          usage={activeId ? (usageBySession[activeId] ?? null) : null}
-          pendingPermissions={
-            activeId ? permissions.filter((p) => p.sessionId === activeId) : []
-          }
-          onResolvePermission={(id, allow) => void resolvePermission(id, allow)}
-          pendingInputRequests={
-            activeId ? inputRequests.filter((request) => request.sessionId === activeId) : []
-          }
-          onResolveInput={(id, answers) => void resolveAgentInput(id, answers)}
-          messages={messages}
-          hasOlderMessages={
-            activeId ? overflowHasMore[activeId] === true : false
-          }
-          loadingOlder={loadingOlder}
-          onLoadOlder={() => void loadOlderMessages()}
-          providers={providers}
-          models={sessionModels}
-          modes={modes}
-          onApplyMode={(id) => void applyMode(id)}
-          permissionMode={activeSession?.permissionMode ?? permissionMode}
-          effort={effort}
-          git={git}
-          error={error}
-          sending={sending}
-          queued={activeId ? (queuedBySession[activeId] ?? []) : []}
-          onCancelQueued={cancelQueued}
-          onShowShortcuts={() => setShortcutsOpen(true)}
-          onModelChange={(m) => void changeModel(m)}
-          onPermissionChange={(m) => void changePermission(m)}
-          onEffortChange={changeEffort}
-          onSend={sendMessage}
-          onAbort={() => void abortSession()}
-          onCreate={() => openNewSession()}
-          onOpenFolder={() => void openFolder()}
-          onOpenEditor={() => void openEditor()}
-          onCommit={() => openSurface("diff")}
-          onRename={() => void renameSession()}
-          onUnsettle={() => {
-            if (activeId) setSessionSettled(activeId, false)
-          }}
-          scripts={scripts}
-          onRunScript={runScript}
-          onSaveScripts={saveScripts}
-          onOpenDiff={openDiffForPath}
-          dockOpen={showDock}
-          onToggleDock={() => setDock(!dockOpen)}
-        />
-      </div>
-      {showDock && activeSession ? (
-        <SurfaceDock
-          session={activeSession}
-          kind={activeSurface}
-          width={dockWidth}
-          sidebarWidth={sidebarCollapsed ? RAIL_WIDTH : sidebarWidth}
-          gitRefreshKey={gitRefresh}
-          diffFocus={diffFocus}
-          filesFocus={filesFocus}
-          hookRuns={activeId ? (hooksBySession[activeId] ?? []) : []}
-          agentActions={agentActions}
-          sessions={sessions}
-          messagesBySession={messagesBySession}
-          usageBySession={usageBySession}
-          queuedBySession={queuedBySession}
-          onSelectSession={(id) => void selectSession(id)}
-          onGitChanged={refreshGit}
-          onSelectKind={chooseSurface}
-          onWidthChange={setDockWidth}
-          onWidthCommit={saveDockWidth}
-          onClose={() => setDock(false)}
-        />
-      ) : null}
+      <Workspace
+        layout={layout}
+        sessions={sessions}
+        messagesBySession={messagesBySession}
+        usageBySession={usageBySession}
+        queuedBySession={queuedBySession}
+        hooksBySession={hooksBySession}
+        permissionsBySession={permissionsBySession}
+        inputRequestsBySession={inputRequestsBySession}
+        surfaceBySession={surfaceBySession}
+        diffFocusBySession={diffFocusBySession}
+        filesFocusBySession={filesFocusBySession}
+        gitByCwd={gitByCwd}
+        scriptsByCwd={scriptsByCwd}
+        overflowHasMore={overflowHasMore}
+        loadingOlderFor={loadingOlderFor}
+        sendingIds={sendingIds}
+        highlight={highlight}
+        providers={providers}
+        providerStatuses={providerStatuses}
+        fallbackProvider={provider}
+        modes={modes}
+        effort={effort}
+        permissionMode={permissionMode}
+        dockWidth={dockWidth}
+        sidebarWidth={sidebarCollapsed ? RAIL_WIDTH : sidebarWidth}
+        gitRefresh={gitRefresh}
+        error={error}
+        onboard={onboard}
+        anyOverlayOpen={anyOverlayOpen}
+        browserClaim={browserClaim}
+        actions={paneActions}
+        onDrop={onWorkspaceDrop}
+      />
       {settingsOpen ? (
         <SettingsModal
           open={settingsOpen}
@@ -1485,7 +1706,12 @@ export default function App() {
         setUsageBySession(snap.usage)
         setPermissions(snap.permissions)
         setInputRequests(snap.inputRequests)
-              setActiveId(snap.activeSessionId)
+              if (snap.activeSessionId) {
+                const id = snap.activeSessionId
+                setLayout((curr) =>
+                  assignSession(curr, curr.focusedPaneId, id),
+                )
+              }
               setProjects(pinned)
               setProviderStatuses(s.statuses)
               if (s.general.defaultProvider) setProvider(s.general.defaultProvider)
@@ -1521,7 +1747,7 @@ export default function App() {
         initialProvider={provider}
         projectHint={newSessionHint.project}
         hintCwd={newSessionHint.cwd}
-        onClose={() => setNewSessionOpen(false)}
+        onClose={closeNewSession}
         onCreate={createSessionFromDraft}
       />
     </div>
