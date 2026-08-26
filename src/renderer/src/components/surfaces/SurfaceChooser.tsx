@@ -1,30 +1,8 @@
-import { SURFACE_LABEL } from "@shared/surfaces"
+import { SURFACE_HINT, SURFACE_KINDS, SURFACE_LABEL } from "@shared/surfaces"
 import type { SurfaceKind } from "../../lib/surface-bridge"
 import { SurfaceIcon } from "./SurfaceIcon"
 
 export { SURFACE_LABEL } from "@shared/surfaces"
-
-const SURFACE_HINT: Record<SurfaceKind, string> = {
-  board: "Todos and the agent's notes for this project.",
-  context: "What this project is, and what it is built with.",
-  browser: "Open a local app or URL.",
-  terminal: "Start a shell in this workspace.",
-  files: "Browse and read workspace files.",
-  diff: "Review changes in this thread.",
-  history: "Walk recent commits and their diffs.",
-  fleet: "Every session at a glance.",
-}
-
-const TILE_ORDER: SurfaceKind[] = [
-  "board",
-  "context",
-  "browser",
-  "terminal",
-  "files",
-  "diff",
-  "history",
-  "fleet",
-]
 
 type Props = {
   onPick: (kind: SurfaceKind) => void
@@ -38,7 +16,7 @@ export function SurfaceChooser({ onPick }: Props) {
         <p>Choose what to show in the right panel.</p>
       </div>
       <div className="surface-tiles">
-        {TILE_ORDER.map((kind) => (
+        {SURFACE_KINDS.map((kind) => (
           <button
             key={kind}
             type="button"

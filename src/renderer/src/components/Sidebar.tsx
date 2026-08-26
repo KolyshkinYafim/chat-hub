@@ -483,16 +483,40 @@ export function Sidebar({
   }
 
   if (railCollapsed) {
+    const running = sessions.filter((s) => s.status === "running").length
+    const waiting = sessions.filter((s) => s.status === "waiting_input").length
     return (
       <aside className="sidebar rail-collapsed">
         <button
           type="button"
           className="icon-chip rail-expand"
-          title="Expand sidebar"
+          title={
+            running || waiting
+              ? `Expand sidebar — ${running} running, ${waiting} waiting`
+              : "Expand sidebar"
+          }
           onClick={onToggleCollapsed}
         >
           »
         </button>
+        {/* Collapsed, the rail otherwise gives no sign that anything is live —
+            the counts are the reason to expand it again. */}
+        {running > 0 || waiting > 0 ? (
+          <div className="rail-live" aria-label="Live sessions">
+            {running > 0 ? (
+              <span className="rail-live-row" title={`${running} running`}>
+                <i className="status-dot running" />
+                {running}
+              </span>
+            ) : null}
+            {waiting > 0 ? (
+              <span className="rail-live-row" title={`${waiting} waiting`}>
+                <i className="status-dot waiting_input" />
+                {waiting}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         <button
           type="button"
           className="icon-chip"
@@ -673,6 +697,10 @@ export function Sidebar({
               <>
                 Nothing matches <b>{query}</b> in titles or transcripts.
               </>
+            ) : statusFilter === "waiting" ? (
+              <>No session is waiting on you right now.</>
+            ) : statusFilter === "running" ? (
+              <>No session is running right now.</>
             ) : (
               <>
                 No projects yet. Use <b>＋ Add project</b> to pin a folder, or
@@ -713,14 +741,18 @@ export function Sidebar({
                       ✎
                     </button>
                   ) : null}
-                  <button
-                    type="button"
-                    className="icon-chip sm"
-                    title="Open folder"
-                    onClick={() => g.cwd && onOpenProject(g.cwd)}
-                  >
-                    ↗
-                  </button>
+                  {/* An ad-hoc group keyed by name has no folder to open; the
+                      button was rendering enabled and doing nothing. */}
+                  {g.cwd ? (
+                    <button
+                      type="button"
+                      className="icon-chip sm"
+                      title="Open folder"
+                      onClick={() => onOpenProject(g.cwd)}
+                    >
+                      ↗
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="icon-chip sm"

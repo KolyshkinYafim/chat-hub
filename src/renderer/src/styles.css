@@ -516,7 +516,11 @@ select:focus-visible {
 
 .status-legend {
   display: flex;
-  gap: 12px;
+  /* The sidebar is draggable down to 200px now; three labelled dots plus the
+     keys link do not fit on one line there. */
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
   font-size: 10px;
   color: var(--text-faint);
 }
@@ -2057,6 +2061,12 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   padding: 0;
   cursor: pointer;
   text-align: left;
+  /* The ellipsis on .topbar-title cannot reach into a child box, so a long
+     title was hard-clipped mid-letter. The button truncates itself. */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .title-btn:hover {
@@ -2103,6 +2113,9 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   text-transform: none;
   letter-spacing: 0;
   color: var(--text-muted);
+  /* Auth details carry paths and error text; wrapping beats widening the grid. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .form-grid {
@@ -2557,6 +2570,22 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   --chip-size: 36px;
   --chip-glyph: 17px;
   -webkit-app-region: no-drag;
+}
+
+.rail-live {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.rail-live-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
 }
 
 .rail-expand {
@@ -3873,6 +3902,9 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   grid-column: 1;
   font-size: 10.5px;
   color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .palette-time {
@@ -3902,21 +3934,56 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
 }
 
 .shortcuts-panel {
-  width: min(460px, 100%);
+  width: min(500px, 100%);
 }
 
 .shortcuts-body {
   display: grid;
-  gap: 8px;
+  gap: 4px;
 }
 
+.shortcut-group {
+  display: grid;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.shortcut-group:first-of-type {
+  padding-top: 0;
+  border-top: none;
+}
+
+.shortcut-group-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.shortcut-group-note {
+  margin: -2px 0 2px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* Key column sized for the longest label the app actually binds (⌘⌥1–9), and
+   able to grow past it rather than spilling into the description. */
 .shortcut-row {
   display: grid;
-  grid-template-columns: 64px 1fr;
+  grid-template-columns: minmax(64px, max-content) 1fr;
   align-items: center;
   gap: 10px;
   font-size: 12.5px;
   color: var(--text-secondary);
+}
+
+.shortcut-row .kbd {
+  justify-self: start;
+  white-space: nowrap;
 }
 
 /* ——— Archive + transcript search ——— */
@@ -4986,9 +5053,12 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
 
 .board-todo-meta {
   flex: 1 1 100%;
+  min-width: 0;
   font-size: 11.5px;
   line-height: 1.35;
   color: var(--text-faint);
+  /* A blocker reason is usually a path or a URL — wrap it like the todo text. */
+  word-break: break-word;
 }
 
 .board-todo-meta.blocked {
@@ -5572,11 +5642,22 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
 }
 
 .surface-terminal-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   padding: 6px 12px;
   border-top: 1px solid var(--border-soft);
   font-family: var(--mono);
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.surface-terminal-status span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Project hooks: ◆ session_start   [hooks: 3] */
@@ -5608,6 +5689,9 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
 .surface-terminal-hook-trigger {
   color: var(--text);
   min-width: 10ch;
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .surface-terminal-hook-count {
@@ -5856,6 +5940,13 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   font-family: var(--mono);
 }
 
+/* An author name pushed the ref chips off the row before this. */
+.history-meta > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .history-refs {
   color: var(--accent);
   overflow: hidden;
@@ -5948,6 +6039,11 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
 .scm-audit-more {
   padding: 2px 6px 6px;
   font-size: 11px;
+  color: var(--text-faint);
+}
+
+.scm-audit-more:hover {
+  color: var(--text-secondary);
 }
 
 .scm-audit-row {
@@ -5992,6 +6088,11 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   font-size: 11px;
   color: var(--text-muted);
   min-width: 4.5em;
+  /* An MCP tool name runs long; it must not push the summary out of the row. */
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .scm-audit-summary {
@@ -7530,6 +7631,9 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .fleet-rows {
@@ -7614,6 +7718,9 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
 
 .fleet-step-label {
   flex: none;
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 11px;
   font-weight: 600;
   color: var(--text);
@@ -7705,6 +7812,15 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   font-size: 10.5px;
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
+}
+
+/* The other two chips in this column had no rule at all and inherited the
+   row's body colour, reading as part of the title rather than as metadata. */
+.fleet-row-elapsed,
+.fleet-row-cost {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
 }
 
 .fleet-row-queued {
@@ -8779,6 +8895,15 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   font-size: 11.5px;
   line-height: 1.4;
   color: var(--text-muted);
+}
+
+.ctx-preview-empty {
+  flex: 1;
+  margin: 0;
+  padding: 24px 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-faint);
 }
 
 .ctx-preview-body {

@@ -244,7 +244,14 @@ export function ContextSurface({ cwd, onOpenSurface }: Props) {
             Appended to the system prompt every turn, exactly as written here.
             {unsaved.length > 0 ? " Unsaved edits are not part of it yet." : ""}
           </p>
-          <pre className="ctx-preview-body">{brief || "(nothing to send)"}</pre>
+          {brief ? (
+            <pre className="ctx-preview-body">{brief}</pre>
+          ) : (
+            <p className="ctx-preview-empty">
+              Nothing to send yet — every document below is still empty, so no
+              context rides along with the prompt.
+            </p>
+          )}
         </div>
       ) : (
         <div className="ctx-doc">

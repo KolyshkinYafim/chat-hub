@@ -85,21 +85,31 @@ export function HistorySurface({ cwd, refreshKey }: Props) {
   return (
     <div className="history">
       <header className="history-head">
-        <span className="history-branch" title={repoCwd}>
-          {branch || "…"}
+        <span
+          className="history-branch"
+          title={branch ? `${branch} — ${repoCwd}` : repoCwd}
+        >
+          {branch || "reading branch…"}
         </span>
         <button
           type="button"
           className="scm-act"
           disabled={loading}
+          title="Re-read the log from disk"
           onClick={() => void reload()}
         >
-          refresh
+          {loading ? "reading…" : "refresh"}
         </button>
       </header>
       {err ? <div className="scm-notice">{err}</div> : null}
-      {!loading && commits.length === 0 ? (
-        <div className="scm-empty">No commits here yet.</div>
+      {loading && commits.length === 0 ? (
+        <div className="scm-empty">Reading the log…</div>
+      ) : null}
+      {!loading && !err && commits.length === 0 ? (
+        <div className="scm-empty">
+          No commits here yet. The first one will show up as soon as the agent
+          or you make it.
+        </div>
       ) : null}
       <ul className="history-commits">
         {commits.map((commit) => (
@@ -126,8 +136,12 @@ export function HistorySurface({ cwd, refreshKey }: Props) {
                 ) : null}
               </span>
             </button>
-            {selected === commit.sha && detail?.sha === commit.sha ? (
-              <CommitDetail detail={detail} />
+            {selected === commit.sha ? (
+              detail?.sha === commit.sha ? (
+                <CommitDetail detail={detail} />
+              ) : (
+                <div className="scm-empty">Loading this commit…</div>
+              )
             ) : null}
           </li>
         ))}

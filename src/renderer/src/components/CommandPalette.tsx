@@ -79,7 +79,18 @@ export function CommandPalette({
         />
         <div className="palette-list" role="listbox">
           {results.length === 0 ? (
-            <div className="palette-empty">No session matches</div>
+            <div className="palette-empty">
+              {sessions.length === 0 ? (
+                <>
+                  No sessions yet. Close this and press <span className="kbd">⌘N</span>{" "}
+                  to start one.
+                </>
+              ) : (
+                <>
+                  Nothing matches <b>{query}</b> in titles, projects or agents.
+                </>
+              )}
+            </div>
           ) : (
             results.map((s, i) => (
               <button

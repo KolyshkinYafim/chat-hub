@@ -45,6 +45,18 @@ export const SURFACE_LABEL: Record<SurfaceKind, string> = {
   fleet: "Agents",
 }
 
+/** One line on what each surface is for — the chooser tile and the dock header. */
+export const SURFACE_HINT: Record<SurfaceKind, string> = {
+  board: "Todos and the agent's notes for this project.",
+  context: "What this project is, and what it is built with.",
+  browser: "Open a local app or URL.",
+  terminal: "Start a shell in this workspace.",
+  files: "Browse and read workspace files.",
+  diff: "Review changes in this thread.",
+  history: "Walk recent commits and their diffs.",
+  fleet: "Every session at a glance.",
+}
+
 export function isSurfaceKind(value: unknown): value is SurfaceKind {
   return typeof value === "string" && SURFACE_KINDS.some((k) => k === value)
 }

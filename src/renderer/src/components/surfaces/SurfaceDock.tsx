@@ -16,6 +16,7 @@ import {
   SURFACE_KINDS,
 } from "../../lib/surface-store"
 import { ResizeHandle } from "../ResizeHandle"
+import { SURFACE_HINT } from "@shared/surfaces"
 import { SURFACE_LABEL, SurfaceChooser } from "./SurfaceChooser"
 import { SurfaceIcon } from "./SurfaceIcon"
 import { BoardSurface } from "./BoardSurface"
@@ -115,7 +116,16 @@ export function SurfaceDock({
             </button>
           ))}
         </div>
-        <span className="surface-head-label">
+        {/* The chooser explains every surface; once one is open its own hint
+            was the only thing that vanished. Keep it as the header's title. */}
+        <span
+          className="surface-head-label"
+          title={
+            kind === null
+              ? "Pick what this panel shows"
+              : `${SURFACE_LABEL[kind]} — ${SURFACE_HINT[kind]}`
+          }
+        >
           {kind === null ? "Surfaces" : SURFACE_LABEL[kind]}
         </span>
         <button

@@ -13,11 +13,14 @@ type Props = {
  */
 export function AgentAuditTrail({ actions, limit = 12 }: Props) {
   const [open, setOpen] = useState(true)
-  const shown = actions.length > limit ? actions.slice(actions.length - limit) : actions
+  const [showAll, setShowAll] = useState(false)
+  const capped = showAll ? actions.length : limit
+  const shown =
+    actions.length > capped ? actions.slice(actions.length - capped) : actions
   const hidden = Math.max(0, actions.length - shown.length)
 
   return (
-    <section className="scm-audit" aria-label="Agent actions before commit">
+    <section className="scm-audit" aria-label="Agent trail">
       <button
         type="button"
         className="scm-audit-toggle"
@@ -29,7 +32,9 @@ export function AgentAuditTrail({ actions, limit = 12 }: Props) {
         </span>
         <span className="scm-audit-title">Agent trail</span>
         <span className="scm-audit-count mono-soft">
-          {actions.length === 0 ? "no actions yet" : `${actions.length}`}
+          {actions.length === 0
+            ? "no actions yet"
+            : `${actions.length} action${actions.length === 1 ? "" : "s"}`}
         </span>
       </button>
       {open ? (
@@ -40,7 +45,15 @@ export function AgentAuditTrail({ actions, limit = 12 }: Props) {
         ) : (
           <ul className="scm-audit-list">
             {hidden > 0 ? (
-              <li className="scm-audit-more mono-soft">… {hidden} earlier</li>
+              <li>
+                <button
+                  type="button"
+                  className="scm-audit-more mono-soft"
+                  onClick={() => setShowAll(true)}
+                >
+                  … show {hidden} earlier
+                </button>
+              </li>
             ) : null}
             {shown.map((a) => (
               <li
