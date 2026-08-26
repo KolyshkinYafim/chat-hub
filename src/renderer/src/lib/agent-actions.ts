@@ -101,6 +101,12 @@ function actionFromItem(item: AgentTurnItem, messageId: string): AgentAction | n
         name: item.name,
         summary: item.server ? `${item.server} · ${item.name}` : item.name,
       }
+    case "subagent":
+      return {
+        ...base,
+        name: "Subagent",
+        summary: `${item.name} agent · ${item.description || `${item.steps?.length ?? 0} steps`}`,
+      }
     case "web_search":
       return { ...base, name: "Web search", summary: `Search ${item.query}` }
     case "image":
@@ -113,6 +119,9 @@ function actionFromItem(item: AgentTurnItem, messageId: string): AgentAction | n
       return { ...base, name: "Error", summary: item.message, status: "error" }
     case "reasoning":
     case "compaction":
+      return null
+    // An item kind this build does not know is not an audit-trail entry.
+    default:
       return null
   }
 }

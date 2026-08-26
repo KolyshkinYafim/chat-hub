@@ -195,6 +195,55 @@ export function extractToolResults(content: unknown): string {
 
 const RESULT_LIMIT = 8000
 
+/** Trim a tool's output to what a card can hold, and say how much was cut. */
+export function clipOutput(
+  text: string | undefined,
+  limit = RESULT_LIMIT,
+): string | undefined {
+  if (!text) return text
+  return text.length > limit
+    ? `${text.slice(0, limit)}\n… (${text.length - limit} more characters)`
+    : text
+}
+
+export type PatchCounts = { text: string; added: number; removed: number }
+
+/**
+ * A CLI's own patch for an edit it already applied, rendered in the shape
+ * `buildEditDiff` produces. Re-deriving the hunk from disk after the write has
+ * landed can only guess at line numbers; the CLI knows them.
+ */
+export function structuredPatchToDiff(raw: unknown): PatchCounts | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null
+  const body: string[] = []
+  let added = 0
+  let removed = 0
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue
+    const hunk = entry as Record<string, unknown>
+    if (!Array.isArray(hunk.lines)) continue
+    const lines = hunk.lines.filter((l): l is string => typeof l === "string")
+    if (lines.length === 0) continue
+    body.push(
+      `@@ -${num(hunk.oldStart, 1)},${num(hunk.oldLines, lines.length)}` +
+        ` +${num(hunk.newStart, 1)},${num(hunk.newLines, lines.length)} @@`,
+    )
+    for (const line of lines) {
+      const mark = line.slice(0, 1)
+      const kind = mark === "+" || mark === "-" ? mark : " "
+      if (kind === "+") added += 1
+      if (kind === "-") removed += 1
+      body.push(`${kind} ${line.slice(1)}`)
+    }
+  }
+  if (body.length === 0) return null
+  return { text: body.join("\n"), added, removed }
+}
+
+function num(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback
+}
+
 export function toolResultText(content: unknown): string {
   if (typeof content === "string") return content
   if (!Array.isArray(content)) {

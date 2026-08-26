@@ -94,6 +94,14 @@ export function describeItem(item: AgentTurnItem): {
         item.steps?.find((step) => step.status === "pending")
       return plain("Plan", active?.text || item.text)
     }
+    case "subagent": {
+      const open = item.steps?.find((step) => step.status === "running")
+      const detail =
+        [open?.label, open?.detail].filter(Boolean).join(" · ") ||
+        item.description ||
+        `${item.steps?.length ?? 0} steps`
+      return plain(`${item.name} agent`, detail)
+    }
     case "web_search":
       return plain("Search", item.query)
     case "image":
@@ -101,12 +109,26 @@ export function describeItem(item: AgentTurnItem): {
     case "review":
       return plain("Review", item.text)
     case "compaction":
-      return plain("Compacting context", "")
+      return plain("Compacting context", compactionDetail(item))
     case "reasoning":
       return plain("Reasoning", "")
     case "error":
       return plain("Error", item.message)
+    // A transcript written by a newer build can carry a kind this one has
+    // never heard of; a row that says nothing beats a renderer that throws.
+    default:
+      return plain("Step", "")
   }
+}
+
+function compactionDetail(item: AgentTurnItem & { kind: "compaction" }): string {
+  if (item.preTokens === undefined) return ""
+  const to = item.postTokens === undefined ? "" : ` → ${formatTokens(item.postTokens)}`
+  return `${formatTokens(item.preTokens)}${to} tokens`
+}
+
+function formatTokens(count: number): string {
+  return count >= 1000 ? `${Math.round(count / 100) / 10}k` : String(count)
 }
 
 export function currentStep(blocks: TranscriptBlock[]): LiveStep {

@@ -238,6 +238,34 @@ function ItemBody({ item }: { item: AgentTurnItem }) {
           )}
         </>
       )
+    case "subagent":
+      return (
+        <>
+          {item.description ? (
+            <div className="activity-text">{item.description}</div>
+          ) : null}
+          {item.steps?.length ? (
+            <ol className="activity-agent-steps">
+              {item.steps.map((step, at) => (
+                <li key={`${String(at)}-${step.label}`}>
+                  <span
+                    className={`activity-status status-${step.status}`}
+                    aria-label={step.status}
+                  />
+                  <span className="activity-agent-tool">{step.label}</span>
+                  {step.detail ? (
+                    <span className="activity-agent-detail">{step.detail}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
+          ) : null}
+          {item.result ? (
+            <pre className="activity-output"><code>{item.result}</code></pre>
+          ) : null}
+        </>
+      )
+    case "image": return <div className="activity-text">Viewed {item.path}</div>
     case "review": return <div className="activity-text">{item.text}</div>
     case "error": return <div className="activity-error">{item.message}</div>
     default: return null
