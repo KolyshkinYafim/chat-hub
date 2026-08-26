@@ -1,6 +1,7 @@
 import type { ProviderId } from "./types"
 import type { PermissionMode } from "./permission"
 import type { ThemeDef } from "./theme"
+import type { WindowState } from "./window-bounds"
 
 export type AuthState =
   | "connected"
@@ -141,6 +142,10 @@ export type HubSettings = {
    * Optional so older settings.json loads without a migration bump.
    */
   mcpEnv?: Record<string, Record<string, string>>
+  /** Main-window geometry from the last run; refitted to today's displays. */
+  window?: WindowState
+  /** Shell zoom step (`1.2 ** level`); absent = 100%. */
+  zoomLevel?: number
 }
 
 /** Env var names a provider commonly reads (surfaced as key/API-key fields). */

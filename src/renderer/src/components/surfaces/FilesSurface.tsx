@@ -231,7 +231,7 @@ export function FilesSurface({ cwd, focus = null }: Props) {
           className="tree-row tree-pending"
           style={{ paddingLeft: 12 + depth * 13 }}
         >
-          Empty
+          Empty folder
         </li>,
       ]
     }
