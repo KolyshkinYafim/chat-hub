@@ -8,6 +8,7 @@ import {
   type TranscriptHit,
 } from "@shared/search"
 import { formatRelative, statusLabel } from "../lib/format"
+import { PROJECT_MIME, SESSION_MIME } from "../lib/pane-layout"
 import {
   belongsInFavoritesGroup,
   belongsInProjectGroups,
@@ -299,6 +300,14 @@ export function Sidebar({
         role="treeitem"
         aria-selected={s.id === activeId}
         className={`session-row ${s.id === activeId ? "active" : ""} ${live ? "live" : ""}`}
+        // Dragging a row onto the workspace opens it there; a row being renamed
+        // has a text field in it, where a drag would fight the caret.
+        draggable={!editing}
+        onDragStart={(e) => {
+          e.dataTransfer.effectAllowed = "copy"
+          e.dataTransfer.setData(SESSION_MIME, s.id)
+          e.dataTransfer.setData("text/plain", s.title)
+        }}
         onClick={() => onSelect(s.id)}
         onKeyDown={(e) => {
           if (editing) return
@@ -652,6 +661,16 @@ export function Sidebar({
                 <button
                   type="button"
                   className="project-head"
+                  // Dropped on the workspace this starts a fresh chat there.
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = "copy"
+                    e.dataTransfer.setData(
+                      PROJECT_MIME,
+                      JSON.stringify({ name: g.name, cwd: g.cwd }),
+                    )
+                    e.dataTransfer.setData("text/plain", g.name)
+                  }}
                   onClick={() =>
                     setCollapsed((c) => ({ ...c, [g.key]: !g.collapsed }))
                   }

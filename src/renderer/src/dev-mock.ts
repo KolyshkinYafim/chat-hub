@@ -43,6 +43,7 @@ import {
   type FileType,
 } from "@shared/file-kind"
 import { STALE_WRITE_MESSAGE } from "@shared/surfaces"
+import { hasStoredLayout, MAX_PANES, saveLayout } from "./lib/pane-layout"
 import { CONTEXT_DOCS, type ContextDocId } from "@shared/project-context"
 import type {
   Board,
@@ -1408,7 +1409,32 @@ async function mockMcpList() {
 
 const hubListeners = new Set<(event: HubEvent) => void>()
 
+/**
+ * A workspace worth looking at: two panes side by side, so the strip, the pane
+ * headers and the focus treatment are all on screen at `?mock=1`. `panes=N`
+ * forces a count and re-seeds; without it a layout the reviewer dragged into
+ * shape survives a reload, which is how the persistence gets reviewed at all.
+ */
+function seedWorkspace(): void {
+  const asked = new URLSearchParams(window.location.search).get("panes")
+  const forced =
+    asked === null
+      ? null
+      : Math.max(1, Math.min(MAX_PANES, Number.parseInt(asked, 10) || 1))
+  if (forced === null && hasStoredLayout()) return
+  const held = sessions.slice(0, forced ?? 2).map((s) => s.id)
+  saveLayout({
+    panes: held.map((sessionId, index) => ({
+      id: `p${index + 1}`,
+      sessionId,
+      dockOpen: false,
+    })),
+    focusedPaneId: "p1",
+  })
+}
+
 export function installDevMock(): void {
+  seedWorkspace()
   const api = {
     getSnapshot: async () => snapshot,
     listSessions: async () => sessions,

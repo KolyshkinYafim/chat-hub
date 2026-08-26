@@ -14,6 +14,10 @@ const SHORTCUTS: { keys: string; what: string }[] = [
   { keys: "⌘G", what: "Diff surface — stage, diff, commit" },
   { keys: "⌘Y", what: "History surface — commits and their diffs" },
   { keys: "⌘B", what: "Right panel — browser, terminal, files, diff" },
+  {
+    keys: "⌥⌘←→",
+    what: "Move between panes — drag a session onto a pane edge to split (⇧ moves the pane)",
+  },
   { keys: "Enter", what: "Send · Shift+Enter for a newline" },
   { keys: "⌘Enter", what: "Send from anywhere in the composer" },
   { keys: "Esc", what: "Stop the running turn" },
