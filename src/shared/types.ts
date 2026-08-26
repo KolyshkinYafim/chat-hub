@@ -157,6 +157,14 @@ export type TurnFileChange = {
   diff?: string
 }
 
+/** One thing a spawned subagent did, as the parent's stream reported it. */
+export type TurnSubagentStep = {
+  /** The child's tool, or the CLI's own progress line for it. */
+  label: string
+  detail?: string
+  status: TurnItemStatus
+}
+
 /**
  * Provider-neutral, persisted agent activity. Final prose remains `content`;
  * everything with a lifecycle is an item so the renderer never has to recover
@@ -206,6 +214,27 @@ export type AgentTurnItem =
     }
   | {
       id: string
+      /**
+       * A nested agent the turn spawned. One card stands for the whole errand,
+       * and `steps` is what the child is doing right now — without it a Task
+       * call is an opaque row that hangs for minutes.
+       */
+      kind: "subagent"
+      status: TurnItemStatus
+      /** Agent type the CLI spawned ("Explore", "general-purpose", …). */
+      name: string
+      /** The errand in the parent's own words. */
+      description?: string
+      /** The child's own activity, oldest first. */
+      steps?: TurnSubagentStep[]
+      /** What it reported back when it finished. */
+      result?: string
+      tokens?: number
+      toolUses?: number
+      durationMs?: number
+    }
+  | {
+      id: string
       kind: "web_search"
       status: TurnItemStatus
       query: string
@@ -226,6 +255,10 @@ export type AgentTurnItem =
       id: string
       kind: "compaction"
       status: TurnItemStatus
+      /** "auto" when the CLI compacted on its own, "manual" for /compact. */
+      trigger?: string
+      preTokens?: number
+      postTokens?: number
     }
   | {
       id: string
