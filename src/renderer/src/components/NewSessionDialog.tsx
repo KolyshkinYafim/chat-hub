@@ -63,6 +63,11 @@ export function NewSessionDialog({
       ),
     [statuses, instanceId],
   )
+  /** The fallback list, used before any probe has landed. */
+  const enabledAgents = useMemo(
+    () => providers.filter((p) => enabledProviderIds.includes(p.id)),
+    [providers, enabledProviderIds],
+  )
   const status = useMemo(
     () =>
       statuses.find((s) => s.instanceId === instanceId) ??
@@ -92,11 +97,13 @@ export function NewSessionDialog({
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose()
+      // A create is already talking to the CLI; closing here would leave the
+      // session half-made with nothing on screen to say so.
+      if (e.key === "Escape" && !busy) onClose()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [open, onClose])
+  }, [open, onClose, busy])
 
   if (!open) return null
 
@@ -130,10 +137,16 @@ export function NewSessionDialog({
     }
   }
 
-  const project = cwd ? projectFromCwd(cwd) : "—"
+  const project = cwd ? projectFromCwd(cwd) : null
 
   return (
-    <div className="modal-backdrop" onClick={onClose} role="presentation">
+    <div
+      className="modal-backdrop"
+      onClick={() => {
+        if (!busy) onClose()
+      }}
+      role="presentation"
+    >
       <div
         className="modal-panel new-session-panel"
         role="dialog"
@@ -173,7 +186,11 @@ export function NewSessionDialog({
                 Browse…
               </button>
             </div>
-            <span className="field-hint">Project name: {project}</span>
+            <span className="field-hint">
+              {project
+                ? `Project name: ${project}`
+                : "Sessions are grouped by folder; the last path segment names the project."}
+            </span>
           </label>
 
           <label className="checkbox-row">
@@ -206,9 +223,13 @@ export function NewSessionDialog({
                 value={instanceId}
                 onChange={(e) => setInstanceId(e.target.value)}
               >
+                {/* Both lists empty means every agent is disabled in Settings;
+                    an option-less combobox reads as a broken control. */}
+                {agents.length === 0 && enabledAgents.length === 0 ? (
+                  <option value="">No agent enabled</option>
+                ) : null}
                 {agents.length === 0
-                  ? providers
-                      .filter((p) => enabledProviderIds.includes(p.id))
+                  ? enabledAgents
                       .map((p) => (
                         <option key={p.id} value={p.id} disabled={!p.available}>
                           {p.label}
@@ -282,7 +303,11 @@ export function NewSessionDialog({
             <button type="button" className="tb-btn" onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" className="tb-btn primary" disabled={busy}>
+            <button
+              type="submit"
+              className="tb-btn primary"
+              disabled={busy || !instanceId}
+            >
               {busy ? "Creating…" : "Create session"}
             </button>
           </div>

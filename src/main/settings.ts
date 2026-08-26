@@ -15,6 +15,8 @@ import type {
   RedactedProviderConfig,
 } from "@shared/settings-types"
 import { parseThemeDef, type ThemeDef } from "@shared/theme"
+import { parseWindowState, type WindowState } from "@shared/window-bounds"
+import { clampZoomLevel, DEFAULT_ZOOM_LEVEL } from "@shared/zoom"
 import { openSecret, sealSecret } from "./secret"
 import { homeEnvFor } from "./instances"
 import { quarantineCorrupt, writeFileAtomic } from "./atomic-write"
@@ -59,6 +61,25 @@ export class SettingsStore {
 
   get general(): GeneralConfig {
     return { ...this.data.general }
+  }
+
+  /** Last run's window geometry, or null on a first launch. */
+  get windowState(): WindowState | null {
+    return this.data.window ? structuredClone(this.data.window) : null
+  }
+
+  async setWindowState(state: WindowState): Promise<void> {
+    this.data = { ...this.data, window: state }
+    await this.save()
+  }
+
+  get zoomLevel(): number {
+    return clampZoomLevel(this.data.zoomLevel ?? DEFAULT_ZOOM_LEVEL)
+  }
+
+  async setZoomLevel(level: number): Promise<void> {
+    this.data = { ...this.data, zoomLevel: clampZoomLevel(level) }
+    await this.save()
   }
 
   async setGeneralConfig(patch: GeneralConfig): Promise<HubSettings> {
@@ -240,6 +261,11 @@ export class SettingsStore {
             ? (parsed.general as GeneralConfig)
             : {},
         mcpEnv: coerceMcpEnv(parsed.mcpEnv),
+        window: parseWindowState(parsed.window) ?? undefined,
+        zoomLevel:
+          typeof parsed.zoomLevel === "number"
+            ? clampZoomLevel(parsed.zoomLevel)
+            : undefined,
       }
     } catch (err) {
       // Defaults here mean losing every sealed API key: park the file first so the

@@ -1,4 +1,5 @@
 import { isSurfaceKind } from "@shared/surfaces"
+import { MIN_TRANSCRIPT_WIDTH } from "./shell-size"
 import type { SurfaceKind } from "./surface-bridge"
 
 const WIDTH_KEY = "chat-hub.surfaceDock.width"
@@ -10,14 +11,27 @@ export { SURFACE_KINDS } from "@shared/surfaces"
 
 export const MIN_DOCK_WIDTH = 320
 export const DEFAULT_DOCK_WIDTH = 460
-const MIN_TRANSCRIPT_WIDTH = 420
 
-export function maxDockWidth(viewportWidth: number): number {
-  return Math.max(MIN_DOCK_WIDTH, viewportWidth - MIN_TRANSCRIPT_WIDTH)
+/**
+ * The sidebar is part of the sum: without it a dock dragged to the viewport's
+ * own limit leaves the transcript far under its floor on a narrow window.
+ */
+export function maxDockWidth(
+  viewportWidth: number,
+  sidebarWidth = 0,
+): number {
+  return Math.max(
+    MIN_DOCK_WIDTH,
+    Math.round(viewportWidth - MIN_TRANSCRIPT_WIDTH - sidebarWidth),
+  )
 }
 
-export function clampDockWidth(px: number, viewportWidth: number): number {
-  const upper = maxDockWidth(viewportWidth)
+export function clampDockWidth(
+  px: number,
+  viewportWidth: number,
+  sidebarWidth = 0,
+): number {
+  const upper = maxDockWidth(viewportWidth, sidebarWidth)
   return Math.min(upper, Math.max(MIN_DOCK_WIDTH, Math.round(px)))
 }
 

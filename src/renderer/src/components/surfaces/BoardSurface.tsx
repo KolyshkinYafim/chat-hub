@@ -410,7 +410,15 @@ export function BoardSurface({ cwd, onOpenSurface }: Props) {
               here.
             </li>
           ) : visibleTodos.length === 0 ? (
-            <li className="board-empty">No tasks match this filter.</li>
+            <li className="board-empty">
+              {query ? (
+                <>
+                  Nothing matches <b>{query}</b> in this filter.
+                </>
+              ) : (
+                "No tasks match this filter."
+              )}
+            </li>
           ) : null}
         </ul>
       </section>
@@ -418,7 +426,11 @@ export function BoardSurface({ cwd, onOpenSurface }: Props) {
       <section className="board-section">
         <div className="board-section-head">
           <h3>Notes</h3>
-          <span className="board-count">{notes.length}</span>
+          <span className="board-count">
+            {notes.length === 0
+              ? "what the agent decided and why"
+              : `${notes.length} note${notes.length === 1 ? "" : "s"}`}
+          </span>
         </div>
         <div className="board-add">
           <input

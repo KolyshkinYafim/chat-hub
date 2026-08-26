@@ -38,6 +38,9 @@ type Props = {
 export function TerminalSurface({ cwd, sessionId, hookRuns = [] }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const [status, setStatus] = useState<string | null>(null)
+  /** The shell is gone — the panel is a transcript until it is started again. */
+  const [dead, setDead] = useState(false)
+  const [restartKey, setRestartKey] = useState(0)
   const banners = useMemo(() => groupHookBanners(hookRuns), [hookRuns])
 
   useEffect(() => {
@@ -93,6 +96,7 @@ export function TerminalSurface({ cwd, sessionId, hookRuns = [] }: Props) {
       if (exit.ptyId !== ptyId) return
       exited = true
       setStatus(`Shell exited (${exit.exitCode})`)
+      setDead(true)
     })
 
     const onInput = term.onData((data) => {
@@ -162,7 +166,9 @@ export function TerminalSurface({ cwd, sessionId, hookRuns = [] }: Props) {
         })
         .catch((err: unknown) => {
           starting = false
-          if (!disposed) setStatus(errorText(err))
+          if (disposed) return
+          setStatus(errorText(err))
+          setDead(true)
         })
     }
 
@@ -205,7 +211,7 @@ export function TerminalSurface({ cwd, sessionId, hookRuns = [] }: Props) {
       // a callback nothing owns. Letting that frame land first costs nothing.
       requestAnimationFrame(() => term.dispose())
     }
-  }, [cwd, sessionId])
+  }, [cwd, sessionId, restartKey])
 
   return (
     <div className="surface-terminal">
@@ -229,7 +235,24 @@ export function TerminalSurface({ cwd, sessionId, hookRuns = [] }: Props) {
         </div>
       ) : null}
       <div className="surface-terminal-host" ref={hostRef} />
-      {status ? <div className="surface-terminal-status">{status}</div> : null}
+      {status ? (
+        <div className="surface-terminal-status">
+          <span>{status}</span>
+          {dead ? (
+            <button
+              type="button"
+              className="tb-btn sm"
+              onClick={() => {
+                setStatus(null)
+                setDead(false)
+                setRestartKey((k) => k + 1)
+              }}
+            >
+              Restart shell
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }
