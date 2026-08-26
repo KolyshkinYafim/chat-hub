@@ -147,7 +147,7 @@ export function TopBar({
         </button>
         <button
           type="button"
-          className="tb-icon"
+          className="icon-chip"
           title="Rename session"
           aria-label="Rename session"
           onClick={onRename}
@@ -156,7 +156,7 @@ export function TopBar({
         </button>
         <button
           type="button"
-          className={`tb-icon panel-toggle ${dockOpen ? "is-on" : ""}`}
+          className={`icon-chip panel-toggle ${dockOpen ? "is-on" : ""}`}
           title="Right panel — browser, terminal, files, diff (⌘B)"
           aria-pressed={dockOpen}
           onClick={onToggleDock}

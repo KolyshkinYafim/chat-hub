@@ -2,7 +2,7 @@
   margin: 0 0 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #12141a;
+  background: var(--code-bg);
   overflow: hidden;
 }
 
@@ -47,13 +47,13 @@
   margin: 0 0 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: #12141a;
+  background: var(--code-bg);
   overflow: hidden;
 }
 
 .tool-card.failed,
 .tool-run:has(.tool-row.failed) {
-  border-color: rgba(240, 113, 120, 0.35);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
 }
 
 .tool-head {
@@ -109,7 +109,7 @@
 
 .tool-row.failed .tool-title,
 .tool-card.failed .tool-title {
-  color: #f0a9ad;
+  color: var(--danger);
 }
 
 .tool-kind {
@@ -130,12 +130,12 @@
 
 .tool-status.failed {
   color: var(--danger);
-  background: rgba(240, 113, 120, 0.12);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 .tool-status.pending {
   color: var(--waiting);
-  background: rgba(240, 180, 41, 0.12);
+  background: color-mix(in srgb, var(--waiting) 12%, transparent);
 }
 
 .tool-detail {
@@ -147,7 +147,7 @@
   padding: 8px 10px 8px 28px;
   font-family: var(--mono);
   font-size: 11px;
-  color: #c8cdd8;
+  color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-word;
   background: var(--code-bg);
@@ -162,7 +162,7 @@
 
 .tool-output {
   border-top: 1px solid var(--border-soft);
-  background: #0f1014;
+  background: color-mix(in srgb, var(--code-bg) 60%, var(--bg));
 }
 
 .tool-output.empty {
@@ -206,7 +206,7 @@
 
 .diff-card {
   border-top: 1px solid var(--border-soft);
-  background: #0f1014;
+  background: color-mix(in srgb, var(--code-bg) 60%, var(--bg));
   font-family: var(--mono);
   font-size: 11.5px;
   line-height: 1.55;
@@ -279,11 +279,11 @@
 }
 
 .diff-row.add {
-  background: rgba(61, 214, 140, 0.08);
+  background: color-mix(in srgb, var(--ok) 8%, transparent);
 }
 
 .diff-row.del {
-  background: rgba(240, 113, 120, 0.08);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
 
 .diff-num {
@@ -355,12 +355,12 @@
 /* The bytes that actually differ, on top of the line's own tint — a one-token
    change has to be findable without reading the whole line. */
 .diff-row.add .tok-changed {
-  background: rgba(61, 214, 140, 0.28);
+  background: color-mix(in srgb, var(--ok) 28%, transparent);
   border-radius: 2px;
 }
 
 .diff-row.del .tok-changed {
-  background: rgba(240, 113, 120, 0.28);
+  background: color-mix(in srgb, var(--danger) 28%, transparent);
   border-radius: 2px;
 }
 
@@ -450,7 +450,7 @@
   margin: 0 0 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: #12141a;
+  background: var(--code-bg);
   overflow: hidden;
 }
 
@@ -551,7 +551,7 @@
 }
 
 .plan-mark.done {
-  color: #3ecf8e;
+  color: var(--ok);
 }
 
 .plan-mark.running {
