@@ -258,24 +258,30 @@ export function BrowserSurface({ sessionId }: Props) {
   return (
     <div className="surface-browser">
       <div className="surface-browser-bar">
-        <button
-          type="button"
-          className="surface-nav"
-          disabled={!canGoBack}
-          title="Back"
-          onClick={() => viewRef.current?.goBack()}
-        >
-          ‹
-        </button>
-        <button
-          type="button"
-          className="surface-nav"
-          disabled={!canGoForward}
-          title="Forward"
-          onClick={() => viewRef.current?.goForward()}
-        >
-          ›
-        </button>
+        {/* The iframe fallback has no history we can drive, so the two buttons
+            would sit disabled forever with a tooltip that promised otherwise. */}
+        {embedded ? (
+          <>
+            <button
+              type="button"
+              className="surface-nav"
+              disabled={!canGoBack}
+              title="Back"
+              onClick={() => viewRef.current?.goBack()}
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              className="surface-nav"
+              disabled={!canGoForward}
+              title="Forward"
+              onClick={() => viewRef.current?.goForward()}
+            >
+              ›
+            </button>
+          </>
+        ) : null}
         <button
           type="button"
           className="surface-nav"

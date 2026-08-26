@@ -1130,18 +1130,18 @@ export default function App() {
         openNewSession()
         return
       }
+      // Guard before preventDefault: with no session these do nothing, and
+      // swallowing the key makes the shortcut look broken rather than inapplicable.
       if (meta && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "p") {
+        if (!activeSession) return
         e.preventDefault()
-        if (activeSession) {
-          setProjectSearch((m) => (m === "files" ? null : "files"))
-        }
+        setProjectSearch((m) => (m === "files" ? null : "files"))
         return
       }
       if (meta && e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") {
+        if (!activeSession) return
         e.preventDefault()
-        if (activeSession) {
-          setProjectSearch((m) => (m === "content" ? null : "content"))
-        }
+        setProjectSearch((m) => (m === "content" ? null : "content"))
         return
       }
       if (meta && e.key === "/") {
@@ -1150,18 +1150,21 @@ export default function App() {
         return
       }
       if (meta && e.key.toLowerCase() === "g") {
+        if (!activeSession) return
         e.preventDefault()
-        if (activeSession) toggleDiffSurface()
+        toggleDiffSurface()
         return
       }
       if (meta && e.key.toLowerCase() === "y") {
+        if (!activeSession) return
         e.preventDefault()
-        if (activeSession) toggleHistorySurface()
+        toggleHistorySurface()
         return
       }
       if (meta && e.key.toLowerCase() === "b") {
+        if (!activeSession) return
         e.preventDefault()
-        if (activeSession) setDock(!dockOpen)
+        setDock(!dockOpen)
         return
       }
       if (meta && e.altKey && e.code.startsWith("Digit")) {
@@ -1193,6 +1196,13 @@ export default function App() {
     toggleDiffSurface,
     toggleHistorySurface,
   ])
+
+  // ProjectSearch unmounts with its session, and an unmounted overlay never
+  // calls onClose — leaving anyOverlayOpen stuck true, which silently disables
+  // the bare-Escape abort for the rest of the run.
+  useEffect(() => {
+    if (!activeSession) setProjectSearch(null)
+  }, [activeSession])
 
   // Both widths are restored from a previous window that may have been wider,
   // and a resize can invalidate them at any time; the transcript floor is only

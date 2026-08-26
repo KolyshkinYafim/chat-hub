@@ -39,9 +39,16 @@ export function TopBar({
   return (
     <header className="topbar">
       <div className="topbar-left">
-        <StatusDot status={session.status} />
-        <h1 className="topbar-title" title="Double-click to rename">
-          <button type="button" className="title-btn" onClick={onRename}>
+        <span title={`${statusLabel[session.status]} · ${session.provider}`}>
+          <StatusDot status={session.status} />
+        </span>
+        <h1 className="topbar-title">
+          <button
+            type="button"
+            className="title-btn"
+            title={`${session.title} — click to rename`}
+            onClick={onRename}
+          >
             {session.title}
           </button>
         </h1>
@@ -141,7 +148,8 @@ export function TopBar({
         <button
           type="button"
           className="tb-icon"
-          title={`${statusLabel[session.status]} · ${session.provider}`}
+          title="Rename session"
+          aria-label="Rename session"
           onClick={onRename}
         >
           ✎

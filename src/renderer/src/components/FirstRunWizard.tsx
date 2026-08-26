@@ -153,6 +153,12 @@ export function FirstRunWizard({ onFinish }: Props) {
               </p>
               {loading ? (
                 <p className="field-hint">Scanning PATH…</p>
+              ) : real.length === 0 ? (
+                <p className="field-hint">
+                  Nothing on PATH looked like an agent CLI. Install one — Claude
+                  Code, Codex, Grok or opencode — then re-scan, or skip and set
+                  a binary path by hand in Settings.
+                </p>
               ) : (
                 <ul className="wizard-detect">
                   {real.map((s) => (
@@ -208,6 +214,12 @@ export function FirstRunWizard({ onFinish }: Props) {
                 Sign in to any that need it (opens Terminal), then pick the agent
                 and model for new sessions.
               </p>
+              {real.filter((s) => s.installed).length === 0 ? (
+                <p className="field-hint">
+                  The agents that were here on the last scan are gone. Go back
+                  and re-scan, or skip and point Settings at a binary by hand.
+                </p>
+              ) : null}
               <ul className="wizard-detect">
                 {real
                   .filter((s) => s.installed)
