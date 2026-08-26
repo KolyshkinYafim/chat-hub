@@ -1077,7 +1077,7 @@ export function SettingsModal({
                       />
                       <button
                         type="button"
-                        className="mode-del"
+                        className="icon-chip ghost danger"
                         title="Delete mode"
                         onClick={() => removeMode(m.id)}
                       >
@@ -1193,7 +1193,7 @@ export function SettingsModal({
                       {!t.builtin ? (
                         <button
                           type="button"
-                          className="theme-del"
+                          className="icon-chip xs ghost danger"
                           title="Delete theme"
                           onClick={(e) => {
                             e.stopPropagation()

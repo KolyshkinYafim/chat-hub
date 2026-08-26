@@ -201,7 +201,7 @@ function ScriptsEditor({
           <h2>Project scripts</h2>
           <button
             type="button"
-            className="tb-icon"
+            className="icon-chip ghost"
             title="Close"
             onClick={onClose}
           >
@@ -246,7 +246,7 @@ function ScriptsEditor({
                   />
                   <button
                     type="button"
-                    className="tb-btn danger scripts-row-remove"
+                    className="icon-chip ghost danger"
                     title="Delete script"
                     onClick={() =>
                       setDrafts((curr) => curr.filter((d) => d.id !== draft.id))

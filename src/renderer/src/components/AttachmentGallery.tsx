@@ -86,7 +86,7 @@ function AttachmentCard({
       {removable ? (
         <button
           type="button"
-          className="attachment-remove"
+          className="icon-chip xs round attachment-remove"
           aria-label={`Remove ${attachment.name}`}
           title="Remove attachment"
           onClick={() => onRemove?.(attachment.path)}
