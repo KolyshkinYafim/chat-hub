@@ -68,6 +68,14 @@ import {
 } from "./surfaces"
 import { installDeveloperMenu } from "./developer-menu"
 import {
+  createZoomController,
+  openingBounds,
+  trackWindowState,
+  type ZoomController,
+} from "./window-state"
+import { MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH } from "@shared/window-bounds"
+import { DEFAULT_ZOOM_LEVEL } from "@shared/zoom"
+import {
   appendMcpPathsToGitignore,
   materializeMcpForProject,
   mcpListForRenderer,
@@ -143,6 +151,10 @@ let mainWindow: BrowserWindow | null = null
 let manager: SessionManager | null = null
 let commandBridge: MonitorCommandBridge | null = null
 let permissions: PermissionBroker | null = null
+// createWindow also runs from `activate` and the monitor bridge, long after
+// bootstrap handed the store around, so the window path reads it from here.
+let settingsStore: SettingsStore | null = null
+let zoom: ZoomController | null = null
 
 const PROVIDER_IDS = new Set(PROVIDERS.map((p) => p.id))
 
@@ -259,11 +271,11 @@ function assertExistingDir(path: string): string {
 }
 
 function createWindow(): void {
+  const saved = settingsStore?.windowState ?? null
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 840,
-    minWidth: 900,
-    minHeight: 600,
+    ...openingBounds(saved),
+    minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
     title: "Chat Hub",
     backgroundColor: "#0c0d10",
     titleBarStyle: "hiddenInset",
@@ -277,8 +289,31 @@ function createWindow(): void {
     },
   })
 
+  if (saved?.maximized) mainWindow.maximize()
+
+  const store = settingsStore
+  if (store) {
+    trackWindowState(mainWindow, (state) => {
+      void store.setWindowState(state).catch(() => {
+        // Geometry is a convenience: a failed write must not break the window.
+      })
+    })
+  }
+
+  // Chromium drops the zoom factor on every load, so the controller re-asserts
+  // it — including after the Developer menu's Reload.
+  zoom = createZoomController(
+    () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null),
+    store?.zoomLevel ?? DEFAULT_ZOOM_LEVEL,
+    (level) => {
+      void store?.setZoomLevel(level).catch(() => {})
+    },
+  )
+  mainWindow.webContents.on("did-finish-load", () => zoom?.apply())
+
   mainWindow.on("closed", () => {
     mainWindow = null
+    zoom = null
     // Media tokens are capabilities into a workspace; nothing may replay them
     // against the next window, which can be pointed at a different project.
     revokeMediaGrants()
@@ -287,7 +322,13 @@ function createWindow(): void {
   hardenWebviewHost(mainWindow.webContents, (url) => {
     void shell.openExternal(url)
   })
-  installDeveloperMenu(() => mainWindow)
+  installDeveloperMenu(() => mainWindow, {
+    zoom: {
+      zoomIn: () => zoom?.zoomIn(),
+      zoomOut: () => zoom?.zoomOut(),
+      reset: () => zoom?.reset(),
+    },
+  })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (isSafeExternalUrl(url)) {
@@ -1419,6 +1460,7 @@ async function bootstrap(): Promise<void> {
   const persistence = new Persistence(Persistence.defaultPath(userData))
   const settings = new SettingsStore(SettingsStore.defaultPath(userData))
   await settings.load()
+  settingsStore = settings
   const projects = new ProjectStore(ProjectStore.defaultPath(userData))
   await projects.load()
   const bridge = new SessionMonitorBridge(SessionMonitorBridge.defaultPath())

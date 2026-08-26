@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type PointerEvent } from "react"
+import { useCallback } from "react"
 import type { HookRun } from "@shared/hooks"
 import type {
   ChatMessage,
@@ -11,8 +11,11 @@ import type { SurfaceKind } from "../../lib/surface-bridge"
 import {
   clampDockWidth,
   DEFAULT_DOCK_WIDTH,
+  maxDockWidth,
+  MIN_DOCK_WIDTH,
   SURFACE_KINDS,
 } from "../../lib/surface-store"
+import { ResizeHandle } from "../ResizeHandle"
 import { SURFACE_LABEL, SurfaceChooser } from "./SurfaceChooser"
 import { SurfaceIcon } from "./SurfaceIcon"
 import { BoardSurface } from "./BoardSurface"
@@ -28,6 +31,8 @@ type Props = {
   session: SessionMeta
   kind: SurfaceKind | null
   width: number
+  /** What the sidebar currently occupies, so the dock leaves the transcript room. */
+  sidebarWidth: number
   gitRefreshKey: number
   /** File the transcript asked the Diff panel to show; `at` re-fires a repeat. */
   diffFocus: { path: string; at: number } | null
@@ -54,6 +59,7 @@ export function SurfaceDock({
   session,
   kind,
   width,
+  sidebarWidth,
   gitRefreshKey,
   diffFocus,
   filesFocus,
@@ -70,50 +76,25 @@ export function SurfaceDock({
   onWidthCommit,
   onClose,
 }: Props) {
-  const widthRef = useRef(width)
-
-  useEffect(() => {
-    widthRef.current = width
-  }, [width])
-
-  const startResize = useCallback(
-    (e: PointerEvent<HTMLDivElement>) => {
-      e.preventDefault()
-      const handle = e.currentTarget
-      handle.setPointerCapture(e.pointerId)
-      const move = (ev: globalThis.PointerEvent) => {
-        const next = clampDockWidth(
-          window.innerWidth - ev.clientX,
-          window.innerWidth,
-        )
-        widthRef.current = next
-        onWidthChange(next)
-      }
-      const stop = () => {
-        handle.removeEventListener("pointermove", move)
-        handle.removeEventListener("pointerup", stop)
-        handle.removeEventListener("pointercancel", stop)
-        onWidthCommit(widthRef.current)
-      }
-      handle.addEventListener("pointermove", move)
-      handle.addEventListener("pointerup", stop)
-      handle.addEventListener("pointercancel", stop)
-    },
-    [onWidthChange, onWidthCommit],
+  const clamp = useCallback(
+    (px: number) => clampDockWidth(px, window.innerWidth, sidebarWidth),
+    [sidebarWidth],
   )
 
   return (
     <aside className="surface-dock" aria-label="Surface panel">
-      <div
+      <ResizeHandle
         className="surface-resizer"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize panel"
-        onPointerDown={startResize}
-        onDoubleClick={() => {
-          onWidthChange(DEFAULT_DOCK_WIDTH)
-          onWidthCommit(DEFAULT_DOCK_WIDTH)
-        }}
+        label="Resize panel"
+        width={width}
+        min={MIN_DOCK_WIDTH}
+        max={maxDockWidth(window.innerWidth, sidebarWidth)}
+        defaultWidth={DEFAULT_DOCK_WIDTH}
+        growKey="ArrowLeft"
+        widthAt={(clientX) => window.innerWidth - clientX}
+        clamp={clamp}
+        onWidth={onWidthChange}
+        onCommit={onWidthCommit}
       />
       <header className="surface-head">
         <div className="surface-tabs">

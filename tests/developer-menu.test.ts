@@ -123,6 +123,49 @@ describe("Developer menu", () => {
     expect(item(developer, "Reveal Main Log")).toBeDefined()
   })
 
+  it("carries the native zoom accelerators without shadowing the existing ones", () => {
+    const host = fakeContents()
+    const window = fakeWindow(host.contents)
+    const log = createMainLog(join(electron.logsPath, "menu.log"))
+    const calls: string[] = []
+    const template = buildDeveloperMenuTemplate(() => window, log, {
+      zoomIn: () => calls.push("in"),
+      zoomOut: () => calls.push("out"),
+      reset: () => calls.push("reset"),
+    })
+    const view = submenu(template, "View")
+    const accelerators = view.map((entry) => entry.accelerator)
+
+    expect(accelerators).toEqual([
+      "CommandOrControl+0",
+      "CommandOrControl+Plus",
+      // ⌘+ is Shift+= on most layouts, so the bare `=` is the live binding.
+      "CommandOrControl+=",
+      "CommandOrControl+-",
+    ])
+    const developer = submenu(template, "Developer")
+    const taken = new Set(
+      developer.map((entry) => entry.accelerator).filter(Boolean),
+    )
+    for (const accelerator of accelerators) {
+      expect(taken.has(accelerator)).toBe(false)
+    }
+
+    click(item(view, "Actual Size"))
+    click(view.filter((entry) => entry.label === "Zoom In")[0])
+    click(view.filter((entry) => entry.label === "Zoom In")[1])
+    click(item(view, "Zoom Out"))
+    expect(calls).toEqual(["reset", "in", "in", "out"])
+  })
+
+  it("leaves the menu bar unchanged when no zoom controller is supplied", () => {
+    const host = fakeContents()
+    const window = fakeWindow(host.contents)
+    const log = createMainLog(join(electron.logsPath, "menu.log"))
+    const template = buildDeveloperMenuTemplate(() => window, log)
+    expect(template.find((entry) => entry.label === "View")).toBeUndefined()
+  })
+
   it("targets only the installed live window and safely no-ops once destroyed", () => {
     const host = fakeContents()
     const window = fakeWindow(host.contents)
