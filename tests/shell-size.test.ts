@@ -13,7 +13,9 @@ import {
   DEFAULT_SIDEBAR_WIDTH,
   MAX_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
+  MIN_FIT_VIEWPORT,
   MIN_TRANSCRIPT_WIDTH,
+  RAIL_WIDTH,
   widthKeyCommand,
   WIDTH_KEY_STEP,
   WIDTH_KEY_STEP_LARGE,
@@ -131,5 +133,24 @@ describe("widthKeyCommand", () => {
     expect(widthKeyCommand("a", false, "ArrowRight")).toBeNull()
     expect(widthKeyCommand("ArrowUp", false, "ArrowRight")).toBeNull()
     expect(widthKeyCommand("Escape", false, "ArrowRight")).toBeNull()
+  })
+})
+
+describe("a viewport nobody is looking at", () => {
+  it("is below the floor, so fitting can sit it out", () => {
+    expect(MIN_FIT_VIEWPORT).toBeGreaterThan(0)
+    expect(0).toBeLessThan(MIN_FIT_VIEWPORT)
+    expect(MIN_FIT_VIEWPORT).toBe(MIN_SIDEBAR_WIDTH + MIN_TRANSCRIPT_WIDTH)
+  })
+
+  it("would otherwise clamp both columns to their minimum", () => {
+    expect(clampSidebarWidth(DEFAULT_SIDEBAR_WIDTH, 0, 0)).toBe(MIN_SIDEBAR_WIDTH)
+    expect(clampDockWidth(460, 0, RAIL_WIDTH)).toBe(MIN_DOCK_WIDTH)
+  })
+
+  it("leaves a real viewport alone", () => {
+    expect(clampSidebarWidth(DEFAULT_SIDEBAR_WIDTH, 1280, 460)).toBe(
+      DEFAULT_SIDEBAR_WIDTH,
+    )
   })
 })
