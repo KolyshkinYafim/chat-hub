@@ -8872,3 +8872,39 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
 .activity-item:has(> summary > .status-failed) .activity-exit {
   color: var(--danger);
 }
+
+/* --- Subagent cards (claude fidelity) ---------------------------------- */
+
+/* A spawned agent is one card, and its own steps live inside it — a nested
+   agent that only showed as "Task · running" was a two-minute blank. */
+ol.activity-agent-steps {
+  margin: 0;
+  padding: 0 12px 9px 30px;
+  list-style: none;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+ol.activity-agent-steps li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 0;
+}
+
+.activity-agent-tool {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.activity-agent-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

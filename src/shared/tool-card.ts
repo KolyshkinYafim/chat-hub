@@ -163,7 +163,9 @@ export function isPlanToolName(name: string): boolean {
   )
 }
 
-const ARG_TEXT_KEYS = ["command", "pattern", "query", "url", "prompt"]
+// `skill` is what a Claude Skill call carries instead of a path or a command;
+// without it the card falls back to raw JSON for the one field that names it.
+const ARG_TEXT_KEYS = ["command", "pattern", "query", "url", "skill", "prompt"]
 const ARG_PATH_KEYS = [
   "target_file",
   "file_path",
