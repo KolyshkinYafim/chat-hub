@@ -72,9 +72,51 @@ function attachContextInspect(
   })
 }
 
+/** The three shell-zoom actions the View menu drives. */
+export type ZoomActions = {
+  zoomIn: () => void
+  zoomOut: () => void
+  reset: () => void
+}
+
+/**
+ * ⌘+ is Shift+= on most layouts, so the plain-`=` binding is the one that
+ * actually fires; the visible item carries the glyph users expect to read.
+ */
+function viewMenu(zoom: ZoomActions): MenuItemConstructorOptions {
+  return {
+    label: "View",
+    submenu: [
+      {
+        label: "Actual Size",
+        accelerator: "CommandOrControl+0",
+        click: zoom.reset,
+      },
+      {
+        label: "Zoom In",
+        accelerator: "CommandOrControl+Plus",
+        click: zoom.zoomIn,
+      },
+      {
+        label: "Zoom In",
+        accelerator: "CommandOrControl+=",
+        visible: false,
+        acceleratorWorksWhenHidden: true,
+        click: zoom.zoomIn,
+      },
+      {
+        label: "Zoom Out",
+        accelerator: "CommandOrControl+-",
+        click: zoom.zoomOut,
+      },
+    ],
+  }
+}
+
 export function buildDeveloperMenuTemplate(
   getWindow: WindowProvider,
   log: MainLog,
+  zoom?: ZoomActions,
 ): MenuItemConstructorOptions[] {
   const developer: MenuItemConstructorOptions = {
     label: "Developer",
@@ -135,6 +177,7 @@ export function buildDeveloperMenuTemplate(
         { role: "selectAll" },
       ],
     },
+    ...(zoom ? [viewMenu(zoom)] : []),
     developer,
     {
       label: "Window",
@@ -164,6 +207,8 @@ export function buildDeveloperMenuTemplate(
 
 export type DeveloperMenuOptions = {
   logPath?: string
+  /** Omitted in tests; production always supplies the persisted controller. */
+  zoom?: ZoomActions
 }
 
 /** Install the native menu and context Inspect action for one Hub window. */
@@ -186,7 +231,9 @@ export function installDeveloperMenu(
   }
 
   Menu.setApplicationMenu(
-    Menu.buildFromTemplate(buildDeveloperMenuTemplate(getWindow, log)),
+    Menu.buildFromTemplate(
+      buildDeveloperMenuTemplate(getWindow, log, options.zoom),
+    ),
   )
   log.write("developer.menu-installed")
   return log

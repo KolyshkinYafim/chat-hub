@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { ChatMessage, Project, SessionMeta } from "@shared/types"
 import {
   MIN_TRANSCRIPT_QUERY,
@@ -14,6 +14,13 @@ import {
   belongsInSettledGroup,
 } from "../lib/sidebar-rows"
 import { StatusDot } from "./StatusDot"
+import { ResizeHandle } from "./ResizeHandle"
+import {
+  clampSidebarWidth,
+  DEFAULT_SIDEBAR_WIDTH,
+  MAX_SIDEBAR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
+} from "../lib/shell-size"
 
 /** Long enough that a typed word is one archive scan, not one per keystroke. */
 const ARCHIVE_SEARCH_DEBOUNCE_MS = 220
@@ -27,6 +34,12 @@ type Props = {
   activeId: string | null
   busy: boolean
   collapsed: boolean
+  width: number
+  /** What the dock occupies right now (0 when closed), so the clamp can see it. */
+  dockWidth: number
+  /** Live width while dragging; `onWidthCommit` is what gets persisted. */
+  onWidthChange: (width: number) => void
+  onWidthCommit: (width: number) => void
   onToggleCollapsed: () => void
   onCreate: (hint?: { project?: string; cwd?: string }) => void
   onSelect: (id: string) => void
@@ -62,6 +75,10 @@ export function Sidebar({
   activeId,
   busy,
   collapsed: railCollapsed,
+  width,
+  dockWidth,
+  onWidthChange,
+  onWidthCommit,
   onToggleCollapsed,
   onCreate,
   onSelect,
@@ -91,6 +108,11 @@ export function Sidebar({
   const [draftTitle, setDraftTitle] = useState("")
   const [regenerating, setRegenerating] = useState<ReadonlySet<string>>(
     () => new Set(),
+  )
+
+  const clampWidth = useCallback(
+    (px: number) => clampSidebarWidth(px, window.innerWidth, dockWidth),
+    [dockWidth],
   )
 
   useEffect(() => {
@@ -494,6 +516,19 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
+      <ResizeHandle
+        className="sidebar-resizer"
+        label="Resize sidebar"
+        width={width}
+        min={MIN_SIDEBAR_WIDTH}
+        max={MAX_SIDEBAR_WIDTH}
+        defaultWidth={DEFAULT_SIDEBAR_WIDTH}
+        growKey="ArrowRight"
+        widthAt={(clientX) => clientX}
+        clamp={clampWidth}
+        onWidth={onWidthChange}
+        onCommit={onWidthCommit}
+      />
       <div className="sidebar-chrome">
         <div className="brand-row">
           <div className="brand-mark">

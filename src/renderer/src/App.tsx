@@ -47,6 +47,7 @@ import type { SurfaceKind } from "./lib/surface-bridge"
 import {
   loadAutoOpenDock,
   loadDockOpen,
+  clampDockWidth,
   loadDockWidth,
   loadSurfaceBySession,
   saveAutoOpenDock,
@@ -55,6 +56,12 @@ import {
   saveSurfaceBySession,
   shouldAutoOpenDock,
 } from "./lib/surface-store"
+import {
+  clampSidebarWidth,
+  loadSidebarWidth,
+  RAIL_WIDTH,
+  saveSidebarWidth,
+} from "./lib/shell-size"
 import { SettingsModal } from "./components/SettingsModal"
 import {
   NewSessionDialog,
@@ -136,6 +143,7 @@ export default function App() {
     null,
   )
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth)
   const [onboardDismissed, setOnboardDismissed] = useState(
     () => localStorage.getItem(AUTH_NAG_KEY) === "1",
   )
@@ -1186,6 +1194,32 @@ export default function App() {
     toggleHistorySurface,
   ])
 
+  // Both widths are restored from a previous window that may have been wider,
+  // and a resize can invalidate them at any time; the transcript floor is only
+  // a floor if it is re-checked whenever the viewport moves.
+  useEffect(() => {
+    const fit = () => {
+      const rail = sidebarCollapsed ? RAIL_WIDTH : sidebarWidth
+      const dock = clampDockWidth(dockWidth, window.innerWidth, rail)
+      if (dock !== dockWidth) {
+        setDockWidth(dock)
+        saveDockWidth(dock)
+      }
+      const bar = clampSidebarWidth(
+        sidebarWidth,
+        window.innerWidth,
+        dockOpen && activeSession ? dock : 0,
+      )
+      if (bar !== sidebarWidth) {
+        setSidebarWidth(bar)
+        saveSidebarWidth(bar)
+      }
+    }
+    fit()
+    window.addEventListener("resize", fit)
+    return () => window.removeEventListener("resize", fit)
+  }, [activeSession, dockOpen, dockWidth, sidebarCollapsed, sidebarWidth])
+
   async function openFolder() {
     if (!activeSession) return
     try {
@@ -1256,7 +1290,12 @@ export default function App() {
       className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""} ${
         showDock ? "dock-is-open" : ""
       }`}
-      style={{ "--dock-w": `${dockWidth}px` } as CSSProperties}
+      style={
+        {
+          "--sidebar-w": `${sidebarWidth}px`,
+          "--dock-w": `${dockWidth}px`,
+        } as CSSProperties
+      }
     >
       <Sidebar
         sessions={sessions}
@@ -1265,6 +1304,10 @@ export default function App() {
         activeId={activeId}
         busy={busy}
         collapsed={sidebarCollapsed}
+        width={sidebarWidth}
+        dockWidth={showDock ? dockWidth : 0}
+        onWidthChange={setSidebarWidth}
+        onWidthCommit={saveSidebarWidth}
         onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
         onCreate={(hint) => openNewSession(hint)}
         onSelect={(id) => void selectSession(id)}
@@ -1365,6 +1408,7 @@ export default function App() {
           session={activeSession}
           kind={activeSurface}
           width={dockWidth}
+          sidebarWidth={sidebarCollapsed ? RAIL_WIDTH : sidebarWidth}
           gitRefreshKey={gitRefresh}
           diffFocus={diffFocus}
           filesFocus={filesFocus}

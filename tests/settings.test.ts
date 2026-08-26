@@ -275,3 +275,56 @@ describe("provider instances", () => {
     expect(s.isProviderEnabled("codex")).toBe(false)
   })
 })
+
+describe("shell state", () => {
+  it("has no window geometry until one is saved", async () => {
+    const { s } = await store()
+    expect(s.windowState).toBeNull()
+    expect(s.zoomLevel).toBe(0)
+  })
+
+  it("round-trips geometry and zoom through the settings file", async () => {
+    const { s, file } = await store()
+    await s.setWindowState({
+      bounds: { x: 12, y: 34, width: 1400, height: 900 },
+      maximized: true,
+    })
+    await s.setZoomLevel(2)
+
+    const reloaded = new SettingsStore(file)
+    await reloaded.load()
+    expect(reloaded.windowState).toEqual({
+      bounds: { x: 12, y: 34, width: 1400, height: 900 },
+      maximized: true,
+    })
+    expect(reloaded.zoomLevel).toBe(2)
+  })
+
+  it("drops geometry it cannot trust rather than opening off-screen", async () => {
+    const { s, file } = await store()
+    await s.setZoomLevel(0)
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 2,
+        window: { bounds: { x: 0, y: 0, width: "wide" } },
+        zoomLevel: 99,
+      }),
+      "utf8",
+    )
+    await s.load()
+    expect(s.windowState).toBeNull()
+    // A hand-edited level is pulled back into range, not honoured.
+    expect(s.zoomLevel).toBe(3)
+  })
+
+  it("keeps geometry when other settings are written", async () => {
+    const { s } = await store()
+    await s.setWindowState({
+      bounds: { x: 1, y: 2, width: 1000, height: 700 },
+      maximized: false,
+    })
+    await s.setGeneralConfig({ themeId: "dawn" })
+    expect(s.windowState?.bounds.width).toBe(1000)
+  })
+})

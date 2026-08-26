@@ -162,6 +162,7 @@ select:focus-visible {
 /* ——— Sidebar ——— */
 
 .sidebar {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -4588,30 +4589,65 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   border-left: 1px solid var(--border);
 }
 
-.surface-resizer {
+.surface-resizer,
+.sidebar-resizer {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: -4px;
   width: 9px;
   z-index: 6;
   cursor: col-resize;
   touch-action: none;
+  /* The panel headers above are titlebar drag regions; a handle drawn over one
+     is swallowed by the window drag unless it opts back out. */
+  -webkit-app-region: no-drag;
 }
 
-.surface-resizer::after {
+.surface-resizer {
+  left: -4px;
+}
+
+.sidebar-resizer {
+  right: -4px;
+}
+
+.surface-resizer::after,
+.sidebar-resizer::after {
   content: "";
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 4px;
   width: 1px;
   background: transparent;
 }
 
+.surface-resizer::after {
+  left: 4px;
+}
+
+.sidebar-resizer::after {
+  right: 4px;
+}
+
 .surface-resizer:hover::after,
-.surface-resizer:active::after {
+.surface-resizer:active::after,
+.surface-resizer:focus-visible::after,
+.sidebar-resizer:hover::after,
+.sidebar-resizer:active::after,
+.sidebar-resizer:focus-visible::after {
   background: var(--accent-2);
+}
+
+/* A full-height outline on a 9px strip reads as a stray line; the divider
+   itself thickens instead. */
+.surface-resizer:focus-visible,
+.sidebar-resizer:focus-visible {
+  outline: none;
+}
+
+.surface-resizer:focus-visible::after,
+.sidebar-resizer:focus-visible::after {
+  width: 3px;
 }
 
 .surface-head {
