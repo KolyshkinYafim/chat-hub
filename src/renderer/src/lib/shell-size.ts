@@ -21,6 +21,13 @@ export const DEFAULT_SIDEBAR_WIDTH = 268
 /** The collapsed rail, fixed in `.app.sidebar-is-collapsed` — keep in step. */
 export const RAIL_WIDTH = 84
 
+/**
+ * Below this the viewport is not a window anyone is looking at — it is a hidden
+ * window, or one still laying out, and both report widths that would clamp every
+ * column to its minimum. Fitting sits it out rather than acting on a lie.
+ */
+export const MIN_FIT_VIEWPORT = MIN_SIDEBAR_WIDTH + MIN_TRANSCRIPT_WIDTH
+
 /** Arrow-key nudge, and the Shift-held coarse one. */
 export const WIDTH_KEY_STEP = 16
 export const WIDTH_KEY_STEP_LARGE = 64

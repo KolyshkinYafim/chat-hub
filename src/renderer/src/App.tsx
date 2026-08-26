@@ -76,6 +76,7 @@ import {
 } from "./lib/surface-store"
 import {
   clampSidebarWidth,
+  MIN_FIT_VIEWPORT,
   loadSidebarWidth,
   RAIL_WIDTH,
   saveSidebarWidth,
@@ -867,23 +868,25 @@ export default function App() {
   // Both widths are restored from a previous window that may have been wider,
   // and a resize can invalidate them at any time; the transcript floor is only
   // a floor if it is re-checked whenever the viewport moves.
+  //
+  // Fitting never persists. A clamp is what this window can show right now, the
+  // stored number is what its owner chose — and the two part company constantly:
+  // the viewport reads 0 while the window is hidden or still laying out, which
+  // would otherwise save both columns at their minimum and lose the choice for
+  // good. Only dragging a handle writes.
   useEffect(() => {
     const fit = () => {
+      const viewport = window.innerWidth
+      if (viewport < MIN_FIT_VIEWPORT) return
       const rail = sidebarCollapsed ? RAIL_WIDTH : sidebarWidth
-      const dock = clampDockWidth(dockWidth, window.innerWidth, rail)
-      if (dock !== dockWidth) {
-        setDockWidth(dock)
-        saveDockWidth(dock)
-      }
+      const dock = clampDockWidth(dockWidth, viewport, rail)
+      if (dock !== dockWidth) setDockWidth(dock)
       const bar = clampSidebarWidth(
         sidebarWidth,
-        window.innerWidth,
+        viewport,
         pane.dockOpen && activeSession ? dock : 0,
       )
-      if (bar !== sidebarWidth) {
-        setSidebarWidth(bar)
-        saveSidebarWidth(bar)
-      }
+      if (bar !== sidebarWidth) setSidebarWidth(bar)
     }
     fit()
     window.addEventListener("resize", fit)
