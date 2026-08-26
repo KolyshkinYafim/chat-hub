@@ -240,7 +240,7 @@ function DiffPane({
                     </button>
                     <button
                       type="button"
-                      className="dcm-chip-del"
+                      className="icon-chip xs ghost danger"
                       title="Delete comment"
                       onClick={() =>
                         commenting
@@ -576,7 +576,7 @@ export function SourceControl({
     <aside className="scm" aria-label="Source control">
       <header className="scm-head">
         <div className="scm-title">Source control</div>
-        <button type="button" className="scm-close" title="Close" onClick={onClose}>
+        <button type="button" className="icon-chip ghost scm-close" title="Close" onClick={onClose}>
           ×
         </button>
       </header>
@@ -624,7 +624,7 @@ export function SourceControl({
             ) : null}
             <button
               type="button"
-              className="scm-act"
+              className="icon-chip xs ghost"
               title="Refresh"
               disabled={busy}
               onClick={() => void reload()}

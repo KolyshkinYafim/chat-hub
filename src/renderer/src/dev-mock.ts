@@ -437,6 +437,8 @@ const sessions: SessionMeta[] = [
   { id: "s4", title: "Checkout rewrite", project: "aurora-shop", provider: "claude", model: "opus", cwd: projects[1].cwd, status: "done", createdAt: now - 9e6, updatedAt: now - 26e5 },
   { id: "s5", title: "Migrate billing schema", project: "orbit-api", provider: "claude", model: "sonnet", cwd: projects[0].cwd, status: "done", createdAt: now - 12e6, updatedAt: now - 78e5 },
   { id: "s6", title: "Landing page copy pass", project: "landing-site", provider: "codex", model: "gpt-5.6-terra", cwd: projects[2].cwd, status: "done", createdAt: now - 16e6, updatedAt: now - 12e6 },
+  // A folder nobody pinned, so the New chat list has a remembered-only row.
+  { id: "s7", title: "Prune stale branches", project: "toolbelt", provider: "claude", model: "sonnet", cwd: "/Users/dev/code/toolbelt", status: "done", createdAt: now - 22e6, updatedAt: now - 19e6 },
 ]
 
 const mockAttachments: MessageAttachment[] = [

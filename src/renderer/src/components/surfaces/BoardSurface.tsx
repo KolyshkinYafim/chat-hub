@@ -295,7 +295,7 @@ export function BoardSurface({ cwd, onOpenSurface }: Props) {
             onChange={(e) => setTodoDraft(e.target.value)}
             onKeyDown={(e) => onEnter(e, addTodo)}
           />
-          <button type="button" onClick={addTodo} title="Add task">
+          <button type="button" className="icon-chip" onClick={addTodo} title="Add task">
             +
           </button>
         </div>
@@ -390,7 +390,7 @@ export function BoardSurface({ cwd, onOpenSurface }: Props) {
                 </div>
                 <button
                   type="button"
-                  className="board-del"
+                  className="icon-chip xs ghost danger reveal board-del"
                   title="Delete"
                   onClick={() =>
                     persist({
@@ -439,7 +439,7 @@ export function BoardSurface({ cwd, onOpenSurface }: Props) {
             onChange={(e) => setNoteDraft(e.target.value)}
             onKeyDown={(e) => onEnter(e, addNote)}
           />
-          <button type="button" onClick={addNote} title="Add note">
+          <button type="button" className="icon-chip" onClick={addNote} title="Add note">
             +
           </button>
         </div>
@@ -449,7 +449,7 @@ export function BoardSurface({ cwd, onOpenSurface }: Props) {
               <span className="board-note-text">{n.text}</span>
               <button
                 type="button"
-                className="board-del"
+                className="icon-chip xs ghost danger reveal board-del"
                 title="Delete"
                 onClick={() =>
                   persist({

@@ -86,14 +86,14 @@ export function AttachmentLightbox({ attachments, initialPath, returnFocus, onCl
         <span className="lightbox-title">{current.name}</span>
         <span className="lightbox-count">{index + 1} / {images.length}</span>
         <div className="lightbox-tools">
-          <button type="button" aria-label="Zoom out" onClick={() => setZoom((value) => clampZoom(value - 0.25))}>−</button>
-          <button type="button" aria-label="Reset zoom" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
-          <button type="button" aria-label="Zoom in" onClick={() => setZoom((value) => clampZoom(value + 0.25))}>+</button>
-          <button ref={closeRef} type="button" aria-label="Close preview" onClick={onClose}>×</button>
+          <button type="button" className="icon-chip lg" aria-label="Zoom out" onClick={() => setZoom((value) => clampZoom(value - 0.25))}>−</button>
+          <button type="button" className="lightbox-zoom" aria-label="Reset zoom" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
+          <button type="button" className="icon-chip lg" aria-label="Zoom in" onClick={() => setZoom((value) => clampZoom(value + 0.25))}>+</button>
+          <button ref={closeRef} type="button" className="icon-chip lg" aria-label="Close preview" onClick={onClose}>×</button>
         </div>
       </div>
       {hasNavigation ? (
-        <button type="button" className="lightbox-nav previous" aria-label="Previous image" onClick={() => setIndex((value) => wrappedIndex(value, -1, images.length))}>‹</button>
+        <button type="button" className="icon-chip lightbox-nav previous" aria-label="Previous image" onClick={() => setIndex((value) => wrappedIndex(value, -1, images.length))}>‹</button>
       ) : null}
       <div
         className="lightbox-stage"
@@ -106,7 +106,7 @@ export function AttachmentLightbox({ attachments, initialPath, returnFocus, onCl
         {url ? <img src={url} alt={current.name} style={{ transform: `scale(${zoom})` }} /> : null}
       </div>
       {hasNavigation ? (
-        <button type="button" className="lightbox-nav next" aria-label="Next image" onClick={() => setIndex((value) => wrappedIndex(value, 1, images.length))}>›</button>
+        <button type="button" className="icon-chip lightbox-nav next" aria-label="Next image" onClick={() => setIndex((value) => wrappedIndex(value, 1, images.length))}>›</button>
       ) : null}
     </div>
   )

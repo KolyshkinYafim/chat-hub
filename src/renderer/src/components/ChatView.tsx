@@ -1137,7 +1137,7 @@ export function ChatView({
             </button>
             <button
               type="button"
-              className="onboard-close"
+              className="icon-chip xs ghost onboard-close"
               title="Dismiss"
               onClick={onboard.onDismiss}
             >
@@ -1217,7 +1217,7 @@ export function ChatView({
           </button>
           <button
             type="button"
-            className="onboard-close"
+            className="icon-chip xs ghost onboard-close"
             title="Dismiss"
             onClick={onboard.onDismiss}
           >
@@ -1487,6 +1487,7 @@ export function ChatView({
                 <span className="queued-text">{q.text}</span>
                 <button
                   type="button"
+                  className="icon-chip xs ghost danger"
                   title="Cancel this queued message"
                   onClick={() => onCancelQueued(q.id)}
                 >
@@ -1657,12 +1658,12 @@ export function ChatView({
                             </button>
                             <button
                               type="button"
-                              className="stash-delete"
+                              className="icon-chip xs ghost danger stash-delete"
                               aria-label="Delete stashed draft"
                               title="Delete"
                               onClick={() => setStash(removeStash(entry.id))}
                             >
-                              ✕
+                              ×
                             </button>
                           </div>
                         )
