@@ -1,3 +1,5 @@
+import { parseColorChannels } from "./contrast"
+
 export const THEME_TOKENS = [
   "--bg",
   "--bg-sidebar",
@@ -14,6 +16,7 @@ export const THEME_TOKENS = [
   "--text-faint",
   "--accent",
   "--accent-2",
+  "--on-accent",
   "--working",
   "--waiting",
   "--ok",
@@ -39,33 +42,34 @@ export type ThemeDef = {
 
 /** Mirror of the `:root` palette in styles.css — swatch/editor fallback for tokens a theme leaves unset. */
 export const BASE_TOKENS: Record<ThemeToken, string> = {
-  "--bg": "#0c0d10",
-  "--bg-sidebar": "#101114",
-  "--bg-elevated": "#16171c",
-  "--bg-hover": "#1a1b21",
-  "--bg-active": "#1e2028",
-  "--bg-row-active": "#252730",
-  "--border": "#2a2c35",
-  "--border-soft": "#22242c",
-  "--border-strong": "#3d4150",
-  "--text": "#ececf1",
-  "--text-secondary": "#c5c7d0",
-  "--text-muted": "#8b8d98",
-  "--text-faint": "#5c5e6a",
-  "--accent": "#7c8cff",
-  "--accent-2": "#5b8def",
-  "--working": "#4d9fff",
-  "--waiting": "#f0b429",
-  "--ok": "#3dd68c",
-  "--danger": "#f07178",
-  "--user-bg": "#1a2332",
-  "--code-bg": "#12141a",
-  "--composer-bg": "#14151a",
-  "--syntax-keyword": "#c792ea",
-  "--syntax-type": "#7fd1e8",
-  "--syntax-string": "#b5e08a",
-  "--syntax-number": "#f6b26b",
-  "--syntax-punct": "#8b8d98",
+  "--bg": "#0c0d12",
+  "--bg-sidebar": "#131419",
+  "--bg-elevated": "#1b1c21",
+  "--bg-hover": "#232429",
+  "--bg-active": "#2b2c32",
+  "--bg-row-active": "#35373c",
+  "--border": "#34353b",
+  "--border-soft": "#24262b",
+  "--border-strong": "#515258",
+  "--text": "#ebecf1",
+  "--text-secondary": "#c3c6d1",
+  "--text-muted": "#9fa1ac",
+  "--text-faint": "#848691",
+  "--accent": "#88a7fd",
+  "--accent-2": "#6e8de3",
+  "--on-accent": "#0d1019",
+  "--working": "#5dc7cb",
+  "--waiting": "#ddb466",
+  "--ok": "#71c589",
+  "--danger": "#f48684",
+  "--user-bg": "#1d2435",
+  "--code-bg": "#121317",
+  "--composer-bg": "#16181d",
+  "--syntax-keyword": "#ccaaf5",
+  "--syntax-type": "#82c8e3",
+  "--syntax-string": "#98cd8c",
+  "--syntax-number": "#e9af7c",
+  "--syntax-punct": "#9fa1ac",
 }
 
 const TOKEN_SET: ReadonlySet<string> = new Set(THEME_TOKENS)
@@ -107,25 +111,29 @@ export const BUILTIN_THEMES: ThemeDef[] = [
     name: "Graphite",
     builtin: true,
     tokens: {
-      "--bg": "#131110",
-      "--bg-sidebar": "#171412",
-      "--bg-elevated": "#1d1a17",
-      "--bg-hover": "#221e1b",
-      "--bg-active": "#282320",
-      "--bg-row-active": "#2f2a26",
-      "--border": "#363029",
-      "--border-soft": "#2b2621",
-      "--border-strong": "#4d4438",
-      "--text": "#f0ece5",
-      "--text-secondary": "#d0c9bf",
-      "--text-muted": "#988f82",
-      "--text-faint": "#6a6156",
-      "--accent": "#e2a65c",
-      "--accent-2": "#d1913f",
-      "--working": "#e2a65c",
-      "--user-bg": "#292018",
-      "--code-bg": "#1a1613",
-      "--composer-bg": "#1b1714",
+      "--bg": "#120d08",
+      "--bg-sidebar": "#19140f",
+      "--bg-elevated": "#211b17",
+      "--bg-hover": "#29231f",
+      "--bg-active": "#312c27",
+      "--bg-row-active": "#3c3631",
+      "--border": "#3a342f",
+      "--border-soft": "#2a2520",
+      "--border-strong": "#58514c",
+      "--text": "#f0ece8",
+      "--text-secondary": "#d0c4ba",
+      "--text-muted": "#aba096",
+      "--text-faint": "#90847b",
+      // Graphite is the warm theme, so its accent shares a band with amber
+      // "waiting" and red "danger". A deeper, quieter bronze steps clear of
+      // both and leaves the four status colours identical across every theme.
+      "--accent": "#c2946c",
+      "--accent-2": "#a97b52",
+      "--on-accent": "#170f07",
+      "--user-bg": "#302113",
+      "--code-bg": "#17120d",
+      "--composer-bg": "#1c1712",
+      "--syntax-punct": "#aba096",
     },
   },
   {
@@ -133,25 +141,26 @@ export const BUILTIN_THEMES: ThemeDef[] = [
     name: "Abyss",
     builtin: true,
     tokens: {
-      "--bg": "#0a0f1c",
-      "--bg-sidebar": "#0d1322",
-      "--bg-elevated": "#121a2e",
-      "--bg-hover": "#162039",
-      "--bg-active": "#1a2542",
-      "--bg-row-active": "#212d4f",
-      "--border": "#273554",
-      "--border-soft": "#1f2a44",
-      "--border-strong": "#394970",
-      "--text": "#e8edf7",
-      "--text-secondary": "#c3cde0",
-      "--text-muted": "#8595b2",
-      "--text-faint": "#576484",
-      "--accent": "#54c2f0",
-      "--accent-2": "#3ba3d6",
-      "--working": "#54c2f0",
-      "--user-bg": "#15253e",
-      "--code-bg": "#0e1526",
-      "--composer-bg": "#101828",
+      "--bg": "#040e1b",
+      "--bg-sidebar": "#091623",
+      "--bg-elevated": "#101e2b",
+      "--bg-hover": "#182634",
+      "--bg-active": "#202e3c",
+      "--bg-row-active": "#2a3847",
+      "--border": "#293745",
+      "--border-soft": "#1a2735",
+      "--border-strong": "#455464",
+      "--text": "#e4eefa",
+      "--text-secondary": "#aecae7",
+      "--text-muted": "#8aa5c2",
+      "--text-faint": "#708aa5",
+      "--accent": "#6da7f1",
+      "--accent-2": "#528dd8",
+      "--on-accent": "#0a1119",
+      "--user-bg": "#192535",
+      "--code-bg": "#071421",
+      "--composer-bg": "#0c1926",
+      "--syntax-punct": "#8aa5c2",
     },
   },
   {
@@ -159,64 +168,44 @@ export const BUILTIN_THEMES: ThemeDef[] = [
     name: "Daylight",
     builtin: true,
     tokens: {
-      "--bg": "#f4f4f6",
-      "--bg-sidebar": "#eaeaee",
+      "--bg": "#f6f7fb",
+      "--bg-sidebar": "#ebecf0",
       "--bg-elevated": "#ffffff",
-      "--bg-hover": "#e3e3e9",
-      "--bg-active": "#dbdbe2",
-      "--bg-row-active": "#d1d2dc",
-      "--border": "#cfd0d9",
-      "--border-soft": "#dbdce2",
-      "--border-strong": "#aeb0bf",
-      "--text": "#1b1c22",
-      "--text-secondary": "#3d3f49",
-      "--text-muted": "#6f7280",
-      "--text-faint": "#9b9ea9",
-      "--accent": "#4d5cd3",
-      "--accent-2": "#3467cd",
-      "--working": "#2673dc",
-      "--waiting": "#a3720c",
-      "--ok": "#178f58",
-      "--danger": "#cf3f4b",
-      "--user-bg": "#e2eaf7",
-      "--code-bg": "#ececf0",
+      "--bg-hover": "#e4e5e9",
+      "--bg-active": "#d9dadd",
+      "--bg-row-active": "#cecfd2",
+      "--border": "#cfcfd3",
+      "--border-soft": "#dfe0e3",
+      "--border-strong": "#adaeb2",
+      "--text": "#1f2024",
+      "--text-secondary": "#3d404a",
+      "--text-muted": "#555762",
+      "--text-faint": "#656772",
+      "--accent": "#3e5cc7",
+      "--accent-2": "#2841ae",
+      "--on-accent": "#ffffff",
+      "--working": "#007b7f",
+      "--waiting": "#896301",
+      "--ok": "#247d46",
+      "--danger": "#aa4446",
+      "--user-bg": "#e0e8fd",
+      "--code-bg": "#eff0f4",
       "--composer-bg": "#ffffff",
-      "--syntax-keyword": "#8a3fc4",
-      "--syntax-type": "#12758f",
-      "--syntax-string": "#47761c",
-      "--syntax-number": "#a85f12",
-      "--syntax-punct": "#6f7280",
+      "--syntax-keyword": "#7b41af",
+      "--syntax-type": "#007098",
+      "--syntax-string": "#207800",
+      "--syntax-number": "#9c4900",
+      "--syntax-punct": "#555762",
     },
   },
 ]
 
 export const DEFAULT_THEME_ID = "midnight"
 
-function colorChannels(value: string): [number, number, number] | null {
-  const hex = value.match(/^#([0-9a-fA-F]{3,8})$/)
-  if (hex) {
-    let h = hex[1]
-    if (h.length <= 4) h = [...h].map((c) => c + c).join("")
-    return [
-      parseInt(h.slice(0, 2), 16),
-      parseInt(h.slice(2, 4), 16),
-      parseInt(h.slice(4, 6), 16),
-    ]
-  }
-  const rgb = value.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/)
-  if (rgb) return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])]
-  const hsl = value.match(/^hsla?\(\s*\d{1,3}(?:deg)?\s*,\s*\d{1,3}%\s*,\s*(\d{1,3})%/)
-  if (hsl) {
-    const v = Math.round(Number(hsl[1]) * 2.55)
-    return [v, v, v]
-  }
-  return null
-}
-
 /** True when the theme's background is light — drives the `theme-light` class that remaps dark-only hard-coded colors. */
 export function isLightTheme(def: ThemeDef): boolean {
   const bg = def.tokens["--bg"] ?? BASE_TOKENS["--bg"]
-  const ch = colorChannels(bg)
+  const ch = parseColorChannels(bg)
   if (!ch) return false
   return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2] > 140
 }

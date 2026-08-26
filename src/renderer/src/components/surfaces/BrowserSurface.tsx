@@ -264,7 +264,7 @@ export function BrowserSurface({ sessionId }: Props) {
           <>
             <button
               type="button"
-              className="surface-nav"
+              className="icon-chip"
               disabled={!canGoBack}
               title="Back"
               onClick={() => viewRef.current?.goBack()}
@@ -273,7 +273,7 @@ export function BrowserSurface({ sessionId }: Props) {
             </button>
             <button
               type="button"
-              className="surface-nav"
+              className="icon-chip"
               disabled={!canGoForward}
               title="Forward"
               onClick={() => viewRef.current?.goForward()}
@@ -284,7 +284,7 @@ export function BrowserSurface({ sessionId }: Props) {
         ) : null}
         <button
           type="button"
-          className="surface-nav"
+          className="icon-chip"
           title="Reload"
           onClick={() =>
             embedded
@@ -353,7 +353,7 @@ export function BrowserSurface({ sessionId }: Props) {
               </span>
               <button
                 type="button"
-                className="surface-pick-chip-remove"
+                className="icon-chip xs ghost danger"
                 title="Remove this note"
                 onClick={() => removePick(sessionId, pick.id)}
               >
