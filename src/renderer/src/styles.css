@@ -159,6 +159,195 @@ select:focus-visible {
   min-height: 0;
 }
 
+/* ——— Workspace ———
+   One pane is the shell above, untouched. From two panes on, the middle
+   column becomes a strip of them: each is a whole chat with its own dock, so
+   they divide the width down to a floor and then the strip scrolls rather
+   than squeezing a transcript past reading. */
+
+.app.is-tiled,
+.app.sidebar-is-collapsed.is-tiled {
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+}
+
+.app.sidebar-is-collapsed.is-tiled {
+  grid-template-columns: 84px minmax(0, 1fr);
+}
+
+.workspace {
+  /* Mirrors MIN_PANE_WIDTH in lib/pane-layout.ts. */
+  --pane-min: 340px;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+}
+
+.pane {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: var(--pane-min);
+  min-height: 0;
+  background: var(--bg);
+  border-left: 1px solid var(--border-soft);
+  scroll-snap-align: start;
+}
+
+.pane:first-child {
+  border-left: none;
+}
+
+/* An open dock asks for its own width on top of the pane's share, so opening
+   one never pushes the transcript beside it under the floor. */
+.pane.has-dock {
+  min-width: calc(var(--pane-min) + 320px);
+}
+
+.pane-body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Both sides start from their own width and shrink toward their floor, so a
+   pane too narrow for both takes it out of the dock first and the transcript
+   never drops under `--pane-min`. 320px is MIN_DOCK_WIDTH. */
+.pane-body > .main-column {
+  flex: 1 1 var(--pane-min);
+  min-width: var(--pane-min);
+}
+
+.pane-body > .surface-dock {
+  flex: 1 1 var(--dock-w);
+  min-width: 320px;
+  max-width: var(--dock-w);
+}
+
+/* The pane's own header: the grip you drag it by, and the × that closes the
+   view. Focus is said here and nowhere else — quiet enough to ignore, plain
+   enough to find. */
+.pane-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 5px 0 8px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-soft);
+  cursor: grab;
+  user-select: none;
+}
+
+.pane-head:active {
+  cursor: grabbing;
+}
+
+.pane.is-focused .pane-head {
+  background: var(--bg-active);
+  box-shadow: inset 0 2px 0 var(--accent-2);
+}
+
+.pane-grip {
+  flex: none;
+  font-size: 9px;
+  letter-spacing: -2px;
+  color: var(--text-faint);
+}
+
+.pane-head-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  font-weight: 560;
+  color: var(--text-muted);
+}
+
+.pane.is-focused .pane-head-title {
+  color: var(--text);
+}
+
+.pane-close {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text-faint);
+}
+
+.pane-close:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* Where the drop lands, drawn while the button is still down. Fixed and
+   measured from the panes, so it costs the layout nothing when idle. */
+.drop-hint {
+  position: fixed;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.drop-hint.is-into {
+  border: 2px solid var(--accent-2);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--accent-2) 12%, transparent);
+}
+
+.drop-hint.is-seam {
+  width: 3px;
+  margin-left: -1px;
+  border-radius: 999px;
+  background: var(--accent-2);
+}
+
+.drop-hint-label {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-2);
+  color: var(--bg);
+  font-size: 10.5px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.drop-hint.is-seam .drop-hint-label {
+  left: 1px;
+}
+
+/* One `<webview>` guest at a time: the pane that does not hold it says so. */
+.surface-claim {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  padding: 18px 16px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.surface-claim-text {
+  margin: 0;
+}
+
+.surface-claim-text strong {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
 /* ——— Sidebar ——— */
 
 .sidebar {

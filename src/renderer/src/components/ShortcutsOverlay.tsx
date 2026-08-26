@@ -30,6 +30,10 @@ const GROUPS: Group[] = [
       { keys: "⌘P", what: "Go to file — fuzzy over the project tree" },
       { keys: "⇧⌘F", what: "Search in project — content matches, jump to the line" },
       { keys: "⌘B", what: "Right panel — open it, or close it again" },
+      {
+        keys: "⌥⌘←/→",
+        what: "Move between panes — drag a session onto a pane edge to split (⇧ moves the pane)",
+      },
       { keys: "⌘G", what: "Diff panel — press again to close the panel" },
       { keys: "⌘Y", what: "History panel — press again to close the panel" },
       { keys: "⌘⌥1–9", what: "Run the project script bound to that digit" },

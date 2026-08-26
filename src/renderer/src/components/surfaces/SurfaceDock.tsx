@@ -48,6 +48,12 @@ type Props = {
   messagesBySession: Record<string, ChatMessage[]>
   usageBySession: Record<string, SessionUsage>
   queuedBySession: Record<string, QueuedMessage[]>
+  /**
+   * Set when another pane holds the single `<webview>` guest — the browser tab
+   * then offers to take it rather than starting a second one.
+   */
+  browserHeldBy?: string | null
+  onTakeBrowser?: () => void
   onSelectSession: (id: string) => void
   onGitChanged: () => void
   onSelectKind: (kind: SurfaceKind | null) => void
@@ -70,6 +76,8 @@ export function SurfaceDock({
   messagesBySession,
   usageBySession,
   queuedBySession,
+  browserHeldBy = null,
+  onTakeBrowser,
   onSelectSession,
   onGitChanged,
   onSelectKind,
@@ -153,7 +161,18 @@ export function SurfaceDock({
             onOpenSurface={onSelectKind}
           />
         ) : null}
-        {kind === "browser" ? (
+        {kind === "browser" && browserHeldBy !== null ? (
+          <div className="surface-claim">
+            <p className="surface-claim-text">
+              The browser is live in <strong>{browserHeldBy}</strong>. One page
+              at a time keeps a single guest on the shared profile.
+            </p>
+            <button type="button" className="tb-btn" onClick={onTakeBrowser}>
+              Move it here
+            </button>
+          </div>
+        ) : null}
+        {kind === "browser" && browserHeldBy === null ? (
           <BrowserSurface key={session.id} sessionId={session.id} />
         ) : null}
         {kind === "terminal" ? (
