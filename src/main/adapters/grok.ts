@@ -38,6 +38,7 @@ import type {
   AdapterStartOpts,
   AgentAdapter,
 } from "./types"
+import { asText } from "@shared/text"
 
 /**
  * Grok Build headless adapter.
@@ -179,12 +180,12 @@ export class GrokAdapter implements AgentAdapter {
         // Grok tags its totals onto whichever line it feels like; last one wins.
         usage = readUsage(ev) ?? usage
 
-        const type = String(ev.type ?? ev.event ?? "")
+        const type = asText(ev.type ?? ev.event)
 
         // Thought chunks stay out of the answer bubble, but the reasoning card
         // is where they belong — a placeholder there told the user nothing.
         if (type === "thought") {
-          const item = activity.thought(String(ev.data ?? ""))
+          const item = activity.thought(asText(ev.data))
           if (!item) return
           if (!turn) turn = beginAssistant(sessionId, cb)
           emitTurnItem(turn, sessionId, item, cb)
@@ -418,7 +419,7 @@ export class GrokActivityStream {
 
   push(
     ev: Record<string, unknown>,
-    type = String(ev.type ?? ev.event ?? ""),
+    type = asText(ev.type ?? ev.event),
   ): AgentTurnItem | null {
     const lower = type.toLowerCase()
     if (lower !== "thought") this.reasoningOpen = false
@@ -478,7 +479,7 @@ export class GrokActivityStream {
 /** Single-event view of the tool stream, for envelopes that carry it all. */
 export function extractGrokAction(
   ev: Record<string, unknown>,
-  type = String(ev.type ?? ev.event ?? ""),
+  type = asText(ev.type ?? ev.event),
 ): AgentTurnItem | null {
   return new GrokActivityStream().push(ev, type)
 }
@@ -693,7 +694,7 @@ function numberValue(value: unknown): number | undefined {
 /** Parse both legacy and Grok Build 0.2.x streaming-json text events. */
 export function extractGrokText(
   ev: Record<string, unknown>,
-  type = String(ev.type ?? ev.event ?? ""),
+  type = asText(ev.type ?? ev.event),
 ): string {
   // Current Grok Build emits { type: "text", data: "..." }. Thinking has
   // the same data shape and must stay out of the user-visible transcript.

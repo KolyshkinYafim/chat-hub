@@ -32,6 +32,7 @@ import {
   waitForScript,
   type SnapshotFilter,
 } from "./browser-page-script"
+import { asText } from "@shared/text"
 
 export const NO_GUEST_ERROR =
   "No browser surface is open for this session. Open the Browser surface in Chat Hub first."
@@ -194,7 +195,7 @@ export function consoleLevelFrom(value: unknown): BrowserConsoleMessage["level"]
     if (value === 2) return "warn"
     return "error"
   }
-  const name = String(value ?? "").toLowerCase()
+  const name = asText(value).toLowerCase()
   if (name === "debug" || name === "verbose") return "debug"
   if (name === "info") return "info"
   if (name === "warn" || name === "warning") return "warn"

@@ -18,6 +18,7 @@ import {
   type BrowserResponse,
   type BrowserSnapshot,
 } from "@shared/browser"
+import { asText } from "../src/shared/text"
 
 const SERVER_SCRIPT = fileURLToPath(
   new URL("../resources/mcp/browser-mcp.mjs", import.meta.url),
@@ -222,7 +223,7 @@ async function callTool(
 }
 
 function firstText(result: ToolResult): string {
-  return String(result.content[0]?.text ?? "")
+  return asText(result.content[0]?.text)
 }
 
 const SAMPLE_SNAPSHOT: BrowserSnapshot = {
