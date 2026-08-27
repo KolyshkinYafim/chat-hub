@@ -13,13 +13,17 @@ import { writeFileAtomic } from "./atomic-write"
 
 type LedgerFile = { version: 1; entries: UsageLedgerEntry[] }
 
-/** Accumulates into the row matching day+provider+model, or appends a new one. */
+/** Accumulates into the row matching day+provider+model+session, or appends one. */
 export function mergeLedgerEntry(
   entries: UsageLedgerEntry[],
   add: UsageLedgerEntry,
 ): UsageLedgerEntry[] {
   const idx = entries.findIndex(
-    (e) => e.day === add.day && e.provider === add.provider && e.model === add.model,
+    (e) =>
+      e.day === add.day &&
+      e.provider === add.provider &&
+      e.model === add.model &&
+      e.sessionId === add.sessionId,
   )
   if (idx === -1) return [...entries, add]
   const cur = entries[idx]
@@ -91,6 +95,7 @@ export function seedFromSessions(
       day: dayKey(session.updatedAt),
       provider: session.provider,
       model: session.model ?? "unknown",
+      sessionId: session.id,
       inputTokens: total.inputTokens ?? 0,
       outputTokens: total.outputTokens ?? 0,
       cacheReadTokens: total.cacheReadTokens ?? 0,
@@ -142,12 +147,18 @@ export class UsageLedger {
     }
   }
 
-  record(provider: string, model: string | undefined, turn: TurnUsage): Promise<void> {
+  record(
+    provider: string,
+    model: string | undefined,
+    turn: TurnUsage,
+    sessionId?: string,
+  ): Promise<void> {
     const run = this.queue.then(async () => {
       this.entries = mergeLedgerEntry(this.entries, {
         day: dayKey(this.now()),
         provider,
         model: model ?? "unknown",
+        ...(sessionId ? { sessionId } : {}),
         inputTokens: turn.inputTokens ?? 0,
         outputTokens: turn.outputTokens ?? 0,
         cacheReadTokens: turn.cacheReadTokens ?? 0,
@@ -193,6 +204,9 @@ function sanitizeEntries(entries: unknown): UsageLedgerEntry[] {
       day: r.day,
       provider: r.provider,
       model: r.model,
+      ...(typeof r.sessionId === "string" && r.sessionId
+        ? { sessionId: r.sessionId }
+        : {}),
       inputTokens: finite(r.inputTokens),
       outputTokens: finite(r.outputTokens),
       cacheReadTokens: finite(r.cacheReadTokens),

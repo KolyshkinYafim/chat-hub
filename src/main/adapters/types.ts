@@ -2,6 +2,7 @@ import type {
   AgentTurnItem,
   ChatMessage,
   ProviderId,
+  ProviderRateLimits,
   SessionEvent,
   SessionMeta,
   TurnUsage,
@@ -75,6 +76,11 @@ export type AdapterCallbacks = {
     usage: TurnUsage,
     messageId: string | undefined,
   ) => void
+  /**
+   * How much of the account's allowance is gone, whenever the CLI says so.
+   * Arrives on its own schedule, including between turns.
+   */
+  onRateLimits?: (sessionId: string, limits: ProviderRateLimits) => void
 }
 
 export interface AgentAdapter {

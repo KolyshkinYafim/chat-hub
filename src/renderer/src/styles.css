@@ -1391,6 +1391,9 @@ select:focus-visible {
 .activity-status.status-failed, .activity-status.status-declined, .activity-status.status-interrupted { background: var(--danger); }
 .activity-text, .activity-error, .activity-files { padding: 0 10px 9px; color: var(--text-muted); font-size: 12px; white-space: pre-wrap; }
 .activity-error { color: var(--danger); }
+.activity-notice[data-level="warning"] { border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); }
+.activity-notice[data-level="warning"] > summary .activity-label { color: var(--warn); }
+.activity-notice .activity-text { color: var(--text-secondary); }
 .activity-files { display: grid; gap: 3px; font-family: var(--mono); font-size: 11px; }
 ol.activity-plan { margin: 0; padding: 0 12px 9px 30px; color: var(--text-muted); font-size: 12px; }
 ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-decoration: line-through; }
@@ -7326,11 +7329,76 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   color: var(--danger);
 }
 
+.allowance-meter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 2px 6px;
+  min-width: 0;
+}
+
+.allowance-window {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.allowance-bar {
+  flex: 1;
+  min-width: 28px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--bg-active);
+  overflow: hidden;
+}
+
+.allowance-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--text-faint);
+  transition: width var(--speed-fast) ease;
+}
+
+.allowance-label {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.allowance-reached {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--danger);
+  text-transform: capitalize;
+}
+
+.allowance-meter.is-critical .allowance-fill {
+  background: var(--danger);
+}
+
 /* ===== usage dashboard ===== */
 
 .usage-empty {
   color: var(--text-muted);
   font-size: 13px;
+}
+
+.usage-chart-note,
+.usage-card-foot {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.usage-card-foot {
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
 }
 
 .usage-tiles {

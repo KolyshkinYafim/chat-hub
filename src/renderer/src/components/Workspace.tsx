@@ -9,6 +9,7 @@ import type {
   Project,
   ProviderId,
   ProviderInfo,
+  ProviderRateLimits,
   QueuedMessage,
   SessionMeta,
   SessionUsage,
@@ -53,6 +54,7 @@ type Props = {
   sessions: SessionMeta[]
   messagesBySession: Record<string, ChatMessage[]>
   usageBySession: Record<string, SessionUsage>
+  limitsBySession: Record<string, ProviderRateLimits>
   queuedBySession: Record<string, QueuedMessage[]>
   hooksBySession: Record<string, HookRun[]>
   permissionsBySession: Record<string, PermissionRequestInfo[]>
@@ -124,6 +126,7 @@ export function Workspace({
   sessions,
   messagesBySession,
   usageBySession,
+  limitsBySession,
   queuedBySession,
   hooksBySession,
   permissionsBySession,
@@ -321,6 +324,7 @@ export function Workspace({
             : null
         }
         usage={sessionId ? (usageBySession[sessionId] ?? null) : null}
+        limits={sessionId ? (limitsBySession[sessionId] ?? null) : null}
         queued={sessionId ? (queuedBySession[sessionId] ?? NO_QUEUED) : NO_QUEUED}
         permissions={
           sessionId

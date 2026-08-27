@@ -104,15 +104,20 @@ function toRow(item: AgentTurnItem, index: number): TimelineRow {
     detailFull: detail,
     status: item.status,
     state: STATE_WORDS[item.status],
-    timing: formatTiming(itemDuration(item)),
+    timing: itemTiming(item),
     server,
   }
 }
 
-function itemDuration(item: AgentTurnItem): number | undefined {
-  return item.kind === "command" || item.kind === "tool"
-    ? item.durationMs
-    : undefined
+/**
+ * A duration the Hub measured itself reads "~1.2s": it covers the whole time
+ * the call was on the stream, which is not the same claim as a CLI's own timing.
+ */
+function itemTiming(item: AgentTurnItem): string | null {
+  if (item.kind !== "command" && item.kind !== "tool") return null
+  const timing = formatTiming(item.durationMs)
+  if (!timing) return null
+  return item.durationMeasured ? `~${timing}` : timing
 }
 
 /**
