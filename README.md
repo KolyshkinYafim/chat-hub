@@ -24,6 +24,7 @@ Electron · TypeScript · React · pnpm — macOS first.
 ## Development
 
 Requirements: Node ≥ 20, pnpm (see `packageManager` in package.json), macOS for the full experience.
+Running it on Arch / CachyOS — what works, what does not, and why: [docs/linux-setup.md](./docs/linux-setup.md).
 
 ```bash
 pnpm install
@@ -48,6 +49,7 @@ Renderer (React) talks over IPC to the main process, where a `SessionManager` ow
 - [docs/providers.md](./docs/providers.md) — adapter strategy per CLI
 - [docs/browser-control.md](./docs/browser-control.md) — the MCP browser pipeline
 - [docs/bridge.md](./docs/bridge.md) — the Session Monitor JSONL contract
+- [docs/linux-setup.md](./docs/linux-setup.md) — running and developing on Arch / CachyOS
 
 ## Project layout
 
