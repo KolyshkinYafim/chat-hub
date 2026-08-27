@@ -49,7 +49,10 @@ pnpm lint && pnpm typecheck && pnpm test
 Пути уже разведены по платформам в [`src/shared/bridge-path.ts`](../src/shared/bridge-path.ts),
 править ничего не надо. На Linux это `~/.local/share/agent-desktop/` — туда попадают
 `events.jsonl`, сокеты `hub.sock` и `monitor.sock`. Настройки и состояние самого приложения
-Electron кладёт в `~/.config/chat-hub/`.
+Electron кладёт в `~/.config/chat-hub/` — но **не при `pnpm dev`**: dev-запуск намеренно
+уводит `userData` в `~/.config/chat-hub-dev/`, чтобы не делить сессии и запечатанные ключи
+с установленным приложением ([`index.ts`](../src/main/index.ts)). Пока работаешь через
+`pnpm dev`, смотреть надо в каталог с суффиксом.
 
 Юникс-сокеты на Linux работают штатно. Это стоит проговорить, потому что для Windows они
 отдельная и нерешённая проблема — там нужны named pipes, и к Linux это отношения не имеет.
