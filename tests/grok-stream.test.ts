@@ -8,6 +8,7 @@ import {
 } from "../src/main/adapters/stream-parse"
 import type { AdapterCallbacks } from "../src/main/adapters/types"
 import type { AgentTurnItem, ChatMessage } from "../src/shared/types"
+import { asText } from "../src/shared/text"
 
 /**
  * Every line below was captured verbatim from a real
@@ -59,10 +60,10 @@ function replay(lines: string[]): Map<string, AgentTurnItem> {
   for (const line of lines) {
     const ev = safeJson(line)
     if (!ev) continue
-    const type = String(ev.type ?? "")
+    const type = asText(ev.type)
     const item =
       type === "thought"
-        ? stream.thought(String(ev.data ?? ""))
+        ? stream.thought(asText(ev.data))
         : stream.push(ev, type)
     if (item) items.set(item.id, item)
   }

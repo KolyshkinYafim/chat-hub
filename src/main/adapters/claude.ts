@@ -47,6 +47,7 @@ import type {
   AdapterStartOpts,
   AgentAdapter,
 } from "./types"
+import { asText } from "@shared/text"
 
 /**
  * Claude Code headless adapter.
@@ -194,7 +195,7 @@ export class ClaudeAdapter implements AgentAdapter {
           cb.onAgentSession?.(sessionId, sid)
         }
 
-        if (String(ev.type ?? "") === "result") {
+        if (asText(ev.type) === "result") {
           // One `result` per internal turn, and an async subagent makes several
           // in one run: the token counts add up, the cost is already a total.
           usage = mergeClaudeUsage(usage, readUsage(ev))
@@ -404,7 +405,7 @@ export class ClaudeActivityStream {
   constructor(private readonly cwd?: string) {}
 
   push(ev: Record<string, unknown>): ClaudeEmit {
-    switch (String(ev.type ?? "")) {
+    switch (asText(ev.type)) {
       case "system":
         return this.system(ev)
       case "stream_event":
@@ -425,7 +426,7 @@ export class ClaudeActivityStream {
   }
 
   private system(ev: Record<string, unknown>): ClaudeEmit {
-    switch (String(ev.subtype ?? "")) {
+    switch (asText(ev.subtype)) {
       case "status":
         // The CLI says "compacting" long before the boundary lands; opening the
         // card here is the difference between a visible wait and a dead turn.
@@ -595,7 +596,7 @@ export class ClaudeActivityStream {
     // A child agent's partial messages are not this turn's prose.
     if (str(ev.parent_tool_use_id)) return none()
     const inner = record(ev.event) ?? ev
-    const type = String(inner.type ?? "")
+    const type = asText(inner.type)
 
     if (type === "message_start") {
       // Reasoning is per assistant message: one merged blob across a long turn
@@ -693,7 +694,7 @@ export class ClaudeActivityStream {
         // A server-side search answers itself inside the assistant message —
         // there is no `user` envelope to settle its card the usual way.
         const call = this.calls.get(str(block.tool_use_id) ?? "")
-        const failed = String(record(block.content)?.type ?? "").endsWith("_error")
+        const failed = asText(record(block.content)?.type).endsWith("_error")
         const item = call ? this.itemFor(call, failed ? "failed" : "completed") : null
         if (item) items.push(item)
       }
@@ -779,7 +780,7 @@ export class ClaudeActivityStream {
       const item = this.denied(denial)
       if (item) items.push(item)
     }
-    const subtype = String(ev.subtype ?? "")
+    const subtype = asText(ev.subtype)
     if (ev.is_error === true || subtype.startsWith("error")) {
       const errors = asArray(ev.errors)
         .filter((e): e is string => typeof e === "string")
