@@ -19,11 +19,15 @@ export type StreamTurn = {
   text: string
   /** Every item this turn has published, so its end can settle what is open. */
   items: Map<string, AgentTurnItem>
+  /** First time each item was seen, for the CLIs that report no duration. */
+  openedAt: Map<string, number>
+  clock: () => number
 }
 
 export function beginAssistant(
   sessionId: string,
   cb: AdapterCallbacks,
+  clock: () => number = Date.now,
 ): StreamTurn {
   const messageId = randomUUID()
   cb.onMessage({
@@ -31,10 +35,17 @@ export function beginAssistant(
     sessionId,
     role: "assistant",
     content: "",
-    createdAt: Date.now(),
+    createdAt: clock(),
     streaming: true,
   })
-  return { messageId, started: true, text: "", items: new Map() }
+  return {
+    messageId,
+    started: true,
+    text: "",
+    items: new Map(),
+    openedAt: new Map(),
+    clock,
+  }
 }
 
 /** Publish one item and remember it, so `finishTurn` can settle it later. */
@@ -44,12 +55,33 @@ export function emitTurnItem(
   item: AgentTurnItem,
   cb: AdapterCallbacks,
 ): void {
-  turn.items.set(item.id, item)
-  cb.onTurnItem(sessionId, turn.messageId, item)
+  const timed = withMeasuredDuration(turn, item)
+  turn.items.set(timed.id, timed)
+  cb.onTurnItem(sessionId, turn.messageId, timed)
 }
 
 function isOpen(status: TurnItemStatus): boolean {
   return status === "running" || status === "pending"
+}
+
+/**
+ * Grok and Claude time nothing per call, so a card either showed no duration at
+ * all or a clock counting how long it had been on screen. The Hub measures from
+ * the first event that named the call to the one that settled it, and says so —
+ * a duration the provider reported itself is never touched.
+ */
+function withMeasuredDuration(
+  turn: StreamTurn,
+  item: AgentTurnItem,
+): AgentTurnItem {
+  if (item.kind !== "command" && item.kind !== "tool") return item
+  const at = turn.openedAt.get(item.id)
+  if (at === undefined) {
+    turn.openedAt.set(item.id, turn.clock())
+    return item
+  }
+  if (isOpen(item.status) || item.durationMs !== undefined) return item
+  return { ...item, durationMs: turn.clock() - at, durationMeasured: true }
 }
 
 /**
@@ -63,11 +95,9 @@ export function settleOpenItems(
   cb: AdapterCallbacks,
   outcome: TurnItemStatus,
 ): void {
-  for (const [id, item] of turn.items) {
+  for (const [, item] of [...turn.items]) {
     if (item.kind === "error" || !isOpen(item.status)) continue
-    const settled: AgentTurnItem = { ...item, status: outcome }
-    turn.items.set(id, settled)
-    cb.onTurnItem(sessionId, turn.messageId, settled)
+    emitTurnItem(turn, sessionId, { ...item, status: outcome }, cb)
   }
 }
 

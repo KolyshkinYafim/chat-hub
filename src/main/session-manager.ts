@@ -3,6 +3,7 @@ import type {
   ChatMessage,
   CreateSessionInput,
   ProviderId,
+  ProviderRateLimits,
   QueuedMessage,
   SessionMeta,
   SessionSnapshot,
@@ -120,6 +121,8 @@ export class SessionManager {
   private queued = new Map<string, QueuedTurn[]>()
   private watchdogTimer: ReturnType<typeof setInterval> | null = null
   private usage = new Map<string, SessionUsage>()
+  /** Last allowance reading per session. Live only — a restart refetches it. */
+  private rateLimits = new Map<string, ProviderRateLimits>()
   private permissions: PermissionBroker | null = null
   private registerBrowserMcp: BrowserMcpRegistrar | null = null
   private readonly hooks: HookRunner
@@ -741,11 +744,16 @@ export class SessionManager {
     for (const [id, total] of this.usage) {
       usage[id] = total
     }
+    const rateLimits: Record<string, ProviderRateLimits> = {}
+    for (const [id, limits] of this.rateLimits) {
+      rateLimits[id] = limits
+    }
     return {
       sessions: this.listSessions(),
       messages,
       queued,
       usage,
+      rateLimits,
       permissions: this.permissions?.list() ?? [],
       inputRequests: this.permissions?.listInputs() ?? [],
       activeSessionId: this.activeSessionId,
@@ -1090,7 +1098,7 @@ export class SessionManager {
     content: string,
     userMessageId?: string,
   ): Promise<void> {
-    let checkpoint: Awaited<ReturnType<typeof createCheckpoint>> = null
+    let checkpoint: Awaited<ReturnType<typeof createCheckpoint>>
     try {
       checkpoint = await createCheckpoint(
         session.cwd,
@@ -1554,6 +1562,11 @@ export class SessionManager {
       onUsage: (sessionId, turn, messageId) => {
         this.recordUsage(sessionId, turn, messageId)
       },
+      onRateLimits: (sessionId, limits) => {
+        if (!this.sessions.has(sessionId)) return
+        this.rateLimits.set(sessionId, limits)
+        this.bus.emit({ type: "limits.changed", sessionId, limits })
+      },
       onAgentSession: (sessionId, agentSessionId) => {
         const s = this.sessions.get(sessionId)
         if (!s || s.agentSessionId === agentSessionId) return
@@ -1577,7 +1590,7 @@ export class SessionManager {
     if (!session) return
     const total = addUsage(this.usage.get(sessionId), turn)
     this.usage.set(sessionId, total)
-    void this.usageLedger?.record(session.provider, session.model, turn)
+    void this.usageLedger?.record(session.provider, session.model, turn, session.id)
 
     const list = this.messages.get(sessionId)
     const idx = messageId ? (list?.findIndex((m) => m.id === messageId) ?? -1) : -1

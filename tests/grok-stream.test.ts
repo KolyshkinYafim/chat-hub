@@ -170,6 +170,63 @@ describe("Grok streaming-json activity", () => {
     })
   })
 
+  it("fails a non-command tool whose payload carried an error", () => {
+    const stream = new GrokActivityStream()
+    stream.push(safeJson(READ_AND_SHELL[0]!)!)
+    const failed = stream.push({
+      type: "tool_call_update",
+      toolCallId: "call-3b278ab8-0",
+      status: "completed",
+      content: [],
+      rawOutput: { type: "ReadFile", error: "ENOENT: no such file or directory" },
+    })
+    expect(failed).toMatchObject({
+      kind: "tool",
+      status: "failed",
+      error: "ENOENT: no such file or directory",
+    })
+  })
+
+  it("fails a tool marked with a boolean error flag and no text", () => {
+    const stream = new GrokActivityStream()
+    stream.push(safeJson(READ_AND_SHELL[0]!)!)
+    expect(
+      stream.push({
+        type: "tool_call_update",
+        toolCallId: "call-3b278ab8-0",
+        status: "completed",
+        is_error: true,
+        content: [],
+      }),
+    ).toMatchObject({ kind: "tool", status: "failed" })
+  })
+
+  it("fails any tool whose payload reports a non-zero exit code", () => {
+    const stream = new GrokActivityStream()
+    stream.push({
+      type: "tool_call",
+      toolCallId: "call-9",
+      toolName: "format_project",
+      kind: "other",
+      status: "pending",
+      rawInput: { scope: "src" },
+    })
+    expect(
+      stream.push({
+        type: "tool_call_update",
+        toolCallId: "call-9",
+        status: "completed",
+        rawOutput: { type: "Format", exit_code: 2 },
+      }),
+    ).toMatchObject({ kind: "tool", status: "failed" })
+  })
+
+  it("leaves a clean tool completed", () => {
+    expect(replay(READ_AND_SHELL).get("grok-call-3b278ab8-0")).toMatchObject({
+      status: "completed",
+    })
+  })
+
   it("still reads the legacy flat envelope the older CLI emitted", () => {
     const stream = new GrokActivityStream()
     expect(

@@ -20,7 +20,16 @@ import type { ThreadStartResponse } from "../codex-protocol/generated/v2/ThreadS
 import type { TurnStartResponse } from "../codex-protocol/generated/v2/TurnStartResponse"
 import type { UserInput } from "../codex-protocol/generated/v2/UserInput"
 import type { ModelListResponse } from "../codex-protocol/generated/v2/ModelListResponse"
-import type { AgentInputQuestion, AgentTurnItem, TurnItemStatus, TurnUsage } from "@shared/types"
+import type { HookRunSummary } from "../codex-protocol/generated/v2/HookRunSummary"
+import type { RateLimitSnapshot } from "../codex-protocol/generated/v2/RateLimitSnapshot"
+import type { RateLimitWindow } from "../codex-protocol/generated/v2/RateLimitWindow"
+import type {
+  AgentInputQuestion,
+  AgentTurnItem,
+  ProviderRateLimits,
+  TurnItemStatus,
+  TurnUsage,
+} from "@shared/types"
 import type { PermissionMode } from "@shared/permission"
 import type {
   AdapterCallbacks,
@@ -141,6 +150,7 @@ export class CodexAdapter implements AgentAdapter {
       itemText: new Map(),
     }
     state.active = active
+    this.flushNotices(state)
     const selectedModel = currentCodexModel(opts?.model)
     try {
       const response = await client.request<TurnStartResponse>("turn/start", {
@@ -258,10 +268,22 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   private handleNotification(state: CodexSessionState, event: ServerNotification): void {
-    const active = state.active
-    if (!active) return
     const params = event.params as { threadId?: string; turnId?: string }
     if (params.threadId && params.threadId !== state.threadId) return
+    if (event.method === "account/rateLimits/updated") {
+      state.callbacks.onRateLimits?.(
+        state.sessionId,
+        readRateLimits(event.params.rateLimits),
+      )
+      return
+    }
+    const notice = codexNotice(event)
+    if (notice) {
+      this.publishNotice(state, notice)
+      return
+    }
+    const active = state.active
+    if (!active) return
     if (params.turnId && active.turnId && params.turnId !== active.turnId) return
     const cb = state.callbacks
 
@@ -368,6 +390,27 @@ export class CodexAdapter implements AgentAdapter {
         this.completeTurn(state, event.params.turn.status, event.params.turn.error?.message)
         break
     }
+  }
+
+  /**
+   * A warning is worth as much between turns as during one — more, when it
+   * explains why the next turn is about to go wrong — so one that arrives while
+   * the session is idle waits for the turn that can carry it.
+   */
+  private publishNotice(state: CodexSessionState, notice: CodexNotice): void {
+    const active = state.active
+    if (!active) {
+      state.pendingNotices = queueNotice(state.pendingNotices, notice)
+      return
+    }
+    emitTurnItem(active.stream, state.sessionId, noticeItem(notice), state.callbacks)
+  }
+
+  private flushNotices(state: CodexSessionState): void {
+    const pending = state.pendingNotices
+    if (!pending?.length) return
+    state.pendingNotices = undefined
+    for (const notice of pending) this.publishNotice(state, notice)
   }
 
   private publishItem(state: CodexSessionState, item: ThreadItem, completed: boolean): void {
@@ -567,9 +610,157 @@ type CodexSessionState = {
   permissionMode: PermissionMode
   callbacks: AdapterCallbacks
   active?: ActiveTurn
+  /** Notices that arrived between turns, flushed onto the next one. */
+  pendingNotices?: CodexNotice[]
   modelEfforts?: Map<string, Set<string>>
   modelDefaults?: Map<string, string>
   defaultModelId?: string
+}
+
+export type CodexNotice = {
+  id: string
+  level: "warning" | "info"
+  title: string
+  detail?: string
+  source?: string
+}
+
+/** How many idle-time notices a session keeps before the oldest is dropped. */
+export const NOTICE_BACKLOG = 20
+
+/**
+ * A session sitting idle can collect warnings faster than it gets turns to show
+ * them on. Keeping the newest is the right trade: an old warning about a run
+ * that already ended explains nothing about the turn about to start.
+ */
+export function queueNotice(
+  pending: CodexNotice[] | undefined,
+  notice: CodexNotice,
+): CodexNotice[] {
+  const kept = (pending ?? []).filter((held) => held.id !== notice.id)
+  return [...kept.slice(-(NOTICE_BACKLOG - 1)), notice]
+}
+
+/** Hook outcomes that changed what the agent could do, so the reader needs them. */
+const HOOK_FAILURES = new Set(["failed", "blocked", "stopped"])
+
+const HOOK_LOUD_ENTRIES = new Set(["warning", "error", "stop"])
+
+/**
+ * The app-server's own commentary on the run. Codex sends these on the same
+ * stream as the work and none of them was read, which is how a broken Code Mode
+ * became "I couldn't run the command" with the explanation thrown away.
+ */
+export function codexNotice(event: ServerNotification): CodexNotice | null {
+  switch (event.method) {
+    case "warning":
+    case "guardianWarning":
+      return {
+        id: `codex-warning-${slug(event.params.message)}`,
+        level: "warning",
+        title: event.params.message,
+      }
+    case "configWarning":
+      return {
+        id: `codex-config-${slug(event.params.path ?? event.params.summary)}`,
+        level: "warning",
+        title: event.params.summary,
+        ...(event.params.details ? { detail: event.params.details } : {}),
+        ...(event.params.path ? { source: event.params.path } : {}),
+      }
+    case "deprecationNotice":
+      return {
+        id: `codex-deprecation-${slug(event.params.summary)}`,
+        level: "info",
+        title: event.params.summary,
+        ...(event.params.details ? { detail: event.params.details } : {}),
+      }
+    case "mcpServer/startupStatus/updated": {
+      if (event.params.status !== "failed") return null
+      const reason = event.params.failureReason === "reauthenticationRequired"
+        ? "needs signing in again"
+        : "failed to start"
+      return {
+        id: `codex-mcp-${slug(event.params.name)}`,
+        level: "warning",
+        title: `MCP server ${event.params.name} ${reason}`,
+        ...(event.params.error ? { detail: event.params.error } : {}),
+        source: event.params.name,
+      }
+    }
+    case "hook/completed":
+      return hookNotice(event.params.run)
+    default:
+      return null
+  }
+}
+
+/**
+ * A hook that ran and said nothing is not news. One that blocked the agent, or
+ * printed a warning while letting it through, is the reason the turn looks odd.
+ */
+function hookNotice(run: HookRunSummary): CodexNotice | null {
+  const loud = run.entries.filter((entry) => HOOK_LOUD_ENTRIES.has(entry.kind))
+  const stopped = HOOK_FAILURES.has(run.status)
+  if (!stopped && loud.length === 0) return null
+  const detail =
+    run.statusMessage ??
+    (loud.length > 0 ? loud.map((entry) => entry.text).join("\n") : undefined)
+  return {
+    id: `codex-hook-${run.id}`,
+    level: stopped ? "warning" : "info",
+    title: `Hook ${run.eventName} ${run.status}`,
+    ...(detail ? { detail } : {}),
+    source: run.sourcePath,
+  }
+}
+
+function noticeItem(notice: CodexNotice): AgentTurnItem {
+  return {
+    id: notice.id,
+    kind: "notice",
+    status: notice.level === "warning" ? "failed" : "completed",
+    level: notice.level,
+    title: notice.title,
+    ...(notice.detail ? { detail: notice.detail } : {}),
+    ...(notice.source ? { source: notice.source } : {}),
+  }
+}
+
+/** Stable, short and filename-safe, so the same warning replaces its own card. */
+function slug(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48)
+}
+
+/**
+ * Codex reports the account's allowance as a sparse rolling update, so a field
+ * it leaves out means "unchanged", never "zero" — hence every field optional.
+ */
+export function readRateLimits(snapshot: RateLimitSnapshot): ProviderRateLimits {
+  const limits: ProviderRateLimits = {}
+  assignWindow(limits, "primary", snapshot.primary)
+  assignWindow(limits, "secondary", snapshot.secondary)
+  if (snapshot.rateLimitReachedType) limits.reached = snapshot.rateLimitReachedType
+  if (snapshot.planType) limits.planType = snapshot.planType
+  if (snapshot.credits?.balance) limits.creditBalance = snapshot.credits.balance
+  return limits
+}
+
+function assignWindow(
+  limits: ProviderRateLimits,
+  which: "primary" | "secondary",
+  window: RateLimitWindow | null,
+): void {
+  if (!window) return
+  limits[`${which}Used`] = Math.min(1, Math.max(0, window.usedPercent / 100))
+  if (window.windowDurationMins !== null) {
+    limits[`${which}WindowMins`] = window.windowDurationMins
+  }
+  if (window.resetsAt !== null) limits[`${which}ResetsAt`] = window.resetsAt
 }
 
 /**

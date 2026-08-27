@@ -1,6 +1,5 @@
 import type {
   SessionMeta,
-  SessionUsage,
   UsageLedgerEntry,
   UsageWindowTotals,
 } from "@shared/types"
@@ -9,8 +8,9 @@ import { formatTokens } from "@shared/context-window"
 
 /**
  * Aggregation behind the Usage tab. The ledger is one row per day × provider ×
- * model; everything the page shows — daily series, period comparison, cache
- * ratio, per-session spend — is derived here so the component only lays it out.
+ * model × session; everything the page shows — daily series, period comparison,
+ * cache ratio, per-session spend — is derived here so the component only lays
+ * it out.
  */
 
 export type UsageMetric = "cost" | "tokens"
@@ -39,6 +39,12 @@ export type DaySeries = {
   /** Largest daily total in the chosen metric; 0 when the range is empty. */
   max: number
   metric: UsageMetric
+  /**
+   * Keys that did work in this range but reported no cost for it. They keep
+   * their legend entry at $0.00 rather than disappearing from a cost chart,
+   * which is what once made a provider with millions of tokens look unused.
+   */
+  unpricedKeys: string[]
 }
 
 export const OTHER_KEY = "other"
@@ -173,8 +179,10 @@ export function buildDaySeries(
   const dayList = dayKeysEnding(now, days)
   const inRange = new Set(dayList)
   const scoped = entries.filter((e) => inRange.has(e.day))
-  const keys = groupEntries(scoped, split, maxKeys, metric)
-    .filter((g) => metricValue(g, metric) > 0)
+  const groups = groupEntries(scoped, split, maxKeys, metric).filter(hasActivity)
+  const keys = groups.map((g) => g.label)
+  const unpricedKeys = groups
+    .filter((g) => metricValue(g, metric) === 0)
     .map((g) => g.label)
   const ranked = new Map(keys.map((k, i) => [k, i]))
   const overflow = keys.includes(OTHER_KEY) ? OTHER_KEY : null
@@ -209,7 +217,13 @@ export function buildDaySeries(
     keys,
     max: points.reduce((m, p) => Math.max(m, p.total), 0),
     metric,
+    unpricedKeys,
   }
+}
+
+/** Did this group do anything at all, whatever the chosen metric says it cost? */
+function hasActivity(totals: UsageWindowTotals): boolean {
+  return totalTokens(totals) > 0 || totals.cacheReadTokens > 0 || totals.turns > 0
 }
 
 export type PeriodComparison = {
@@ -288,36 +302,63 @@ export type SessionSpend = {
   share: number
 }
 
+export type SessionSpendReport = {
+  rows: SessionSpend[]
+  /**
+   * Spend inside the range that no live session accounts for: rows written
+   * before the ledger carried a session dimension, and sessions since deleted.
+   * Reporting it is what keeps the table from quietly undercounting the range.
+   */
+  unattributed: UsageWindowTotals
+}
+
 /**
- * Per-session spend, biggest first. Sessions the CLI never costed sort by
- * tokens instead, so a free-tier provider still ranks rather than vanishing.
+ * Per-session spend for one range, biggest first. Sessions the CLI never costed
+ * rank by tokens instead, so a free-tier provider still appears.
  */
-export function topSessions(
+export function sessionSpend(
+  entries: UsageLedgerEntry[],
+  days: readonly string[],
   sessions: SessionMeta[],
-  usage: Record<string, SessionUsage>,
   limit: number,
-): SessionSpend[] {
+): SessionSpendReport {
+  const wanted = new Set(days)
+  const byId = new Map(sessions.map((session) => [session.id, session]))
+  const totals = new Map<string, UsageWindowTotals>()
+  const unattributed = emptyTotals()
+  for (const e of entries) {
+    if (!wanted.has(e.day)) continue
+    const meta = e.sessionId ? byId.get(e.sessionId) : undefined
+    if (!meta) {
+      addEntry(unattributed, e)
+      continue
+    }
+    const into = totals.get(meta.id) ?? emptyTotals()
+    addEntry(into, e)
+    totals.set(meta.id, into)
+  }
   const rows: SessionSpend[] = []
-  for (const session of sessions) {
-    const total = usage[session.id]
-    if (!total) continue
-    const tokens = (total.inputTokens ?? 0) + (total.outputTokens ?? 0)
-    const costUsd = total.costUsd ?? 0
-    if (tokens === 0 && costUsd === 0 && total.turns === 0) continue
+  for (const [id, total] of totals) {
+    const meta = byId.get(id)
+    if (!meta || !hasActivity(total)) continue
     rows.push({
-      id: session.id,
-      title: session.title,
-      project: session.project,
-      provider: session.provider,
-      model: session.model ?? null,
-      costUsd,
-      tokens,
-      cacheReadTokens: total.cacheReadTokens ?? 0,
+      id,
+      title: meta.title,
+      project: meta.project,
+      provider: meta.provider,
+      model: meta.model ?? null,
+      costUsd: total.costUsd,
+      tokens: totalTokens(total),
+      cacheReadTokens: total.cacheReadTokens,
       turns: total.turns,
-      updatedAt: session.updatedAt,
+      updatedAt: meta.updatedAt,
       share: 0,
     })
   }
+  return { rows: rankSpend(rows, limit), unattributed }
+}
+
+function rankSpend(rows: SessionSpend[], limit: number): SessionSpend[] {
   const useCost = rows.some((r) => r.costUsd > 0)
   const weight = (r: SessionSpend): number => (useCost ? r.costUsd : r.tokens)
   const pool = rows.reduce((sum, r) => sum + weight(r), 0)

@@ -17,6 +17,7 @@ import type {
   MessageAttachment,
   PermissionRequestInfo,
   ProviderInfo,
+  ProviderRateLimits,
   QueuedMessage,
   SessionMeta,
   SessionUsage,
@@ -106,6 +107,8 @@ type Props = {
   onHighlightShown: () => void
   /** Running cost/token totals; null when no CLI on this session reports them. */
   usage: SessionUsage | null
+  /** Allowance reading for this session; null until a CLI volunteers one. */
+  limits: ProviderRateLimits | null
   pendingPermissions: PermissionRequestInfo[]
   onResolvePermission: (requestId: string, allow: boolean) => void
   pendingInputRequests: AgentInputRequestInfo[]
@@ -198,6 +201,80 @@ function ContextMeter({
   )
 }
 
+/**
+ * What is left of the account's allowance, beside what is left of the context
+ * window. Only codex volunteers this, and only sometimes, so the row is absent
+ * rather than zeroed when nothing has been reported.
+ */
+function AllowanceMeter({ limits }: { limits: ProviderRateLimits | null }) {
+  if (!limits) return null
+  const windows = allowanceWindows(limits)
+  if (windows.length === 0 && !limits.reached) return null
+  return (
+    <div className={`allowance-meter${limits.reached ? " is-critical" : ""}`}>
+      {limits.reached ? (
+        <span className="allowance-reached">{reachedLabel(limits.reached)}</span>
+      ) : null}
+      {windows.map((w, at) => (
+        <span
+          key={at}
+          className="allowance-window"
+          title={allowanceTitle(w)}
+        >
+          <span className="allowance-bar" aria-hidden>
+            <span
+              className="allowance-fill"
+              style={{ width: `${Math.round(w.used * 1000) / 10}%` }}
+            />
+          </span>
+          <span className="allowance-label">
+            {Math.round(w.used * 100)}% {windowLabel(w.mins)}
+          </span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+type AllowanceWindow = { used: number; mins?: number; resets?: number }
+
+function allowanceWindows(limits: ProviderRateLimits): AllowanceWindow[] {
+  const out: AllowanceWindow[] = []
+  if (typeof limits.primaryUsed === "number") {
+    out.push({
+      used: limits.primaryUsed,
+      mins: limits.primaryWindowMins,
+      resets: limits.primaryResetsAt,
+    })
+  }
+  if (typeof limits.secondaryUsed === "number") {
+    out.push({
+      used: limits.secondaryUsed,
+      mins: limits.secondaryWindowMins,
+      resets: limits.secondaryResetsAt,
+    })
+  }
+  return out
+}
+
+function allowanceTitle(w: AllowanceWindow): string {
+  const spent = `${Math.round(w.used * 100)}% of the ${windowLabel(w.mins)} allowance used`
+  if (w.resets === undefined) return spent
+  return `${spent} · resets ${new Date(w.resets).toLocaleString()}`
+}
+
+function windowLabel(mins: number | undefined): string {
+  if (mins === undefined) return "window"
+  if (mins % 10080 === 0) return `${mins / 10080}w`
+  if (mins % 1440 === 0) return `${mins / 1440}d`
+  if (mins % 60 === 0) return `${mins / 60}h`
+  return `${mins}m`
+}
+
+function reachedLabel(reached: string): string {
+  return reached.replace(/_/g, " ")
+}
+
 function ItemBody({ item }: { item: AgentTurnItem }) {
   switch (item.kind) {
     case "reasoning":
@@ -267,6 +344,19 @@ function ItemBody({ item }: { item: AgentTurnItem }) {
       )
     case "image": return <div className="activity-text">Viewed {item.path}</div>
     case "review": return <div className="activity-text">{item.text}</div>
+    case "notice":
+      return (
+        <>
+          {item.detail ? (
+            <pre className="activity-output"><code>{item.detail}</code></pre>
+          ) : (
+            <div className="activity-text">{item.title}</div>
+          )}
+          {item.source ? (
+            <div className="activity-files"><span>{item.source}</span></div>
+          ) : null}
+        </>
+      )
     case "error": return <div className="activity-error">{item.message}</div>
     default: return null
   }
@@ -335,8 +425,9 @@ function ItemCard({
   return (
     <details
       data-item-id={item.id}
+      data-level={item.kind === "notice" ? item.level : undefined}
       className={`activity-item activity-${item.kind}${quiet ? " is-quiet" : ""}`}
-      open={item.kind === "error"}
+      open={item.kind === "error" || (item.kind === "notice" && item.level === "warning")}
     >
       <summary>
         <span className="activity-index">{step.index}</span>
@@ -520,6 +611,7 @@ export function ChatView({
   highlightMessageId,
   onHighlightShown,
   usage,
+  limits,
   pendingPermissions,
   onResolvePermission,
   pendingInputRequests,
@@ -1518,6 +1610,7 @@ export function ChatView({
           />
         ) : null}
         <ContextMeter usage={usage} model={session.model} />
+        <AllowanceMeter limits={limits} />
         <div className="composer-shell">
           <textarea
             ref={taRef}

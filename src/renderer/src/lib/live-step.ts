@@ -112,6 +112,11 @@ export function describeItem(item: AgentTurnItem): {
       return plain("Compacting context", compactionDetail(item))
     case "reasoning":
       return plain("Reasoning", "")
+    case "notice":
+      return plain(
+        item.level === "warning" ? "Warning" : "Note",
+        item.detail ? `${item.title} · ${item.detail}` : item.title,
+      )
     case "error":
       return plain("Error", item.message)
     // A transcript written by a newer build can carry a kind this one has
