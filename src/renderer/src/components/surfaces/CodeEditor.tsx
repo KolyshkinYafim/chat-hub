@@ -221,6 +221,9 @@ export function CodeEditor({
       viewRef.current?.dispatch({ effects: revealLine.of(null) })
     }, REVEAL_FADE_MS)
     return () => window.clearTimeout(timer)
+    // `at` is the request nonce — one reveal per request. Depending on the
+    // object would re-scroll and re-flash the line while it is being read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusLine?.at])
 
   return <div className="code-editor" ref={hostRef} />

@@ -11,6 +11,7 @@ import {
   matchBoardTodo,
   type SurfaceSession,
 } from "../src/main/surfaces/surface-control"
+import { asText } from "../src/shared/text"
 
 const HERE = "s-here"
 const AWAY = "s-away"
@@ -35,7 +36,7 @@ async function call(
 ): Promise<{ ok: boolean; text: string }> {
   const response = await control.handle({ id: "r1", sessionId, op, params })
   return response.ok
-    ? { ok: true, text: String(response.result.summary ?? "") }
+    ? { ok: true, text: asText(response.result.summary) }
     : { ok: false, text: response.error }
 }
 

@@ -811,6 +811,9 @@ export function ChatView({
     setRevertError(null)
     atBottomRef.current = true
     setAtBottom(true)
+    // Keyed on the id alone: `session` gets a new identity on every update,
+    // and re-running this would swap drafts out from under whoever is typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id])
 
   useEffect(() => {
