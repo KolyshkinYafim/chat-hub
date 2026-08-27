@@ -30,6 +30,7 @@ import {
   resolveContainedPath,
   resolveWorkspaceRoot,
 } from "./paths"
+import { describeValue } from "@shared/text"
 
 /** Enough of a manifest to detect a stack; a huge one is a generated file. */
 const DETECT_READ_LIMIT = 256 * 1024
@@ -224,7 +225,7 @@ export async function seedProjectContext(
   const root = resolveWorkspaceRoot(cwd)
   const only = id === undefined || id === null ? null : contextDocSpec(id)
   if (id !== undefined && id !== null && !only) {
-    throw new Error(`Unknown context document: ${String(id)}`)
+    throw new Error(`Unknown context document: ${describeValue(id)}`)
   }
   const [facts, found] = await Promise.all([detectFacts(root), readDocs(root)])
   const seeds = seedContextDocs(facts)

@@ -1100,7 +1100,12 @@ function stampFor(path: string, size: number): FileStamp {
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result))
+    reader.onload = () => {
+      // readAsDataURL always yields a string; anything else means the read
+      // did not produce a data URL, and "[object ArrayBuffer]" is not one.
+      if (typeof reader.result === "string") resolve(reader.result)
+      else reject(new Error("Could not read the fixture"))
+    }
     reader.onerror = () => reject(new Error("Could not read the fixture"))
     reader.readAsDataURL(blob)
   })

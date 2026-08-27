@@ -22,6 +22,7 @@ import type {
   AdapterStartOpts,
   AgentAdapter,
 } from "./types"
+import { asText } from "@shared/text"
 
 /**
  * OpenCode adapter via `opencode run --format json`.
@@ -153,7 +154,7 @@ export class OpenCodeAdapter implements AgentAdapter {
         // last one of a turn is the whole turn.
         usage = readUsage(ev) ?? usage
 
-        const type = String(ev.type ?? ev.event ?? "")
+        const type = asText(ev.type ?? ev.event)
 
         // `opencode run --format json` prints flat events ({type, part, …});
         // the server bus wraps the same part under `properties`.
@@ -161,7 +162,7 @@ export class OpenCodeAdapter implements AgentAdapter {
 
         // Tool-ness lives in the part, not in the event name.
         if (part?.type === "tool" || type.includes("tool")) {
-          const name = String(part?.tool ?? ev.tool ?? ev.name ?? "tool")
+          const name = asText(part?.tool ?? ev.tool ?? ev.name) || "tool"
           const toolState = asRecord(part?.state)
           if (!turn) turn = beginAssistant(sessionId, cb)
           pushDelta(turn, sessionId, toolUseBlock(name, toolState?.input), cb)
