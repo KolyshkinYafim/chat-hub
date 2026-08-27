@@ -382,6 +382,10 @@ type GrokCall = {
   exitCode?: number
   cwd?: string
   changes?: TurnFileChange[]
+  /** Why the call failed, when the payload said so rather than the status. */
+  error?: string
+  /** The payload carried a failure marker without any text to go with it. */
+  failed?: true
 }
 
 /**
@@ -513,23 +517,49 @@ function mergeGrokCall(
     exitCode: numberValue(raw?.exit_code) ?? prev?.exitCode,
     cwd: stringValue(raw?.current_dir) ?? prev?.cwd,
     changes: changes ?? prev?.changes,
+    error: grokErrorText(ev, raw) ?? prev?.error,
+    failed: grokFailureFlag(ev) ?? prev?.failed,
   }
+}
+
+const ERROR_KEYS = ["error", "Error", "error_message", "errorMessage"]
+
+/**
+ * Grok reports a failing call as `status: "completed"` and leaves the reason in
+ * the payload, so a tool that failed used to read as one that worked. Neither
+ * the flat event nor `rawOutput` has a documented error field, hence a scan of
+ * the shapes that have been seen rather than one key.
+ */
+function grokErrorText(
+  ev: Record<string, unknown>,
+  raw: Record<string, unknown> | null,
+): string | undefined {
+  for (const source of [ev, raw]) {
+    if (!source) continue
+    for (const key of ERROR_KEYS) {
+      const value = source[key]
+      const text =
+        stringValue(value) ?? stringValue(objectValue(value)?.message)
+      if (text) return text
+    }
+  }
+  return undefined
+}
+
+/** A boolean failure marker, which carries no text of its own. */
+function grokFailureFlag(ev: Record<string, unknown>): true | undefined {
+  return ev.isError === true || ev.is_error === true ? true : undefined
 }
 
 function grokToolItem(call: GrokCall): AgentTurnItem {
   const id = `grok-${call.id}`
+  const status = grokOutcome(call)
   const command = stringValue(call.input?.command) ?? stringValue(call.input?.cmd)
   if (call.kind === "execute" || command) {
-    // Grok calls a command "completed" whatever it exited with; the exit code
-    // is the only honest signal that the work itself failed.
-    const failed =
-      call.status === "completed" &&
-      call.exitCode !== undefined &&
-      call.exitCode !== 0
     return {
       id,
       kind: "command",
-      status: failed ? "failed" : call.status,
+      status,
       command: command ?? call.name,
       cwd: call.cwd,
       output: clipOutput(call.output),
@@ -537,16 +567,28 @@ function grokToolItem(call: GrokCall): AgentTurnItem {
     }
   }
   if (call.changes && call.changes.length > 0) {
-    return { id, kind: "file_change", status: call.status, changes: call.changes }
+    return { id, kind: "file_change", status, changes: call.changes }
   }
   return {
     id,
     kind: "tool",
-    status: call.status,
+    status,
     name: call.name,
     arguments: call.input,
     result: clipOutput(call.output),
+    ...(call.error ? { error: call.error } : {}),
   }
+}
+
+/**
+ * Grok calls anything that ran "completed", whatever came of it, so the outcome
+ * has to be read out of the payload. This applied to shell commands alone until
+ * a non-command tool that failed was found reading as a success.
+ */
+function grokOutcome(call: GrokCall): TurnItemStatus {
+  if (call.status !== "completed") return call.status
+  if (call.exitCode !== undefined && call.exitCode !== 0) return "failed"
+  return call.error || call.failed ? "failed" : "completed"
 }
 
 /**

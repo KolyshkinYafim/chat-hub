@@ -7,6 +7,7 @@ import type {
   GitCheckoutInfo,
   PermissionRequestInfo,
   ProviderInfo,
+  ProviderRateLimits,
   QueuedMessage,
   SessionMeta,
   SessionUsage,
@@ -91,6 +92,7 @@ type Props = {
   loadingOlder: boolean
   highlightMessageId: string | null
   usage: SessionUsage | null
+  limits: ProviderRateLimits | null
   queued: QueuedMessage[]
   permissions: PermissionRequestInfo[]
   inputRequests: AgentInputRequestInfo[]
@@ -139,6 +141,7 @@ function PaneView({
   loadingOlder,
   highlightMessageId,
   usage,
+  limits,
   queued,
   permissions,
   inputRequests,
@@ -224,6 +227,7 @@ function PaneView({
       highlightMessageId={highlightMessageId}
       onHighlightShown={actions.onHighlightShown}
       usage={usage}
+      limits={limits}
       pendingPermissions={permissions}
       onResolvePermission={actions.onResolvePermission}
       pendingInputRequests={inputRequests}

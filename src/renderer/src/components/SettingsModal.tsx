@@ -2,7 +2,6 @@ import { Fragment, useCallback, useEffect, useState } from "react"
 import type {
   ProviderId,
   SessionMeta,
-  SessionUsage,
   UsageSummary,
 } from "@shared/types"
 import { UsagePanel } from "./UsagePanel"
@@ -106,7 +105,6 @@ type Props = {
   projectCwd?: string | null
   /** Feeds the Usage tab's per-session spend table. */
   sessions: SessionMeta[]
-  usageBySession: Record<string, SessionUsage>
 }
 
 type McpFormState = {
@@ -279,7 +277,6 @@ export function SettingsModal({
   onAutoOpenDockChange,
   projectCwd = null,
   sessions,
-  usageBySession,
 }: Props) {
   const [tab, setTab] = useState<Tab>("providers")
   const [statuses, setStatuses] = useState<ProviderStatus[]>([])
@@ -2126,7 +2123,6 @@ export function SettingsModal({
                 summary={usageSummary}
                 loading={usageLoading}
                 sessions={sessions}
-                usageBySession={usageBySession}
               />
             </div>
           ) : null}

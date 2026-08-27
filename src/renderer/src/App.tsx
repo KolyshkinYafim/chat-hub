@@ -16,6 +16,7 @@ import type {
   Project,
   ProviderId,
   ProviderInfo,
+  ProviderRateLimits,
   QueuedMessage,
   SessionMeta,
   SessionUsage,
@@ -186,6 +187,9 @@ export default function App() {
   const [usageBySession, setUsageBySession] = useState<
     Record<string, SessionUsage>
   >({})
+  const [limitsBySession, setLimitsBySession] = useState<
+    Record<string, ProviderRateLimits>
+  >({})
   const [permissions, setPermissions] = useState<PermissionRequestInfo[]>([])
   const [inputRequests, setInputRequests] = useState<AgentInputRequestInfo[]>([])
   /** Project hooks that have run, keyed by session id (oldest first). */
@@ -326,6 +330,12 @@ export default function App() {
           }
         })
         break
+      case "limits.changed":
+        setLimitsBySession((curr) => ({
+          ...curr,
+          [event.sessionId]: event.limits,
+        }))
+        break
       case "usage.changed":
         setUsageBySession((curr) => ({
           ...curr,
@@ -413,6 +423,7 @@ export default function App() {
         setMessagesBySession(snap.messages)
         setQueuedBySession(snap.queued)
         setUsageBySession(snap.usage)
+        setLimitsBySession(snap.rateLimits)
         setPermissions(snap.permissions)
         setInputRequests(snap.inputRequests)
         // A restored layout already says which chat each pane holds; only a
@@ -1144,9 +1155,10 @@ export default function App() {
       setSessions(snap.sessions)
       setMessagesBySession(snap.messages)
       setQueuedBySession(snap.queued)
-        setUsageBySession(snap.usage)
-        setPermissions(snap.permissions)
-        setInputRequests(snap.inputRequests)
+      setUsageBySession(snap.usage)
+      setLimitsBySession(snap.rateLimits)
+      setPermissions(snap.permissions)
+      setInputRequests(snap.inputRequests)
       const live = new Set(snap.sessions.map((s) => s.id))
       setLayout((curr) => {
         const pruned = pruneLayout(curr, live)
@@ -1631,6 +1643,7 @@ export default function App() {
         sessions={sessions}
         messagesBySession={messagesBySession}
         usageBySession={usageBySession}
+        limitsBySession={limitsBySession}
         queuedBySession={queuedBySession}
         hooksBySession={hooksBySession}
         permissionsBySession={permissionsBySession}
@@ -1691,7 +1704,6 @@ export default function App() {
             activeSession?.cwd ?? projects[0]?.cwd ?? null
           }
           sessions={sessions}
-          usageBySession={usageBySession}
         />
       ) : null}
       {wizardOpen ? (
@@ -1706,9 +1718,10 @@ export default function App() {
               setSessions(snap.sessions)
               setMessagesBySession(snap.messages)
               setQueuedBySession(snap.queued)
-        setUsageBySession(snap.usage)
-        setPermissions(snap.permissions)
-        setInputRequests(snap.inputRequests)
+              setUsageBySession(snap.usage)
+              setLimitsBySession(snap.rateLimits)
+              setPermissions(snap.permissions)
+              setInputRequests(snap.inputRequests)
               if (snap.activeSessionId) {
                 const id = snap.activeSessionId
                 setLayout((curr) =>
