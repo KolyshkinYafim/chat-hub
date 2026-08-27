@@ -115,6 +115,13 @@ function actionFromItem(item: AgentTurnItem, messageId: string): AgentAction | n
       return { ...base, name: "Plan", summary: item.text || "Updated plan" }
     case "review":
       return { ...base, name: "Review", summary: item.text || "Review" }
+    case "notice":
+      return {
+        ...base,
+        name: item.level === "warning" ? "Warning" : "Note",
+        summary: item.title,
+        ...(item.level === "warning" ? { status: "error" as const } : {}),
+      }
     case "error":
       return { ...base, name: "Error", summary: item.message, status: "error" }
     case "reasoning":

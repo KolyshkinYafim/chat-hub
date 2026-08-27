@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react"
 import type {
   SessionMeta,
-  SessionUsage,
+  UsageLedgerEntry,
   UsageSummary,
   UsageWindowTotals,
 } from "@shared/types"
@@ -27,9 +27,9 @@ import {
   OTHER_KEY,
   perTurn,
   RANGE_DAYS,
+  sessionSpend,
   sumEntries,
   tickIndices,
-  topSessions,
   totalTokens,
   turnsLabel,
   type DaySeries,
@@ -43,6 +43,12 @@ import {
  * The Usage tab. Everything numeric comes from lib/usage-report; this file only
  * decides layout, colours and what the hover says.
  */
+
+/** "a", "a and b", "a, b and c" — for naming a handful of series in prose. */
+function joinNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? ""
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
+}
 
 /**
  * Series colours are theme tokens, never literals — four built-in themes plus a
@@ -88,7 +94,6 @@ type Props = {
   summary: UsageSummary | null
   loading: boolean
   sessions: SessionMeta[]
-  usageBySession: Record<string, SessionUsage>
 }
 
 function Segmented<T extends string | number>({
@@ -371,22 +376,27 @@ function CacheCard({ totals }: { totals: UsageWindowTotals }) {
 }
 
 function TopSessions({
+  entries,
+  days,
   sessions,
-  usageBySession,
+  rangeLabel,
 }: {
+  entries: UsageLedgerEntry[]
+  days: readonly string[]
   sessions: SessionMeta[]
-  usageBySession: Record<string, SessionUsage>
+  rangeLabel: string
 }) {
-  const rows = useMemo(
-    () => topSessions(sessions, usageBySession, TOP_SESSIONS),
-    [sessions, usageBySession],
+  const { rows, unattributed } = useMemo(
+    () => sessionSpend(entries, days, sessions, TOP_SESSIONS),
+    [entries, days, sessions],
   )
-  if (rows.length === 0) return null
+  const orphaned = unattributed.costUsd > 0 || totalTokens(unattributed) > 0
+  if (rows.length === 0 && !orphaned) return null
   return (
     <div className="usage-card">
       <div className="usage-card-head">
         <h3 className="usage-sub-label">Top sessions</h3>
-        <span className="usage-card-note">all time, ignores the range</span>
+        <span className="usage-card-note">{rangeLabel}</span>
       </div>
       <div className="usage-table">
         <div className="usage-table-row is-head">
@@ -423,16 +433,19 @@ function TopSessions({
           </div>
         ))}
       </div>
+      {orphaned ? (
+        <p className="usage-card-foot">
+          {formatUsdWide(unattributed.costUsd)} ·{" "}
+          {formatTokens(totalTokens(unattributed))} tok in this range belongs to
+          no live session — turns recorded before spend was tracked per session,
+          and sessions since deleted.
+        </p>
+      ) : null}
     </div>
   )
 }
 
-export function UsagePanel({
-  summary,
-  loading,
-  sessions,
-  usageBySession,
-}: Props) {
+export function UsagePanel({ summary, loading, sessions }: Props) {
   const [range, setRange] = useState<RangeDays>(30)
   const [split, setSplit] = useState<UsageSplit>("provider")
   const [metric, setMetric] = useState<UsageMetric | null>(null)
@@ -451,10 +464,11 @@ export function UsagePanel({
     () => comparePeriods(entries, now, range),
     [entries, now, range],
   )
+  const rangeDays = useMemo(() => dayKeysEnding(now, range), [now, range])
   const scoped = useMemo(() => {
-    const days = new Set(dayKeysEnding(now, range))
+    const days = new Set(rangeDays)
     return entries.filter((e) => days.has(e.day))
-  }, [entries, now, range])
+  }, [entries, rangeDays])
   const allTime = useMemo(() => sumEntries(entries), [entries])
 
   if (loading && !summary) {
@@ -574,7 +588,7 @@ export function UsagePanel({
           )}
         </div>
 
-        {series.max === 0 ? (
+        {series.keys.length === 0 ? (
           <p className="usage-empty usage-chart-empty">
             Nothing recorded in the last {rangeLabel}.
           </p>
@@ -605,6 +619,15 @@ export function UsagePanel({
                 </span>
               ))}
             </div>
+            {series.unpricedKeys.length > 0 ? (
+              <p className="usage-chart-note">
+                {joinNames(series.unpricedKeys)}{" "}
+                {series.unpricedKeys.length === 1 ? "reports" : "report"} no{" "}
+                {series.metric === "cost" ? "cost" : "tokens"} — switch to{" "}
+                {series.metric === "cost" ? "tokens" : "cost"} to see the work
+                {series.metric === "cost" ? " done" : " billed"}.
+              </p>
+            ) : null}
           </>
         )}
       </div>
@@ -625,7 +648,12 @@ export function UsagePanel({
       </div>
 
       <CacheCard totals={totals} />
-      <TopSessions sessions={sessions} usageBySession={usageBySession} />
+      <TopSessions
+        entries={entries}
+        days={rangeDays}
+        sessions={sessions}
+        rangeLabel={`last ${rangeLabel}`}
+      />
 
       <p className="usage-foot">
         All time: {formatUsdWide(allTime.costUsd)} ·{" "}

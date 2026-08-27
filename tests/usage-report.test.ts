@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import type { SessionMeta, SessionUsage, UsageLedgerEntry } from "../src/shared/types"
+import type { SessionMeta, UsageLedgerEntry } from "../src/shared/types"
 import {
   axisTicks,
   buildDaySeries,
@@ -18,8 +18,8 @@ import {
   niceMax,
   perTurn,
   previousDayKeys,
+  sessionSpend,
   tickIndices,
-  topSessions,
   totalsForDays,
 } from "@renderer/lib/usage-report"
 
@@ -174,6 +174,31 @@ describe("buildDaySeries", () => {
     ])
   })
 
+  it("keeps a provider that reported no cost on the cost chart", () => {
+    const free = [
+      entry({ day: "2026-08-19", provider: "claude", costUsd: 3, inputTokens: 100 }),
+      entry({ day: "2026-08-19", provider: "codex", costUsd: 0, inputTokens: 900_000, outputTokens: 40_000, turns: 60 }),
+    ]
+    const series = buildDaySeries(free, NOW, 3, "provider", "cost")
+    expect(series.keys).toEqual(["claude", "codex"])
+    expect(series.unpricedKeys).toEqual(["codex"])
+  })
+
+  it("says nothing is unpriced when every key reported the metric", () => {
+    const series = buildDaySeries(entries, NOW, 3, "provider", "cost")
+    expect(series.unpricedKeys).toEqual([])
+  })
+
+  it("keeps a key with turns but no tokens on the token chart", () => {
+    const idle = [
+      entry({ day: "2026-08-19", provider: "claude", inputTokens: 400 }),
+      entry({ day: "2026-08-19", provider: "grok", turns: 5 }),
+    ]
+    const series = buildDaySeries(idle, NOW, 3, "provider", "tokens")
+    expect(series.keys).toContain("grok")
+    expect(series.unpricedKeys).toEqual(["grok"])
+  })
+
   it("routes providers past the cap into the 'other' slice", () => {
     const crowded = [
       entry({ day: "2026-08-19", provider: "a", costUsd: 10 }),
@@ -284,19 +309,20 @@ describe("perTurn", () => {
   })
 })
 
-describe("topSessions", () => {
+describe("sessionSpend", () => {
   const sessions = [
     session({ id: "s1", title: "Auth refactor", model: "opus" }),
     session({ id: "s2", title: "Webhook retries", provider: "codex" }),
     session({ id: "s3", title: "Reward curve", provider: "grok" }),
   ]
-  const usage: Record<string, SessionUsage> = {
-    s1: { turns: 10, inputTokens: 1000, outputTokens: 200, cacheReadTokens: 90_000, costUsd: 7.5 },
-    s2: { turns: 4, inputTokens: 400, outputTokens: 100, costUsd: 2.5 },
-  }
+  const inRange = dayKeysEnding(NOW, 7)
+  const entries = [
+    entry({ day: "2026-08-19", sessionId: "s1", inputTokens: 1000, outputTokens: 200, cacheReadTokens: 90_000, costUsd: 7.5, turns: 10 }),
+    entry({ day: "2026-08-18", sessionId: "s2", provider: "codex", inputTokens: 400, outputTokens: 100, costUsd: 2.5, turns: 4 }),
+  ]
 
   it("ranks by spend and reports each session's share", () => {
-    const rows = topSessions(sessions, usage, 5)
+    const { rows } = sessionSpend(entries, inRange, sessions, 5)
     expect(rows.map((r) => r.id)).toEqual(["s1", "s2"])
     expect(rows[0].share).toBeCloseTo(0.75)
     expect(rows[1].share).toBeCloseTo(0.25)
@@ -305,19 +331,44 @@ describe("topSessions", () => {
   })
 
   it("honours the limit", () => {
-    expect(topSessions(sessions, usage, 1)).toHaveLength(1)
+    expect(sessionSpend(entries, inRange, sessions, 1).rows).toHaveLength(1)
   })
 
   it("ranks by tokens when no session was costed", () => {
-    const free: Record<string, SessionUsage> = {
-      s1: { turns: 1, inputTokens: 10 },
-      s2: { turns: 1, inputTokens: 900 },
-    }
-    expect(topSessions(sessions, free, 5).map((r) => r.id)).toEqual(["s2", "s1"])
+    const free = [
+      entry({ day: "2026-08-19", sessionId: "s1", inputTokens: 10 }),
+      entry({ day: "2026-08-19", sessionId: "s2", inputTokens: 900 }),
+    ]
+    expect(sessionSpend(free, inRange, sessions, 5).rows.map((r) => r.id)).toEqual([
+      "s2",
+      "s1",
+    ])
   })
 
   it("skips sessions the ledger never saw", () => {
-    expect(topSessions(sessions, usage, 5).some((r) => r.id === "s3")).toBe(false)
+    const { rows } = sessionSpend(entries, inRange, sessions, 5)
+    expect(rows.some((r) => r.id === "s3")).toBe(false)
+  })
+
+  it("counts only the days in the range", () => {
+    const older = [
+      ...entries,
+      entry({ day: "2026-07-01", sessionId: "s1", costUsd: 99, turns: 3 }),
+    ]
+    const { rows } = sessionSpend(older, inRange, sessions, 5)
+    expect(rows[0].costUsd).toBe(7.5)
+  })
+
+  it("owns up to range spend no live session accounts for", () => {
+    const mixed = [
+      ...entries,
+      entry({ day: "2026-08-17", costUsd: 4, inputTokens: 50, turns: 2 }),
+      entry({ day: "2026-08-17", sessionId: "gone", costUsd: 1, inputTokens: 10, turns: 1 }),
+    ]
+    const { rows, unattributed } = sessionSpend(mixed, inRange, sessions, 5)
+    expect(rows.map((r) => r.id)).toEqual(["s1", "s2"])
+    expect(unattributed.costUsd).toBe(5)
+    expect(unattributed.turns).toBe(3)
   })
 })
 

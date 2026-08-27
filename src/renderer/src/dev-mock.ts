@@ -11,6 +11,7 @@ import type {
   MessageAttachment,
   PermissionRequestInfo,
   Project,
+  ProviderRateLimits,
   QueuedMessage,
   SessionMeta,
   SessionSnapshot,
@@ -632,8 +633,11 @@ const exploreItems: AgentTurnItem[] = [
 // The turn behind the pending question: the card above the transcript quotes
 // its last line and the steps that led there, so both have to be here.
 const askedItems: AgentTurnItem[] = [
+  // The CLI's own commentary on the run: a warning it sent alongside the work,
+  // and a tool the Hub had to time itself because the CLI reported no duration.
+  { id: "ai0", kind: "notice", status: "failed", level: "warning", title: "MCP server linear needs signing in again", detail: "connect ECONNREFUSED 127.0.0.1:7333", source: "linear" },
   { id: "ai1", kind: "tool", status: "completed", name: "Grep", arguments: { pattern: "maxRetryMs", path: "src" }, durationMs: 210 },
-  { id: "ai2", kind: "tool", status: "completed", name: "Read", arguments: { file_path: "src/queue/worker.ts" }, durationMs: 140 },
+  { id: "ai2", kind: "tool", status: "completed", name: "Read", arguments: { file_path: "src/queue/worker.ts" }, durationMs: 1840, durationMeasured: true },
   { id: "ai3", kind: "file_change", status: "completed", changes: [{ path: "src/webhooks/backoff.ts", kind: "add" }] },
 ]
 
@@ -725,6 +729,19 @@ const usage: Record<string, SessionUsage> = {
   s6: { turns: 27, inputTokens: 88_300, outputTokens: 14_100, cacheReadTokens: 402_000, cacheCreateTokens: 51_000, costUsd: 0, durationMs: 610_000 },
 }
 
+// Codex volunteers how much of the account's allowance is gone; nobody else
+// does, so only the codex session carries a reading.
+const rateLimits: Record<string, ProviderRateLimits> = {
+  s2: {
+    primaryUsed: 0.62,
+    primaryWindowMins: 300,
+    primaryResetsAt: now + 74 * 60_000,
+    secondaryUsed: 0.31,
+    secondaryWindowMins: 10_080,
+    planType: "pro",
+  },
+}
+
 // Half a year of ledger rows: enough to fill the 90-day range *and* the 90 days
 // it compares against, with weekday rhythm, quiet gaps, and one deliberate spike
 // so the chart has something the hover readout can explain.
@@ -740,6 +757,17 @@ const mockUsageSummary: UsageSummary = (() => {
     { provider: "grok", model: "grok-4", costPerKTok: 0.004, cache: 0 },
     { provider: "opencode", model: "anthropic/claude-sonnet", costPerKTok: 0.009, cache: 3 },
   ]
+
+  // Which session each provider/model pair belongs to, so the range-scoped
+  // top-spend table ranks the same sessions the sidebar shows.
+  const LEDGER_OWNERS: Record<string, string> = {
+    "claude/opus": "s4",
+    "claude/sonnet": "s5",
+    "claude/haiku": "s7",
+    "codex/gpt-5.6-sol": "s2",
+    "codex/gpt-5.6-terra": "s6",
+    "grok/grok-4": "s3",
+  }
 
   // Seeded LCG: the mock must look the same on every reload, or two screenshots
   // of the same page disagree.
@@ -784,10 +812,14 @@ const mockUsageSummary: UsageSummary = (() => {
       const turns = Math.max(1, Math.round((1 + rand() * 11) * trend * burst))
       const inputTokens = Math.round(turns * (900 + rand() * 5200))
       const outputTokens = Math.round(turns * (400 + rand() * 2400))
+      // The oldest third predates per-session recording, so the top-spend card
+      // has an unattributed remainder to own up to rather than quietly drop.
+      const owner = offset < LEDGER_DAYS * 0.66 ? LEDGER_OWNERS[key] : undefined
       entries.push({
         day: dayStr(offset),
         provider: mix.provider,
         model: mix.model,
+        ...(owner ? { sessionId: owner } : {}),
         inputTokens,
         outputTokens,
         cacheReadTokens: Math.round(inputTokens * mix.cache),
@@ -923,11 +955,21 @@ const snapshot: SessionSnapshot = wantWizard
       messages: {},
       queued: {},
       usage: {},
+      rateLimits: {},
       permissions: [],
       inputRequests: [],
       activeSessionId: null,
     }
-  : { sessions, messages, queued, usage, permissions, inputRequests, activeSessionId: "s1" }
+  : {
+      sessions,
+      messages,
+      queued,
+      usage,
+      rateLimits,
+      permissions,
+      inputRequests,
+      activeSessionId: "s1",
+    }
 
 // Real bytes on disk, served by the dev server: a viewer that only ever sees
 // hand-written strings proves nothing about images, video or binary sniffing.
@@ -1534,7 +1576,7 @@ export function installDevMock(): void {
       return { general: { ...settings.general } }
     },
     revealPath: async () => true,
-    wipeSessions: async () => ({ sessions: [], messages: {}, queued: {}, usage: {}, permissions: [], inputRequests: [], activeSessionId: null }),
+    wipeSessions: async () => ({ sessions: [], messages: {}, queued: {}, usage: {}, rateLimits: {}, permissions: [], inputRequests: [], activeSessionId: null }),
     resolveInput: async (requestId) => {
       // The real broker withdraws the card the moment it has an answer.
       const request = inputRequests.find((r) => r.requestId === requestId)

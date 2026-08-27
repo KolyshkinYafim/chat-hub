@@ -105,12 +105,18 @@ export type SessionUsage = TurnUsage & {
   lastTurn?: TurnUsage
 }
 
-/** One day × provider × model row of the persisted usage ledger. */
+/** One day × provider × model × session row of the persisted usage ledger. */
 export type UsageLedgerEntry = {
   /** Local calendar day, "YYYY-MM-DD". */
   day: string
   provider: string
   model: string
+  /**
+   * Absent on rows written before the ledger carried a session dimension. Such
+   * rows still count toward every total; they just cannot be attributed to a
+   * session, which is what `unattributed` in a range report accounts for.
+   */
+  sessionId?: string
   inputTokens: number
   outputTokens: number
   /** Cache hits. Ledgers written before this field existed read back as 0. */
@@ -127,6 +133,25 @@ export type UsageWindowTotals = {
   cacheCreateTokens: number
   costUsd: number
   turns: number
+}
+
+/**
+ * How much of a provider's allowance the account has spent. Codex reports this
+ * on its own schedule, so it is a property of the session rather than of a turn.
+ */
+export type ProviderRateLimits = {
+  /** 0–1 of the shorter window, e.g. the five-hour one. */
+  primaryUsed?: number
+  primaryWindowMins?: number
+  primaryResetsAt?: number
+  /** 0–1 of the longer window, e.g. the weekly one. */
+  secondaryUsed?: number
+  secondaryWindowMins?: number
+  secondaryResetsAt?: number
+  /** Set once the provider says the account is out, with its own wording. */
+  reached?: string
+  planType?: string
+  creditBalance?: string
 }
 
 /** Merged ledger plus rolling windows, as the Usage settings tab reads it. */
@@ -193,6 +218,8 @@ export type AgentTurnItem =
       output?: string
       exitCode?: number
       durationMs?: number
+      /** The Hub timed this itself because the CLI reported no duration. */
+      durationMeasured?: true
     }
   | {
       id: string
@@ -211,6 +238,8 @@ export type AgentTurnItem =
       result?: unknown
       error?: string
       durationMs?: number
+      /** The Hub timed this itself because the CLI reported no duration. */
+      durationMeasured?: true
     }
   | {
       id: string
@@ -259,6 +288,24 @@ export type AgentTurnItem =
       trigger?: string
       preTokens?: number
       postTokens?: number
+    }
+  | {
+      id: string
+      /**
+       * Something the CLI said about the run rather than about the work: a
+       * warning, a deprecation, an MCP server that would not start, a hook that
+       * blocked. Dropping these once left codex answering "I couldn't run the
+       * command" while the reason sat unread in the same stream.
+       */
+      kind: "notice"
+      status: TurnItemStatus
+      level: "warning" | "info"
+      /** One line naming what happened. */
+      title: string
+      /** The CLI's own longer explanation, when it sent one. */
+      detail?: string
+      /** What the notice is about — a config path, an MCP server, a hook. */
+      source?: string
     }
   | {
       id: string
@@ -414,6 +461,11 @@ export type HubEvent =
       turn?: TurnUsage
       total: SessionUsage
     }
+  | {
+      type: "limits.changed"
+      sessionId: string
+      limits: ProviderRateLimits
+    }
   | { type: "permission.request"; request: PermissionRequestInfo }
   | {
       type: "permission.resolved"
@@ -446,6 +498,8 @@ export type SessionSnapshot = {
   queued: Record<string, QueuedMessage[]>
   /** Per-session totals; a session with no reporting CLI is simply absent. */
   usage: Record<string, SessionUsage>
+  /** Allowance readings the CLIs have volunteered since the app started. */
+  rateLimits: Record<string, ProviderRateLimits>
   /** Tool permissions still blocking a CLI, for a renderer that just reloaded. */
   permissions: PermissionRequestInfo[]
   /** Native agent questions still awaiting an answer. */
