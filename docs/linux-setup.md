@@ -105,10 +105,12 @@ sudo pacman -S --needed nss gtk3 alsa-lib libxss
 ```
 
 **Окно открывается, но выглядит сломанным или мутным на Wayland.** CachyOS с KDE по умолчанию
-идёт на Wayland, а Electron без подсказки уходит в XWayland:
+идёт на Wayland, а Electron без подсказки уходит в XWayland. Передать флаг через `pnpm dev`
+нельзя — `electron-vite dev` принимает только свой фиксированный список опций и чужие аргументы
+до Electron не доносит. Поэтому переменной окружения:
 
 ```bash
-pnpm dev -- --ozone-platform-hint=auto
+ELECTRON_OZONE_PLATFORM_HINT=auto pnpm dev
 ```
 
 **Hub не видит установленный CLI.** Проверь, что бинарник лежит в `PATH` или в одном из мест из
