@@ -125,6 +125,9 @@ export function FilesSurface({ cwd, focus = null }: Props) {
     }
     if (focus.directory === true) setActiveDir(focus.path)
     else selectFile(focus.path)
+    // Re-running when `listings` lands would re-expand and re-select on every
+    // directory load, fighting the navigation the user is doing right now.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus?.at])
 
   function toggleDir(path: string) {

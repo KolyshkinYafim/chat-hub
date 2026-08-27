@@ -100,6 +100,8 @@ export function FileViewer({ cwd, path, focus = null, onDirtyChange }: Props) {
 
   useEffect(() => {
     if (focus) setShowSource(true)
+    // One reveal per request; see the nonce reasoning in CodeEditor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus?.at])
 
   useEffect(() => {
