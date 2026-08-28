@@ -132,7 +132,7 @@ export class SessionManager {
   private readonly maxMessages: number
   /** Sessions that have spilled into archive.jsonl (or already had one on disk). */
   private archivedSessions = new Set<string>()
-  private adapterRestore: Promise<void> = Promise.resolve()
+  private adapterRestores = new Map<string, Promise<void>>()
   /** Preserve archive order and let an immediate scroll-back wait for its write. */
   private archiveWrites = new Map<string, Promise<void>>()
   private inputStatusWired = false
@@ -703,10 +703,17 @@ export class SessionManager {
 
     // Re-register restored sessions with their adapter so follow-up turns work
     // after a restart (otherwise send() throws "Session not started"), seeding
-    // the persisted CLI session id for resume.
-    this.adapterRestore = Promise.allSettled(
-      this.listSessions().map((session) => this.restoreAdapter(session)),
-    ).then(() => undefined)
+    // the persisted CLI session id for resume. One promise per session, so a
+    // send only ever waits for its own session's restore.
+    for (const session of this.listSessions()) {
+      const restore = this.restoreAdapter(session).catch(() => undefined)
+      this.adapterRestores.set(session.id, restore)
+      void restore.finally(() => {
+        if (this.adapterRestores.get(session.id) === restore) {
+          this.adapterRestores.delete(session.id)
+        }
+      })
+    }
 
     this.startWatchdog()
   }
@@ -1017,7 +1024,7 @@ export class SessionManager {
     const [systemPrompt] = await Promise.all([
       this.turnSystemPrompt(session),
       this.snapshotGate(session, content, userMessageId),
-      this.adapterRestore,
+      this.adapterRestores.get(sessionId),
       this.prepareBrowserTools(session),
     ])
     // Stopping during the gate must not resurrect the turn it just killed.
@@ -1411,6 +1418,7 @@ export class SessionManager {
     this.usage.delete(sessionId)
     this.configNoted.delete(sessionId)
     this.browserToolsReady.delete(sessionId)
+    this.adapterRestores.delete(sessionId)
     await this.discardArchive(sessionId)
     this.hooks.clearSession(sessionId)
     // The CLI is dead, so nothing is left to answer its permission any more.
@@ -1459,6 +1467,7 @@ export class SessionManager {
     this.usage.clear()
     this.configNoted.clear()
     this.browserToolsReady.clear()
+    this.adapterRestores.clear()
     for (const id of ids) await this.discardArchive(id)
     for (const id of ids) this.hooks.clearSession(id)
     this.activeSessionId = null

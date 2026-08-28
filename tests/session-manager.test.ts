@@ -886,6 +886,39 @@ describe("adapter restore on restart", () => {
       expect(restarted.getSession(session.id)?.status).toBe("idle"),
     )
   })
+
+  it("lets a new session send while another session's restore is stuck", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const stuck = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.flush()
+
+    let releaseStart = () => {}
+    state.startDelay = new Promise<void>((resolve) => {
+      releaseStart = resolve
+    })
+    const { restarted } = restart(dir, persistence)
+    await restarted.init()
+
+    state.startDelay = null
+    const fresh = await restarted.createSession({ provider: "mock", cwd: dir })
+    await restarted.sendMessage(fresh.id, "fresh session speaks")
+    expect(state.sent).toEqual(["fresh session speaks"])
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(restarted.getSession(fresh.id)?.status).toBe("idle"),
+    )
+
+    const gated = restarted.sendMessage(stuck.id, "still gated")
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(state.sent).toEqual(["fresh session speaks"])
+    releaseStart()
+    await gated
+    expect(state.sent).toEqual(["fresh session speaks", "still gated"])
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(restarted.getSession(stuck.id)?.status).toBe("idle"),
+    )
+  })
 })
 
 describe("browser MCP registration", () => {
