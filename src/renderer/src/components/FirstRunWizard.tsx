@@ -30,9 +30,9 @@ export function FirstRunWizard({ onFinish }: Props) {
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      const snap = await window.chatHub.getSettings()
-      setStatuses(snap.statuses)
-      const installed = snap.statuses.filter(
+      const probed = await window.chatHub.getProviderStatuses()
+      setStatuses(probed)
+      const installed = probed.filter(
         (s) => s.id !== "mock" && s.installed,
       )
       const preferred =

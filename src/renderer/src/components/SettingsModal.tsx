@@ -417,6 +417,13 @@ export function SettingsModal({
 
   useEffect(() => {
     if (!open) return
+    return window.chatHub.onHubEvent((event) => {
+      if (event.type === "providers.statuses") setStatuses(event.statuses)
+    })
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose()
     }
