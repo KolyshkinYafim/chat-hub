@@ -836,7 +836,9 @@ export class ClaudeActivityStream {
       kind: "error",
       status: "failed",
       message: `Rate limited (${str(info.rateLimitType) ?? status})${
-        resets ? ` — resets ${new Date(resets * 1000).toLocaleTimeString()}` : ""
+        resets
+          ? ` — resets ${new Date(resets * 1000).toLocaleTimeString("en-US")}`
+          : ""
       }`,
     })
   }

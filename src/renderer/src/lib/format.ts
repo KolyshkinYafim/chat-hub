@@ -9,14 +9,14 @@ export function formatRelative(ts: number, now = Date.now()): string {
   if (hr < 48) return `${hr}h ago`
   const day = Math.floor(hr / 24)
   if (day < 14) return `${day}d ago`
-  return new Date(ts).toLocaleDateString(undefined, {
+  return new Date(ts).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
   })
 }
 
 export function formatClock(ts: number): string {
-  return new Date(ts).toLocaleTimeString(undefined, {
+  return new Date(ts).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
   })
