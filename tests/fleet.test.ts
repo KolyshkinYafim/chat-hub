@@ -112,6 +112,25 @@ describe("buildFleet", () => {
     expect(rows[1].settled).toBe(true)
   })
 
+  it("flags only unsettled waiting and error rows for the pulse", () => {
+    const waiting = session({ status: "waiting_input" })
+    const failed = session({ status: "error" })
+    const settledFail = session({ status: "error", settledAt: NOW - 500 })
+    const running = session({ status: "running" })
+    const rows = buildFleet(
+      [waiting, failed, settledFail, running],
+      {},
+      {},
+      {},
+      NOW,
+    ).groups[0].rows
+    const byId = new Map(rows.map((r) => [r.id, r.attention]))
+    expect(byId.get(waiting.id)).toBe(true)
+    expect(byId.get(failed.id)).toBe(true)
+    expect(byId.get(settledFail.id)).toBe(false)
+    expect(byId.get(running.id)).toBe(false)
+  })
+
   it("counts queued follow-ups per row", () => {
     const s = session({ status: "running" })
     const queued = {

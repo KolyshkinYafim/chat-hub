@@ -4,9 +4,11 @@ import { statusLabel } from "../lib/format"
 export function StatusDot({
   status,
   showLabel = false,
+  attention = false,
 }: {
   status: SessionStatus
   showLabel?: boolean
+  attention?: boolean
 }) {
   return (
     <span
@@ -14,7 +16,10 @@ export function StatusDot({
       title={statusLabel[status]}
       aria-label={statusLabel[status]}
     >
-      <span className={`status-dot ${status}`} aria-hidden />
+      <span
+        className={`status-dot ${status}${attention ? " attention" : ""}`}
+        aria-hidden
+      />
       {showLabel ? (
         <span className="status-live-label">{statusLabel[status]}</span>
       ) : null}

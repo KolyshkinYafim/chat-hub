@@ -1744,6 +1744,7 @@ export function installDevMock(): void {
       hubListeners.add(listener)
       return () => hubListeners.delete(listener)
     },
+    reportAttentionCount: () => {},
     listPermissions: async () => [],
     resolvePermission: async () => true,
     mcpList: mockMcpList,

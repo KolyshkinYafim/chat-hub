@@ -17,6 +17,10 @@ const GROUPS: Group[] = [
     title: "Anywhere",
     rows: [
       { keys: "⌘K", what: "Switch session — fuzzy over title / project / agent" },
+      {
+        keys: "⌥⇧U",
+        what: "Next waiting — cycle the sessions that need you (waiting → failed → fresh done)",
+      },
       { keys: "⌘N", what: "New session" },
       { keys: "⌘,", what: "Settings" },
       { keys: "⌘/", what: "Show or hide this list" },

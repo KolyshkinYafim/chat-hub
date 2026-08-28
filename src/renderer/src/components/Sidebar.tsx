@@ -9,10 +9,12 @@ import {
 } from "@shared/search"
 import { formatRelative, statusLabel } from "../lib/format"
 import { PROJECT_MIME, SESSION_MIME } from "../lib/pane-layout"
+import { needsAction } from "@shared/attention"
+import { type AttentionSeen } from "../lib/attention"
 import {
-  belongsInFavoritesGroup,
-  belongsInProjectGroups,
-  belongsInSettledGroup,
+  partitionSidebarRows,
+  type RowContext,
+  type RowHold,
 } from "../lib/sidebar-rows"
 import { StatusDot } from "./StatusDot"
 import { ResizeHandle } from "./ResizeHandle"
@@ -33,6 +35,8 @@ type Props = {
   messagesBySession: Record<string, ChatMessage[]>
   projects: Project[]
   activeId: string | null
+  attentionSeen: AttentionSeen
+  needsYou: SessionMeta[]
   busy: boolean
   collapsed: boolean
   width: number
@@ -74,6 +78,8 @@ export function Sidebar({
   messagesBySession,
   projects,
   activeId,
+  attentionSeen,
+  needsYou,
   busy,
   collapsed: railCollapsed,
   width,
@@ -104,6 +110,7 @@ export function Sidebar({
   const [showArchived, setShowArchived] = useState(false)
   const [showSettled, setShowSettled] = useState(false)
   const [showFavorites, setShowFavorites] = useState(true)
+  const [showNeedsYou, setShowNeedsYou] = useState(true)
   const [rowMenuFor, setRowMenuFor] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftTitle, setDraftTitle] = useState("")
@@ -202,33 +209,41 @@ export function Sidebar({
     [loadedHits, archiveHits],
   )
 
-  const archivedSessions = useMemo(
-    () =>
-      sessions
-        .filter((s) => s.archived)
-        .sort((a, b) => b.updatedAt - a.updatedAt),
-    [sessions],
+  const searching = query.trim() !== ""
+  const statusFiltered = statusFilter !== "all"
+  const rowContext = useMemo<RowContext>(
+    () => ({ searching, statusFiltered, activeId, seen: attentionSeen }),
+    [searching, statusFiltered, activeId, attentionSeen],
   )
 
-  const favoriteSessions = useMemo(() => {
-    const ctx = { searching: query.trim() !== "", activeId }
-    return sessions
-      .filter((s) => belongsInFavoritesGroup(s, ctx))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-  }, [sessions, query, activeId])
+  const [dragId, setDragId] = useState<string | null>(null)
+  const interactingId = editingId ?? rowMenuFor ?? dragId
+  const [hold, setHold] = useState<RowHold | null>(null)
+  useEffect(() => {
+    if (!interactingId) {
+      setHold(null)
+      return
+    }
+    setHold((curr) => {
+      if (curr && curr.session.id === interactingId) return curr
+      const live = sessions.find((s) => s.id === interactingId)
+      if (!live) return null
+      return {
+        session: live,
+        seen: attentionSeen,
+        queueIndex: needsYou.findIndex((s) => s.id === interactingId),
+      }
+    })
+  }, [interactingId, sessions, attentionSeen, needsYou])
 
-  const settledSessions = useMemo(() => {
-    const ctx = { searching: query.trim() !== "", activeId }
-    return sessions
-      .filter((s) => belongsInSettledGroup(s, ctx))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-  }, [sessions, query, activeId])
+  const rows = useMemo(
+    () => partitionSidebarRows(sessions, needsYou, rowContext, hold),
+    [sessions, needsYou, rowContext, hold],
+  )
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase()
-    let filtered = sessions.filter((s) =>
-      belongsInProjectGroups(s, { searching: q !== "", activeId }),
-    )
+    let filtered = rows.projects
     if (statusFilter === "waiting") {
       filtered = filtered.filter((s) => s.status === "waiting_input")
     } else if (statusFilter === "running") {
@@ -293,7 +308,7 @@ export function Sidebar({
       g.sessions.sort((a, b) => b.updatedAt - a.updatedAt)
     }
     return list.sort((a, b) => b.sortTs - a.sortTs)
-  }, [sessions, projects, query, collapsed, statusFilter, hits, activeId])
+  }, [rows.projects, projects, query, collapsed, statusFilter, hits])
 
   const transcriptOnly = useMemo(
     () =>
@@ -312,7 +327,10 @@ export function Sidebar({
   )
 
   function renderRow(s: SessionMeta, isArchived: boolean) {
-    const live = s.status === "running" || s.status === "waiting_input"
+    const live =
+      s.status === "running" ||
+      s.status === "waiting_input" ||
+      s.status === "error"
     const hit = hits.get(s.id)
     const editing = editingId === s.id
     const regen = regenerating.has(s.id)
@@ -329,7 +347,9 @@ export function Sidebar({
           e.dataTransfer.effectAllowed = "copy"
           e.dataTransfer.setData(SESSION_MIME, s.id)
           e.dataTransfer.setData("text/plain", s.title)
+          setDragId(s.id)
         }}
+        onDragEnd={() => setDragId(null)}
         onClick={() => onSelect(s.id)}
         onKeyDown={(e) => {
           if (editing) return
@@ -338,7 +358,9 @@ export function Sidebar({
         tabIndex={0}
       >
         <div className="session-row-main t3">
-          {live ? <StatusDot status={s.status} showLabel /> : null}
+          {live ? (
+            <StatusDot status={s.status} showLabel attention={needsAction(s)} />
+          ) : null}
           {editing ? (
             <input
               className="session-title-input"
@@ -493,15 +515,20 @@ export function Sidebar({
 
   if (railCollapsed) {
     const running = sessions.filter((s) => s.status === "running").length
-    const waiting = sessions.filter((s) => s.status === "waiting_input").length
+    const waiting = sessions.filter(
+      (s) => needsAction(s) && s.status === "waiting_input",
+    ).length
+    const failed = sessions.filter(
+      (s) => needsAction(s) && s.status === "error",
+    ).length
     return (
       <aside className="sidebar rail-collapsed">
         <button
           type="button"
           className="icon-chip rail-expand"
           title={
-            running || waiting
-              ? `Expand sidebar — ${running} running, ${waiting} waiting`
+            running || waiting || failed
+              ? `Expand sidebar — ${running} running, ${waiting} waiting, ${failed} failed`
               : "Expand sidebar"
           }
           onClick={onToggleCollapsed}
@@ -510,7 +537,7 @@ export function Sidebar({
         </button>
         {/* Collapsed, the rail otherwise gives no sign that anything is live —
             the counts are the reason to expand it again. */}
-        {running > 0 || waiting > 0 ? (
+        {running > 0 || waiting > 0 || failed > 0 ? (
           <div className="rail-live" aria-label="Live sessions">
             {running > 0 ? (
               <span className="rail-live-row" title={`${running} running`}>
@@ -520,8 +547,14 @@ export function Sidebar({
             ) : null}
             {waiting > 0 ? (
               <span className="rail-live-row" title={`${waiting} waiting`}>
-                <i className="status-dot waiting_input" />
+                <i className="status-dot attention waiting_input" />
                 {waiting}
+              </span>
+            ) : null}
+            {failed > 0 ? (
+              <span className="rail-live-row" title={`${failed} failed`}>
+                <i className="status-dot attention error" />
+                {failed}
               </span>
             ) : null}
           </div>
@@ -676,7 +709,7 @@ export function Sidebar({
       ) : null}
 
       <div className="session-scroll" role="tree">
-        {favoriteSessions.length > 0 ? (
+        {rows.favorites.length > 0 ? (
           <div className="project-group favorites-group" role="group">
             <div className="project-head-row">
               <button
@@ -691,12 +724,30 @@ export function Sidebar({
                   ★
                 </span>
                 <span className="project-name">Favorites</span>
-                <span className="project-count">{favoriteSessions.length}</span>
+                <span className="project-count">{rows.favorites.length}</span>
               </button>
             </div>
-            {showFavorites
-              ? favoriteSessions.map((s) => renderRow(s, false))
-              : null}
+            {showFavorites ? rows.favorites.map((s) => renderRow(s, false)) : null}
+          </div>
+        ) : null}
+
+        {rows.needsYou.length > 0 ? (
+          <div className="project-group needs-group" role="group">
+            <div className="project-head-row">
+              <button
+                type="button"
+                className="project-head"
+                onClick={() => setShowNeedsYou((v) => !v)}
+              >
+                <span className={`chev ${showNeedsYou ? "open" : ""}`}>▸</span>
+                <span className="folder-ico" aria-hidden>
+                  ⚑
+                </span>
+                <span className="project-name">Needs you</span>
+                <span className="project-count">{rows.needsYou.length}</span>
+              </button>
+            </div>
+            {showNeedsYou ? rows.needsYou.map((s) => renderRow(s, false)) : null}
           </div>
         ) : null}
 
@@ -810,7 +861,7 @@ export function Sidebar({
           ))
         )}
 
-        {settledSessions.length > 0 ? (
+        {rows.settled.length > 0 ? (
           <div className="project-group settled-group" role="group">
             <div className="project-head-row">
               <button
@@ -823,16 +874,14 @@ export function Sidebar({
                   ✓
                 </span>
                 <span className="project-name">Settled</span>
-                <span className="project-count">{settledSessions.length}</span>
+                <span className="project-count">{rows.settled.length}</span>
               </button>
             </div>
-            {showSettled
-              ? settledSessions.map((s) => renderRow(s, false))
-              : null}
+            {showSettled ? rows.settled.map((s) => renderRow(s, false)) : null}
           </div>
         ) : null}
 
-        {archivedSessions.length > 0 ? (
+        {rows.archived.length > 0 ? (
           <div className="project-group archived-group" role="group">
             <div className="project-head-row">
               <button
@@ -845,12 +894,10 @@ export function Sidebar({
                   ⤓
                 </span>
                 <span className="project-name">Archived</span>
-                <span className="project-count">{archivedSessions.length}</span>
+                <span className="project-count">{rows.archived.length}</span>
               </button>
             </div>
-            {showArchived
-              ? archivedSessions.map((s) => renderRow(s, true))
-              : null}
+            {showArchived ? rows.archived.map((s) => renderRow(s, true)) : null}
           </div>
         ) : null}
       </div>

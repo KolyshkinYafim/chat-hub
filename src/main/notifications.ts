@@ -1,19 +1,33 @@
 import { Notification } from "electron"
-import type { SessionEvent, SessionMeta } from "@shared/types"
+import type { SessionEvent, SessionMeta, SessionStatus } from "@shared/types"
+
+type Stretch = { last: SessionStatus; waiting: boolean }
 
 export class NotificationService {
-  private lastNotified = new Map<string, string>()
+  private stretches = new Map<string, Stretch>()
 
-  constructor(private readonly getSession: (id: string) => SessionMeta | undefined) {}
+  constructor(
+    private readonly getSession: (id: string) => SessionMeta | undefined,
+    private readonly soundEnabled: () => boolean = () => false,
+  ) {}
 
   handle(event: SessionEvent): void {
+    if (event.type === "session.ended" && event.reason === "killed") {
+      this.stretches.delete(event.id)
+      return
+    }
     if (event.type !== "session.status") return
-    if (event.status !== "waiting_input" && event.status !== "done") return
-    if (!Notification.isSupported()) return
-
-    const key = `${event.id}:${event.status}`
-    if (this.lastNotified.get(event.id) === key) return
-    this.lastNotified.set(event.id, key)
+    const prev = this.stretches.get(event.id)
+    const fresh =
+      (event.status === "waiting_input" && prev?.waiting !== true) ||
+      (event.status === "done" && prev?.last !== "done")
+    this.stretches.set(event.id, {
+      last: event.status,
+      waiting:
+        event.status === "waiting_input" ||
+        (event.status === "running" && prev?.waiting === true),
+    })
+    if (!fresh || !Notification.isSupported()) return
 
     const session = this.getSession(event.id)
     const title =
@@ -24,7 +38,7 @@ export class NotificationService {
       ? `${session.title} (${session.provider})`
       : event.id
 
-    const n = new Notification({ title, body, silent: false })
+    const n = new Notification({ title, body, silent: !this.soundEnabled() })
     n.show()
   }
 }

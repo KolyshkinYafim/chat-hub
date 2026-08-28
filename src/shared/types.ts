@@ -59,6 +59,7 @@ export type SessionMeta = {
   /** Absolute worktree path, retained for safe cleanup on session deletion. */
   worktreePath?: string
   status: SessionStatus
+  activityAt?: number
   /** Set when the thread settled (turn done, nothing pending); cleared on activity. */
   settledAt?: number
   settledBy?: "auto" | "user"
@@ -400,7 +401,7 @@ export type AgentInputRequestInfo = {
 
 export type SessionEvent =
   | { type: "session.upsert"; session: SessionMeta }
-  | { type: "session.status"; id: string; status: SessionStatus }
+  | { type: "session.status"; id: string; status: SessionStatus; at?: number }
   | {
       type: "session.permission"
       id: string

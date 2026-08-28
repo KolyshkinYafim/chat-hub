@@ -649,14 +649,18 @@ export class SessionManager {
       if (!cwdLooksReal(cwd)) {
         continue
       }
-      // Never restore as stuck running without a live process.
+      // Never restore as stuck running without a live process, and never as a
+      // finished turn nobody watched end: a restart is not fresh agent output.
       const status: SessionStatus =
-        session.status === "running" ? "idle" : session.status
+        session.status === "running" || session.status === "done"
+          ? "idle"
+          : session.status
       const restored: SessionMeta = {
         ...session,
         cwd,
         project: session.project || normalizeProject(undefined, cwd),
         status,
+        activityAt: session.activityAt ?? session.updatedAt,
       }
       // Threads the Hub used to settle by itself come back: settling is the
       // owner's call now, and leaving those stamps would keep a sidebar full
@@ -857,6 +861,7 @@ export class SessionManager {
         ? { baseCwd, branch: worktree.branch, worktreePath: worktree.path }
         : {}),
       status: "idle",
+      activityAt: now,
       createdAt: now,
       updatedAt: now,
     }
@@ -1644,12 +1649,18 @@ export class SessionManager {
       effective = "waiting_input"
     }
     if (session.status === effective) {
-      this.publishSessionEvent({ type: "session.status", id, status: effective })
+      this.publishSessionEvent({
+        type: "session.status",
+        id,
+        status: effective,
+        at: session.activityAt ?? session.updatedAt,
+      })
       return
     }
-    const next = { ...session, status: effective, updatedAt: Date.now() }
+    const at = Date.now()
+    const next = { ...session, status: effective, activityAt: at, updatedAt: at }
     this.sessions.set(id, next)
-    this.publishSessionEvent({ type: "session.status", id, status: effective })
+    this.publishSessionEvent({ type: "session.status", id, status: effective, at })
     this.bus.emit({ type: "sessions.replaced", sessions: this.listSessions() })
     this.scheduleSave()
   }
@@ -1724,7 +1735,8 @@ export class SessionManager {
   private touch(id: string): void {
     const session = this.sessions.get(id)
     if (!session) return
-    this.sessions.set(id, { ...session, updatedAt: Date.now() })
+    const at = Date.now()
+    this.sessions.set(id, { ...session, activityAt: at, updatedAt: at })
   }
 
   private publishSessionEvent(

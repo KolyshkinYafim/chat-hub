@@ -743,6 +743,26 @@ select:focus-visible {
   opacity: 1;
 }
 
+.needs-group {
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.needs-group .folder-ico {
+  color: var(--waiting);
+  opacity: 1;
+}
+
+.needs-group .project-name {
+  color: var(--waiting);
+}
+
+.needs-group .project-count {
+  color: var(--waiting);
+  font-weight: 600;
+}
+
 .row-act.row-fav:hover,
 .row-fav.on {
   color: var(--accent);
@@ -860,12 +880,20 @@ select:focus-visible {
 
 .status-dot.waiting_input {
   background: var(--waiting);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--waiting) 18%, transparent);
-  animation: pulse-dot 1.4s ease-in-out infinite;
 }
 
 .status-dot.error {
   background: var(--danger);
+}
+
+.status-dot.attention.waiting_input {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--waiting) 34%, transparent);
+  animation: pulse-dot 1s ease-in-out infinite;
+}
+
+.status-dot.attention.error {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 30%, transparent);
+  animation: pulse-dot 1.3s ease-in-out infinite;
 }
 
 .status-dot.done {
@@ -4347,6 +4375,11 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   font-size: 10.5px;
   color: var(--text-faint);
   white-space: nowrap;
+}
+
+.palette-cmd .palette-title {
+  color: var(--waiting);
+  font-weight: 600;
 }
 
 .palette-empty {

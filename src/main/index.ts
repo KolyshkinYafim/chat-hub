@@ -9,6 +9,7 @@ import { EventBus } from "./event-bus"
 import { SessionMonitorBridge } from "./bridge"
 import { MonitorCommandBridge } from "./command-bridge"
 import { NotificationService } from "./notifications"
+import { wireDockBadge, type DockBadge } from "./dock-badge"
 import { Persistence } from "./persistence"
 import { ProjectStore } from "./project-store"
 import { SessionManager, type SendOpts } from "./session-manager"
@@ -154,6 +155,7 @@ let mainWindow: BrowserWindow | null = null
 let manager: SessionManager | null = null
 let commandBridge: MonitorCommandBridge | null = null
 let permissions: PermissionBroker | null = null
+let dockBadge: DockBadge | null = null
 // createWindow also runs from `activate` and the monitor bridge, long after
 // bootstrap handed the store around, so the window path reads it from here.
 let settingsStore: SettingsStore | null = null
@@ -322,6 +324,7 @@ function createWindow(): void {
   mainWindow.on("closed", () => {
     mainWindow = null
     zoom = null
+    dockBadge?.clearRendererCount()
     // Media tokens are capabilities into a workspace; nothing may replay them
     // against the next window, which can be pointed at a different project.
     revokeMediaGrants()
@@ -1551,8 +1554,9 @@ async function bootstrap(): Promise<void> {
   })
   const projects = new ProjectStore(ProjectStore.defaultPath(userData))
   const bridge = new SessionMonitorBridge(SessionMonitorBridge.defaultPath())
-  const notifications = new NotificationService((id) =>
-    manager?.getSession(id),
+  const notifications = new NotificationService(
+    (id) => manager?.getSession(id),
+    () => settings.general.completionSound === true,
   )
   const usageLedger = new UsageLedger(UsageLedger.defaultPath(userData))
   const sm = new SessionManager(
@@ -1619,6 +1623,14 @@ async function bootstrap(): Promise<void> {
   createWindow()
 
   await ready
+
+  dockBadge = wireDockBadge(bus, () => sm.listSessions())
+  ipcMain.on(IpcChannels.attentionCount, (_e, count: unknown) => {
+    if (typeof count !== "number" || !Number.isFinite(count) || count < 0) {
+      return
+    }
+    dockBadge?.setRendererCount(count)
+  })
 
   await browserService.start()
 
