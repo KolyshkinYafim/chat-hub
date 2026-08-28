@@ -104,6 +104,7 @@ export type GeneralConfig = {
   editor?: EditorPref
   /** First-run wizard completed/skipped — don't show it again. */
   onboarded?: boolean
+  completionSound?: boolean
   /** User-defined mode presets; falls back to DEFAULT_MODES when unset. */
   modes?: Mode[]
   /** Active theme id; unset = Midnight (the stylesheet's own palette). */

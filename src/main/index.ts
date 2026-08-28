@@ -1465,8 +1465,9 @@ async function bootstrap(): Promise<void> {
   const projects = new ProjectStore(ProjectStore.defaultPath(userData))
   await projects.load()
   const bridge = new SessionMonitorBridge(SessionMonitorBridge.defaultPath())
-  const notifications = new NotificationService((id) =>
-    manager?.getSession(id),
+  const notifications = new NotificationService(
+    (id) => manager?.getSession(id),
+    () => settings.general.completionSound === true,
   )
   const usageLedger = new UsageLedger(UsageLedger.defaultPath(userData))
   manager = new SessionManager(

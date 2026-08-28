@@ -419,6 +419,12 @@ export function sanitizeGeneralPatch(patch: unknown): GeneralConfig {
     if (typeof p.onboarded !== "boolean") throw new Error("Invalid onboarded")
     clean.onboarded = p.onboarded
   }
+  if (p.completionSound !== undefined) {
+    if (typeof p.completionSound !== "boolean") {
+      throw new Error("Invalid completion sound")
+    }
+    clean.completionSound = p.completionSound
+  }
   if (p.modes !== undefined) {
     if (!Array.isArray(p.modes)) throw new Error("Invalid modes")
     clean.modes = p.modes.map(sanitizeMode)

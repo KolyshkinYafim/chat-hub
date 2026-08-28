@@ -1055,6 +1055,29 @@ export function SettingsModal({
                 </div>
               </div>
 
+              <h2 className="section-label">Notifications</h2>
+              <div className="settings-group">
+                <div className="settings-row">
+                  <div>
+                    <div className="row-title">Completion sound</div>
+                    <div className="row-desc">
+                      Play a short, subtle system sound when a session finishes
+                      or starts waiting on your input.
+                    </div>
+                  </div>
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={general.completionSound === true}
+                      onChange={(e) =>
+                        void patchGeneral({ completionSound: e.target.checked })
+                      }
+                    />
+                    <span className="switch-track" />
+                  </label>
+                </div>
+              </div>
+
               <h2 className="section-label">Modes</h2>
               <p className="modal-lead">
                 Presets you can attach to a session from the composer. The system
