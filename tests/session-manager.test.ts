@@ -822,26 +822,26 @@ describe("message archive overflow", () => {
   })
 })
 
-describe("adapter restore on restart", () => {
-  function restart(
-    dir: string,
-    persistence: InstanceType<typeof Persistence>,
-  ) {
-    const bus = new EventBus()
-    const events: HubEvent[] = []
-    bus.on((e) => events.push(e))
-    const restarted = new SessionManager(
-      bus,
-      persistence,
-      new SessionMonitorBridge(join(dir, "events.jsonl")),
-      { handle: () => {} } as unknown as NotificationService,
-      new SettingsStore(join(dir, "settings.json")),
-      { intervalMs: 60_000, silenceMs: 60_000 },
-      { titleGenerator: async () => null },
-    )
-    return { restarted, events }
-  }
+function restart(
+  dir: string,
+  persistence: InstanceType<typeof Persistence>,
+) {
+  const bus = new EventBus()
+  const events: HubEvent[] = []
+  bus.on((e) => events.push(e))
+  const restarted = new SessionManager(
+    bus,
+    persistence,
+    new SessionMonitorBridge(join(dir, "events.jsonl")),
+    { handle: () => {} } as unknown as NotificationService,
+    new SettingsStore(join(dir, "settings.json")),
+    { intervalMs: 60_000, silenceMs: 60_000 },
+    { titleGenerator: async () => null },
+  )
+  return { restarted, events }
+}
 
+describe("adapter restore on restart", () => {
   it("publishes restored sessions before the adapters finish re-registering", async () => {
     const { sm, dir, persistence } = await makeManager()
     const session = await sm.createSession({ provider: "mock", cwd: dir })
@@ -884,6 +884,74 @@ describe("adapter restore on restart", () => {
     state.pending?.resolve()
     await vi.waitFor(() =>
       expect(restarted.getSession(session.id)?.status).toBe("idle"),
+    )
+  })
+})
+
+describe("browser MCP registration", () => {
+  it("registers once at creation and not again on the first send", async () => {
+    const { sm, dir } = await makeManager()
+    const registered: string[] = []
+    sm.setBrowserMcpRegistrar(async (target) => {
+      registered.push(target.id)
+    })
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    expect(registered).toEqual([session.id])
+
+    await sm.sendMessage(session.id, "hello")
+    expect(registered).toEqual([session.id])
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(sm.getSession(session.id)?.status).toBe("idle"),
+    )
+  })
+
+  it("never rewrites workspace configs from the boot-time restore", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.flush()
+
+    const { restarted } = restart(dir, persistence)
+    const registered: string[] = []
+    restarted.setBrowserMcpRegistrar(async (target) => {
+      registered.push(target.id)
+    })
+    await restarted.init()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(registered).toEqual([])
+
+    await restarted.sendMessage(session.id, "after restart")
+    expect(registered).toEqual([session.id])
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(restarted.getSession(session.id)?.status).toBe("idle"),
+    )
+
+    await restarted.sendMessage(session.id, "again")
+    expect(registered).toEqual([session.id])
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(restarted.getSession(session.id)?.status).toBe("idle"),
+    )
+  })
+
+  it("retries registration on the next send after a failure", async () => {
+    const { sm, dir } = await makeManager()
+    let fail = true
+    const registered: string[] = []
+    sm.setBrowserMcpRegistrar(async (target) => {
+      if (fail) throw new Error("materialize failed")
+      registered.push(target.id)
+    })
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    expect(registered).toEqual([])
+
+    fail = false
+    await sm.sendMessage(session.id, "first")
+    expect(registered).toEqual([session.id])
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(sm.getSession(session.id)?.status).toBe("idle"),
     )
   })
 })

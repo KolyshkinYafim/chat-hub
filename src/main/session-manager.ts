@@ -125,6 +125,7 @@ export class SessionManager {
   private rateLimits = new Map<string, ProviderRateLimits>()
   private permissions: PermissionBroker | null = null
   private registerBrowserMcp: BrowserMcpRegistrar | null = null
+  private browserToolsReady = new Set<string>()
   private readonly hooks: HookRunner
   private readonly archive: MessageArchive
   /** Live-window cap; overridable in tests so overflow is cheap to exercise. */
@@ -174,8 +175,11 @@ export class SessionManager {
 
   /**
    * Writes the built-in browser MCP server into the session's project config.
-   * A CLI reads that config at process start, so every call site must await
-   * this before `adapter.start`, and a failure must never block the spawn.
+   * A CLI reads that config at process start, so this must be awaited before
+   * the CLI process it should reach spawns, and a failure must never block the
+   * spawn. Once per session per run — at creation, then lazily on the first
+   * send — never from the boot-time restore, which would rewrite CLI configs
+   * across every restored workspace on every launch.
    */
   setBrowserMcpRegistrar(register: BrowserMcpRegistrar): void {
     this.registerBrowserMcp = register
@@ -183,9 +187,12 @@ export class SessionManager {
 
   private async prepareBrowserTools(session: BrowserMcpTarget): Promise<void> {
     if (!this.registerBrowserMcp) return
+    if (this.browserToolsReady.has(session.id)) return
+    this.browserToolsReady.add(session.id)
     try {
       await this.registerBrowserMcp(session)
     } catch (err) {
+      this.browserToolsReady.delete(session.id)
       console.warn("[session-manager] browser mcp registration failed", err)
     }
   }
@@ -714,7 +721,6 @@ export class SessionManager {
       const resolved = this.settings.resolveInstance(
         session.instanceId ?? session.provider,
       )
-      await this.prepareBrowserTools(session)
       await adapter.start(
         {
           sessionId: session.id,
@@ -1012,6 +1018,7 @@ export class SessionManager {
       this.turnSystemPrompt(session),
       this.snapshotGate(session, content, userMessageId),
       this.adapterRestore,
+      this.prepareBrowserTools(session),
     ])
     // Stopping during the gate must not resurrect the turn it just killed.
     if (!this.ownsTurn(sessionId, token)) return
@@ -1403,6 +1410,7 @@ export class SessionManager {
     this.queued.delete(sessionId)
     this.usage.delete(sessionId)
     this.configNoted.delete(sessionId)
+    this.browserToolsReady.delete(sessionId)
     await this.discardArchive(sessionId)
     this.hooks.clearSession(sessionId)
     // The CLI is dead, so nothing is left to answer its permission any more.
@@ -1450,6 +1458,7 @@ export class SessionManager {
     this.queued.clear()
     this.usage.clear()
     this.configNoted.clear()
+    this.browserToolsReady.clear()
     for (const id of ids) await this.discardArchive(id)
     for (const id of ids) this.hooks.clearSession(id)
     this.activeSessionId = null
