@@ -260,7 +260,7 @@ function allowanceWindows(limits: ProviderRateLimits): AllowanceWindow[] {
 function allowanceTitle(w: AllowanceWindow): string {
   const spent = `${Math.round(w.used * 100)}% of the ${windowLabel(w.mins)} allowance used`
   if (w.resets === undefined) return spent
-  return `${spent} · resets ${new Date(w.resets).toLocaleString()}`
+  return `${spent} · resets ${new Date(w.resets).toLocaleString("en-US")}`
 }
 
 function windowLabel(mins: number | undefined): string {
