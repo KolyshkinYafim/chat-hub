@@ -275,6 +275,12 @@ function assertExistingDir(path: string): string {
   return real
 }
 
+const bootStart = Date.now()
+let snapshotServed = false
+function bootMark(label: string): void {
+  console.log(`[boot] ${label} +${Date.now() - bootStart}ms`)
+}
+
 function createWindow(): void {
   const saved = settingsStore?.windowState ?? null
   mainWindow = new BrowserWindow({
@@ -320,6 +326,7 @@ function createWindow(): void {
     },
   )
   mainWindow.webContents.on("did-finish-load", () => zoom?.apply())
+  mainWindow.webContents.once("did-finish-load", () => bootMark("renderer.loaded"))
 
   mainWindow.on("closed", () => {
     mainWindow = null
@@ -373,6 +380,10 @@ export function registerIpc(
 ): void {
   ipcMain.handle(IpcChannels.getSnapshot, async () => {
     await ready
+    if (!snapshotServed) {
+      snapshotServed = true
+      bootMark("snapshot.served")
+    }
     return sm.getSnapshot()
   })
   ipcMain.handle(IpcChannels.usageSummary, async () => {
@@ -1621,8 +1632,10 @@ async function bootstrap(): Promise<void> {
   registerBrowserIpc()
   registerMediaProtocol()
   createWindow()
+  bootMark("window.created")
 
   await ready
+  bootMark("ready.resolved")
 
   dockBadge = wireDockBadge(bus, () => sm.listSessions())
   ipcMain.on(IpcChannels.attentionCount, (_e, count: unknown) => {
