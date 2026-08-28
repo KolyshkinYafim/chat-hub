@@ -352,7 +352,7 @@ function createWindow(): void {
   }
 }
 
-function registerIpc(
+export function registerIpc(
   sm: SessionManager,
   bridge: SessionMonitorBridge,
   settings: SettingsStore,
@@ -442,6 +442,7 @@ function registerIpc(
     },
   )
   ipcMain.handle(IpcChannels.createSession, async (_e, input: unknown) => {
+    await ready
     if (!input || typeof input !== "object") {
       throw new Error("Invalid createSession payload")
     }
@@ -469,6 +470,7 @@ function registerIpc(
   ipcMain.handle(
     IpcChannels.sendMessage,
     async (_e, sessionId: unknown, text: unknown, opts?: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid sessionId")
       }
@@ -491,18 +493,21 @@ function registerIpc(
     },
   )
   ipcMain.handle(IpcChannels.abortSession, async (_e, sessionId: unknown) => {
+    await ready
     if (typeof sessionId !== "string" || !sessionId) {
       throw new Error("Invalid sessionId")
     }
     return sm.abortSession(sessionId)
   })
   ipcMain.handle(IpcChannels.deleteSession, async (_e, sessionId: unknown) => {
+    await ready
     if (typeof sessionId !== "string" || !sessionId) {
       throw new Error("Invalid sessionId")
     }
     return sm.deleteSession(sessionId)
   })
-  ipcMain.handle(IpcChannels.setActiveSession, (_e, sessionId: unknown) => {
+  ipcMain.handle(IpcChannels.setActiveSession, async (_e, sessionId: unknown) => {
+    await ready
     if (sessionId !== null && typeof sessionId !== "string") {
       throw new Error("Invalid sessionId")
     }
@@ -740,7 +745,8 @@ function registerIpc(
   })
   ipcMain.handle(
     IpcChannels.checkpointRevert,
-    (_e, sessionId: unknown, ref: unknown) => {
+    async (_e, sessionId: unknown, ref: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid session id")
       }
@@ -866,6 +872,7 @@ function registerIpc(
   })
 
   ipcMain.handle(IpcChannels.wipeSessions, async () => {
+    await ready
     await sm.wipeSessions()
     return sm.getSnapshot()
   })
@@ -916,6 +923,7 @@ function registerIpc(
   ipcMain.handle(
     IpcChannels.setSessionPermission,
     async (_e, sessionId: unknown, mode: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Session id required")
       }
@@ -1057,7 +1065,8 @@ function registerIpc(
 
   ipcMain.handle(
     IpcChannels.setSessionModel,
-    (_e, sessionId: unknown, model: unknown) => {
+    async (_e, sessionId: unknown, model: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid sessionId")
       }
@@ -1068,7 +1077,8 @@ function registerIpc(
 
   ipcMain.handle(
     IpcChannels.applySessionMode,
-    (_e, sessionId: unknown, patch: unknown) => {
+    async (_e, sessionId: unknown, patch: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid sessionId")
       }
@@ -1094,7 +1104,8 @@ function registerIpc(
 
   ipcMain.handle(
     IpcChannels.sessionSetSettled,
-    (_e, sessionId: unknown, settled: unknown) => {
+    async (_e, sessionId: unknown, settled: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid sessionId")
       }
@@ -1105,7 +1116,8 @@ function registerIpc(
 
   ipcMain.handle(
     IpcChannels.sessionSetFavorite,
-    (_e, sessionId: unknown, favorite: unknown) => {
+    async (_e, sessionId: unknown, favorite: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid sessionId")
       }
@@ -1118,7 +1130,8 @@ function registerIpc(
 
   ipcMain.handle(
     IpcChannels.sessionRename,
-    (_e, sessionId: unknown, title: unknown) => {
+    async (_e, sessionId: unknown, title: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid sessionId")
       }
@@ -1129,7 +1142,8 @@ function registerIpc(
 
   ipcMain.handle(
     IpcChannels.sessionSetArchived,
-    (_e, sessionId: unknown, archived: unknown) => {
+    async (_e, sessionId: unknown, archived: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid sessionId")
       }
@@ -1140,14 +1154,16 @@ function registerIpc(
     },
   )
 
-  ipcMain.handle(IpcChannels.sessionMigrateArchived, (_e, ids: unknown) => {
+  ipcMain.handle(IpcChannels.sessionMigrateArchived, async (_e, ids: unknown) => {
+    await ready
     if (!Array.isArray(ids)) throw new Error("Invalid ids")
     sm.migrateArchived(ids.filter((id): id is string => typeof id === "string"))
   })
 
   ipcMain.handle(
     IpcChannels.sessionRegenerateTitle,
-    (_e, sessionId: unknown) => {
+    async (_e, sessionId: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid sessionId")
       }
@@ -1242,6 +1258,7 @@ function registerIpc(
   })
 
   ipcMain.handle(IpcChannels.addProject, async (_e, cwd: unknown) => {
+    await ready
     let folder: string | null =
       typeof cwd === "string" && cwd.trim() ? cwd.trim() : null
     if (!folder) {
@@ -1261,6 +1278,7 @@ function registerIpc(
   ipcMain.handle(
     IpcChannels.renameProject,
     async (_e, id: unknown, name: unknown) => {
+      await ready
       if (typeof id !== "string" || !id) throw new Error("Invalid project id")
       if (typeof name !== "string") throw new Error("Invalid name")
       return projects.renameProject(id, name)
@@ -1268,6 +1286,7 @@ function registerIpc(
   )
 
   ipcMain.handle(IpcChannels.removeProject, async (_e, id: unknown) => {
+    await ready
     if (typeof id !== "string" || !id) throw new Error("Invalid project id")
     return projects.remove(id)
   })
@@ -1447,6 +1466,40 @@ export function startSingleInstance(
   return "boot"
 }
 
+export async function bootReadyChain(opts: {
+  projects: ProjectStore
+  sm: SessionManager
+  usageLedger: UsageLedger
+  startBroker: () => Promise<void>
+}): Promise<void> {
+  const { projects, sm, usageLedger } = opts
+  await projects.load()
+  // Before the first turn can spawn: dispatch() reads the socket path to point
+  // the CLI's hook at us, so a broker that starts late loses that session's
+  // approvals to the island.
+  await opts.startBroker()
+  await sm.init()
+  await usageLedger.init(
+    seedFromSessions(sm.listSessions(), sm.getSnapshot().usage),
+  )
+  // Backfill: every existing session folder becomes a first-class project so it
+  // stays pinned/manageable in the sidebar even after its sessions are gone.
+  // Runs before ready resolves — the renderer's gated listProjects must never
+  // race it, and it is disk-fast.
+  for (const s of sm.listSessions()) {
+    await projects.ensure(s.cwd, s.project)
+  }
+}
+
+export function failBootstrap(err: unknown): void {
+  console.error("[bootstrap] failed", err)
+  dialog.showErrorBox(
+    "Chat Hub failed to start",
+    err instanceof Error ? (err.stack ?? err.message) : String(err),
+  )
+  app.exit(1)
+}
+
 async function bootstrap(): Promise<void> {
   if (process.platform === "darwin") {
     app.setName("Chat Hub")
@@ -1530,22 +1583,19 @@ async function bootstrap(): Promise<void> {
     }),
   )
 
-  const ready = (async () => {
-    await projects.load()
-    // Before the first turn can spawn: dispatch() reads the socket path to point
-    // the CLI's hook at us, so a broker that starts late loses that session's
-    // approvals to the island.
-    const broker = new PermissionBroker(bus, (agentSessionId, cwd) =>
-      sm.findSessionForAgent(agentSessionId, cwd),
-    )
-    permissions = broker
-    await broker.start()
-    sm.setPermissionBroker(broker)
-    await sm.init()
-    await usageLedger.init(
-      seedFromSessions(sm.listSessions(), sm.getSnapshot().usage),
-    )
-  })()
+  const ready = bootReadyChain({
+    projects,
+    sm,
+    usageLedger,
+    startBroker: async () => {
+      const broker = new PermissionBroker(bus, (agentSessionId, cwd) =>
+        sm.findSessionForAgent(agentSessionId, cwd),
+      )
+      permissions = broker
+      await broker.start()
+      sm.setPermissionBroker(broker)
+    },
+  })
 
   registerIpc(
     sm,
@@ -1563,12 +1613,6 @@ async function bootstrap(): Promise<void> {
   createWindow()
 
   await ready
-
-  // Backfill: every existing session folder becomes a first-class project so it
-  // stays pinned/manageable in the sidebar even after its sessions are gone.
-  for (const s of sm.listSessions()) {
-    await projects.ensure(s.cwd, s.project)
-  }
 
   await browserService.start()
 
@@ -1603,7 +1647,7 @@ function boot(): void {
   // Privileged schemes are only registrable before "ready" — the media
   // protocol the Files surface streams video/audio through is one of them.
   registerMediaScheme()
-  void app.whenReady().then(bootstrap)
+  void app.whenReady().then(() => bootstrap().catch(failBootstrap))
 
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit()
