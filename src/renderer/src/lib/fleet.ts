@@ -5,6 +5,7 @@ import type {
   SessionStatus,
   SessionUsage,
 } from "@shared/types"
+import { STATUS_RANK } from "@shared/attention"
 import { buildTranscript } from "./tool-runs"
 import { currentStep, type LiveStep } from "./live-step"
 
@@ -39,14 +40,6 @@ export type Fleet = {
   groups: FleetGroup[]
   counts: FleetCounts
   total: number
-}
-
-const STATUS_RANK: Record<SessionStatus, number> = {
-  running: 0,
-  waiting_input: 1,
-  error: 2,
-  idle: 3,
-  done: 3,
 }
 
 function rowRank(row: FleetRow): number {

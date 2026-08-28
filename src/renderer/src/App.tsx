@@ -259,11 +259,22 @@ export default function App() {
         break
       case "session.status":
         setSessions((curr) =>
-          curr.map((s) =>
-            s.id === event.id
-              ? { ...s, status: event.status, updatedAt: Date.now() }
-              : s,
-          ),
+          curr.map((s) => {
+            if (s.id !== event.id) return s
+            const at = event.at
+            const activityAt =
+              at === undefined ? s.activityAt : Math.max(s.activityAt ?? 0, at)
+            const updatedAt =
+              at === undefined ? s.updatedAt : Math.max(s.updatedAt, at)
+            if (
+              s.status === event.status &&
+              s.activityAt === activityAt &&
+              s.updatedAt === updatedAt
+            ) {
+              return s
+            }
+            return { ...s, status: event.status, activityAt, updatedAt }
+          }),
         )
         break
       case "messages.replaced":
@@ -385,21 +396,18 @@ export default function App() {
           curr.filter((request) => request.requestId !== event.requestId),
         )
         break
-      case "session.ended":
+      case "session.ended": {
+        if (event.reason === "killed") break
+        const ended = event.reason === "error" ? "error" : "done"
         setSessions((curr) =>
           curr.map((s) =>
-            s.id === event.id && event.reason === "killed"
-              ? s
-              : s.id === event.id
-                ? {
-                    ...s,
-                    status: event.reason === "error" ? "error" : "done",
-                    updatedAt: Date.now(),
-                  }
-                : s,
+            s.id === event.id && s.status !== ended
+              ? { ...s, status: ended }
+              : s,
           ),
         )
         break
+      }
       case "hook.ran":
         setHooksBySession((curr) => {
           const list = curr[event.run.sessionId] ?? []

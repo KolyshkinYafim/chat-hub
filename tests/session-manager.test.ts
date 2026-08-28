@@ -668,6 +668,129 @@ describe("waiting_input from pendingInputs", () => {
   })
 })
 
+describe("activity stamps", () => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+  function statusEvents(events: HubEvent[], id: string) {
+    return events.filter(
+      (e): e is Extract<HubEvent, { type: "session.status" }> =>
+        e.type === "session.status" && e.id === id,
+    )
+  }
+
+  it("stamps activityAt and the event only on a real transition", async () => {
+    const { sm, dir, events } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    expect(session.activityAt).toBe(session.updatedAt)
+
+    await sleep(5)
+    await sm.sendMessage(session.id, "go")
+    await vi.waitFor(() =>
+      expect(sm.getSession(session.id)?.status).toBe("running"),
+    )
+
+    const running = sm.getSession(session.id)
+    expect(running?.activityAt).toBeGreaterThan(session.activityAt ?? 0)
+    expect(running?.updatedAt).toBe(running?.activityAt)
+    const published = statusEvents(events, session.id)
+    expect(published.at(-1)?.status).toBe("running")
+    expect(published.at(-1)?.at).toBe(running?.activityAt)
+    state.pending?.resolve()
+  })
+
+  it("republishes an unchanged status with the old stamp, not a new one", async () => {
+    const { sm, dir, bus, events } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    const broker = new PermissionBroker(
+      bus,
+      () => session.id,
+      join(tmpdir(), `island-${Math.random()}.sock`),
+      join(tmpdir(), `hub-${Math.random()}.sock`),
+    )
+    sm.setPermissionBroker(broker)
+
+    const ask = (requestId: string) =>
+      broker.requestInputFromAdapter({
+        requestId,
+        sessionId: session.id,
+        source: "codex",
+        questions: [{ id: "q1", header: "Q", prompt: "say?" }],
+      })
+
+    void ask("first")
+    await vi.waitFor(() =>
+      expect(sm.getSession(session.id)?.status).toBe("waiting_input"),
+    )
+    const stamped = sm.getSession(session.id)?.activityAt
+
+    await sleep(5)
+    void ask("second")
+    await vi.waitFor(() =>
+      expect(
+        statusEvents(events, session.id).filter(
+          (e) => e.status === "waiting_input",
+        ),
+      ).toHaveLength(2),
+    )
+
+    const waits = statusEvents(events, session.id).filter(
+      (e) => e.status === "waiting_input",
+    )
+    expect(waits[0].at).toBe(stamped)
+    expect(waits[1].at).toBe(stamped)
+    expect(sm.getSession(session.id)?.activityAt).toBe(stamped)
+    broker.resolveInput("first", { q1: ["x"] })
+    broker.resolveInput("second", { q1: ["x"] })
+  })
+
+  it("keeps activityAt still through metadata edits that bump updatedAt", async () => {
+    const { sm, dir } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    const before = sm.getSession(session.id)?.activityAt
+
+    await sleep(5)
+    sm.setSessionFavorite(session.id, true)
+    sm.renameSession(session.id, "Handled elsewhere")
+    sm.setSessionModel(session.id, "opus")
+    sm.setSessionPermissionMode(session.id, "acceptEdits")
+
+    const after = sm.getSession(session.id)
+    expect(after?.activityAt).toBe(before)
+    expect(after?.updatedAt).toBeGreaterThan(before ?? Number.MAX_SAFE_INTEGER)
+  })
+
+  it("restores done as idle and keeps or seeds the persisted stamp", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const done = await sm.createSession({ provider: "mock", cwd: dir })
+    const legacy = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.flush()
+
+    const saved = await persistence.load()
+    saved.sessions = saved.sessions.map((s) => {
+      if (s.id === done.id) return { ...s, status: "done" }
+      const { activityAt: _activityAt, ...rest } = s
+      return { ...rest, status: "done", updatedAt: 4321 }
+    })
+    await persistence.save(saved)
+
+    const restarted = new SessionManager(
+      new EventBus(),
+      persistence,
+      new SessionMonitorBridge(join(dir, "events.jsonl")),
+      { handle: () => {} } as unknown as NotificationService,
+      new SettingsStore(join(dir, "settings.json")),
+      { intervalMs: 60_000, silenceMs: 60_000 },
+      { titleGenerator: async () => null },
+    )
+    await restarted.init()
+
+    expect(restarted.getSession(done.id)?.status).toBe("idle")
+    expect(restarted.getSession(done.id)?.activityAt).toBe(done.activityAt)
+    expect(restarted.getSession(legacy.id)?.status).toBe("idle")
+    expect(restarted.getSession(legacy.id)?.activityAt).toBe(4321)
+  })
+})
+
 describe("message archive overflow", () => {
   async function fillAndResolve(
     sm: InstanceType<typeof SessionManager>,

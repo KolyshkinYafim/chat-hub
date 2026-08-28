@@ -1,5 +1,10 @@
 import type { SessionMeta } from "@shared/types"
-import { needsAction } from "@shared/attention"
+import {
+  activityStamp,
+  attentionEligible,
+  needsAction,
+  STATUS_RANK,
+} from "@shared/attention"
 
 export type AttentionSeen = Readonly<Record<string, number>>
 
@@ -11,8 +16,8 @@ export function isUnseenDone(
   seen: AttentionSeen,
 ): boolean {
   if (session.status !== "done") return false
-  if (session.archived || session.settledAt !== undefined) return false
-  return (seen[session.id] ?? 0) < session.updatedAt
+  if (!attentionEligible(session)) return false
+  return (seen[session.id] ?? 0) < activityStamp(session)
 }
 
 export function needsAttention(
@@ -20,12 +25,6 @@ export function needsAttention(
   seen: AttentionSeen,
 ): boolean {
   return needsAction(session) || isUnseenDone(session, seen)
-}
-
-const CLASS_RANK: Partial<Record<SessionMeta["status"], number>> = {
-  waiting_input: 0,
-  error: 1,
-  done: 2,
 }
 
 export function attentionQueue(
@@ -36,8 +35,8 @@ export function attentionQueue(
     .filter((s) => needsAttention(s, seen))
     .sort(
       (a, b) =>
-        (CLASS_RANK[a.status] ?? 3) - (CLASS_RANK[b.status] ?? 3) ||
-        a.updatedAt - b.updatedAt ||
+        STATUS_RANK[a.status] - STATUS_RANK[b.status] ||
+        activityStamp(a) - activityStamp(b) ||
         a.id.localeCompare(b.id),
     )
 }
@@ -54,10 +53,25 @@ export function nextAttention(
 export function markSeen(
   seen: AttentionSeen,
   sessionId: string,
-  seenUpdatedAt: number,
+  stamp: number,
 ): AttentionSeen {
-  if ((seen[sessionId] ?? 0) >= seenUpdatedAt) return seen
-  return { ...seen, [sessionId]: seenUpdatedAt }
+  if ((seen[sessionId] ?? 0) >= stamp) return seen
+  return { ...seen, [sessionId]: stamp }
+}
+
+export function parseAttentionSeen(raw: string | null): AttentionSeen {
+  if (raw === null) return {}
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {}
+    const out: Record<string, number> = {}
+    for (const [id, at] of Object.entries(parsed)) {
+      if (typeof at === "number" && Number.isFinite(at)) out[id] = at
+    }
+    return out
+  } catch {
+    return {}
+  }
 }
 
 export function pruneSeen(
@@ -91,7 +105,7 @@ export function dampOrder(
     : { order: merged, resortedAt: prev.resortedAt }
 }
 
-function mergeMembership(
+export function mergeMembership(
   committed: readonly string[],
   desired: readonly string[],
 ): string[] {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { SessionMeta } from "@shared/types"
+import { activityStamp } from "@shared/attention"
 import type { PaneLayout } from "./pane-layout"
 import {
   attentionQueue,
@@ -82,14 +83,14 @@ export function useAttention(
   }, [visibleDone])
 
   const visibleDoneKey = visibleDone
-    .map((s) => `${s.id}:${s.updatedAt}`)
+    .map((s) => `${s.id}:${activityStamp(s)}`)
     .join("|")
 
   useEffect(() => {
     if (!pageVisible || visibleDoneKey === "") return
     const timers = visibleDoneRef.current.map((s) => {
       const id = s.id
-      const at = s.updatedAt
+      const at = activityStamp(s)
       return window.setTimeout(() => {
         commitSeen((curr) => markSeen(curr, id, at))
       }, DONE_SEEN_DWELL_MS)

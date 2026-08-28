@@ -91,6 +91,23 @@ describe("seen semantics for done sessions", () => {
     expect(seen).toEqual({ s1: 20 })
   })
 
+  it("compares against activityAt, so a metadata bump cannot resurrect it", () => {
+    const s = session({ status: "done", activityAt: 10, updatedAt: 40 })
+    expect(isUnseenDone(s, markSeen({}, s.id, 10))).toBe(false)
+  })
+
+  it("falls back to updatedAt for sessions that predate the stamp", () => {
+    expect(isUnseenDone(session({ status: "done", updatedAt: 10 }), {})).toBe(
+      true,
+    )
+    expect(
+      isUnseenDone(
+        session({ status: "done", updatedAt: 10 }),
+        markSeen({}, "s1", 10),
+      ),
+    ).toBe(false)
+  })
+
   it("settled or archived done sessions are not unseen", () => {
     expect(
       isUnseenDone(session({ status: "done", settledAt: 5 }), {}),
@@ -126,6 +143,23 @@ describe("attentionQueue", () => {
   it("sorts a class by how long it has waited, oldest first", () => {
     const queue = attentionQueue([waitingNew, waitingOld], {})
     expect(queue.map((s) => s.id)).toEqual(["w-old", "w-new"])
+  })
+
+  it("orders by activityAt, unmoved by later metadata-only updatedAt bumps", () => {
+    const renamed = session({
+      id: "renamed",
+      status: "waiting_input",
+      activityAt: 5,
+      updatedAt: 90,
+    })
+    const untouched = session({
+      id: "untouched",
+      status: "waiting_input",
+      activityAt: 20,
+      updatedAt: 20,
+    })
+    const queue = attentionQueue([untouched, renamed], {})
+    expect(queue.map((s) => s.id)).toEqual(["renamed", "untouched"])
   })
 
   it("breaks exact ties deterministically by id", () => {
