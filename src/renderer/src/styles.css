@@ -4359,11 +4359,6 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   white-space: nowrap;
 }
 
-.palette-cmd {
-  border-bottom: 1px solid var(--border-soft);
-  border-radius: 8px 8px 0 0;
-}
-
 .palette-cmd .palette-title {
   color: var(--waiting);
   font-weight: 600;
