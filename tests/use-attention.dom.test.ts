@@ -10,6 +10,7 @@ import {
   RESORT_INTERVAL_MS,
 } from "../src/renderer/src/lib/attention"
 import { useAttention } from "../src/renderer/src/lib/use-attention"
+import { isEditableTarget } from "../src/renderer/src/lib/editable-target"
 import { useDampedOrder } from "../src/renderer/src/lib/use-damped-order"
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
@@ -240,5 +241,28 @@ describe("useDampedOrder", () => {
     expect(held).toEqual(["b", "a"])
     expect(h.result.current).toContain("n")
     h.unmount()
+  })
+})
+
+describe("isEditableTarget", () => {
+  it("recognises inputs, textareas, selects and contenteditable hosts", () => {
+    expect(isEditableTarget(document.createElement("input"))).toBe(true)
+    expect(isEditableTarget(document.createElement("textarea"))).toBe(true)
+    expect(isEditableTarget(document.createElement("select"))).toBe(true)
+    const host = document.createElement("div")
+    host.setAttribute("contenteditable", "true")
+    const child = document.createElement("span")
+    host.append(child)
+    document.body.append(host)
+    expect(isEditableTarget(host)).toBe(true)
+    expect(isEditableTarget(child)).toBe(true)
+    host.remove()
+  })
+
+  it("passes plain elements and non-elements through", () => {
+    expect(isEditableTarget(document.createElement("div"))).toBe(false)
+    expect(isEditableTarget(document.createElement("button"))).toBe(false)
+    expect(isEditableTarget(null)).toBe(false)
+    expect(isEditableTarget(window)).toBe(false)
   })
 })

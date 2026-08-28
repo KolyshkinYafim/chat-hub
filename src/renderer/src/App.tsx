@@ -83,6 +83,7 @@ import {
   saveSidebarWidth,
 } from "./lib/shell-size"
 import { useAttention } from "./lib/use-attention"
+import { isEditableTarget } from "./lib/editable-target"
 import { SettingsModal } from "./components/SettingsModal"
 import {
   NewSessionDialog,
@@ -1488,6 +1489,7 @@ export default function App() {
         return
       }
       if (!meta && e.altKey && e.shiftKey && e.code === "KeyU") {
+        if (anyOverlayOpen || isEditableTarget(e.target)) return
         e.preventDefault()
         attention.jumpNext()
         return
