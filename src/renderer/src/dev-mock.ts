@@ -916,6 +916,7 @@ const settings: SettingsSnapshot = {
     onboarded: !wantWizard,
   },
   statuses,
+  statusesCachedAt: Date.now(),
 }
 
 const dataPaths = {
