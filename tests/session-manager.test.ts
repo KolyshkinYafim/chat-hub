@@ -32,6 +32,7 @@ const { adapter, state } = vi.hoisted(() => {
     } | null,
     startEmitsRunning: false,
     startThrows: false,
+    startDelay: null as Promise<void> | null,
     // A real CLI reports "running" a tick late; turning this off reproduces
     // that window, where only the in-flight turn itself marks the session busy.
     sendEmitsRunning: true,
@@ -44,6 +45,7 @@ const { adapter, state } = vi.hoisted(() => {
     id: "mock" as const,
     available: true,
     async start(opts: AdapterStartOpts, cb: AdapterCallbacks): Promise<void> {
+      if (state.startDelay) await state.startDelay
       if (state.startThrows) throw new Error("binary not found")
       if (state.startEmitsRunning) {
         cb.onSessionEvent({
@@ -138,6 +140,7 @@ beforeEach(() => {
   state.pending = null
   state.startEmitsRunning = false
   state.startThrows = false
+  state.startDelay = null
   state.sendEmitsRunning = true
   state.usage = null
   state.lastEnv = undefined
@@ -816,6 +819,72 @@ describe("message archive overflow", () => {
     const archive = MessageArchive.fromStatePath("/tmp/whatever/state.json")
     expect(() => archive.fileFor("../../etc")).toThrow(/Invalid session id/)
     expect(() => archive.fileFor("")).toThrow(/Invalid session id/)
+  })
+})
+
+describe("adapter restore on restart", () => {
+  function restart(
+    dir: string,
+    persistence: InstanceType<typeof Persistence>,
+  ) {
+    const bus = new EventBus()
+    const events: HubEvent[] = []
+    bus.on((e) => events.push(e))
+    const restarted = new SessionManager(
+      bus,
+      persistence,
+      new SessionMonitorBridge(join(dir, "events.jsonl")),
+      { handle: () => {} } as unknown as NotificationService,
+      new SettingsStore(join(dir, "settings.json")),
+      { intervalMs: 60_000, silenceMs: 60_000 },
+      { titleGenerator: async () => null },
+    )
+    return { restarted, events }
+  }
+
+  it("publishes restored sessions before the adapters finish re-registering", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.flush()
+
+    let releaseStart = () => {}
+    state.startDelay = new Promise<void>((resolve) => {
+      releaseStart = resolve
+    })
+    const { restarted, events } = restart(dir, persistence)
+    await restarted.init()
+
+    expect(restarted.getSession(session.id)).toBeDefined()
+    expect(
+      events.some(
+        (e) => e.type === "sessions.replaced" && e.sessions.length === 1,
+      ),
+    ).toBe(true)
+    releaseStart()
+  })
+
+  it("holds a send until the restored adapter is ready", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.flush()
+
+    let releaseStart = () => {}
+    state.startDelay = new Promise<void>((resolve) => {
+      releaseStart = resolve
+    })
+    const { restarted } = restart(dir, persistence)
+    await restarted.init()
+
+    const send = restarted.sendMessage(session.id, "after restart")
+    expect(state.sent).toEqual([])
+    state.startDelay = null
+    releaseStart()
+    await send
+    expect(state.sent).toEqual(["after restart"])
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(restarted.getSession(session.id)?.status).toBe("idle"),
+    )
   })
 })
 

@@ -131,6 +131,7 @@ export class SessionManager {
   private readonly maxMessages: number
   /** Sessions that have spilled into archive.jsonl (or already had one on disk). */
   private archivedSessions = new Set<string>()
+  private adapterRestore: Promise<void> = Promise.resolve()
   /** Preserve archive order and let an immediate scroll-back wait for its write. */
   private archiveWrites = new Map<string, Promise<void>>()
   private inputStatusWired = false
@@ -687,15 +688,18 @@ export class SessionManager {
       sessions: this.listSessions(),
     })
 
-    // Re-register restored sessions with their adapter so follow-up turns work
-    // after a restart (otherwise send() throws "Session not started"), seeding
-    // the persisted CLI session id for resume.
     for (const session of this.listSessions()) {
-      await this.restoreAdapter(session)
       if (await this.archive.hasArchive(session.id)) {
         this.archivedSessions.add(session.id)
       }
     }
+
+    // Re-register restored sessions with their adapter so follow-up turns work
+    // after a restart (otherwise send() throws "Session not started"), seeding
+    // the persisted CLI session id for resume.
+    this.adapterRestore = Promise.allSettled(
+      this.listSessions().map((session) => this.restoreAdapter(session)),
+    ).then(() => undefined)
 
     this.startWatchdog()
   }
@@ -1007,6 +1011,7 @@ export class SessionManager {
     const [systemPrompt] = await Promise.all([
       this.turnSystemPrompt(session),
       this.snapshotGate(session, content, userMessageId),
+      this.adapterRestore,
     ])
     // Stopping during the gate must not resurrect the turn it just killed.
     if (!this.ownsTurn(sessionId, token)) return
