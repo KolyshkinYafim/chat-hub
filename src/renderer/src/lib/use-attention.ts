@@ -16,10 +16,6 @@ import { useDampedOrder } from "./use-damped-order"
 
 const SEEN_KEY = "chat-hub.attention.seen"
 
-export function loadAttentionSeen(): AttentionSeen {
-  return parseAttentionSeen(localStorage.getItem(SEEN_KEY))
-}
-
 type DwellEntry = { stamp: number; timer: number }
 
 export function useAttention(
