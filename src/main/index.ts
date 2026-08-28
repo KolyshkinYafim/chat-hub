@@ -9,6 +9,7 @@ import { EventBus } from "./event-bus"
 import { SessionMonitorBridge } from "./bridge"
 import { MonitorCommandBridge } from "./command-bridge"
 import { NotificationService } from "./notifications"
+import { wireDockBadge } from "./dock-badge"
 import { Persistence } from "./persistence"
 import { ProjectStore } from "./project-store"
 import { SessionManager, type SendOpts } from "./session-manager"
@@ -1503,6 +1504,8 @@ async function bootstrap(): Promise<void> {
       mainWindow.webContents.send(IpcChannels.hubEvent, event)
     }
   })
+
+  wireDockBadge(bus, () => sm.listSessions())
 
   const store = settings
   manager.setBrowserMcpRegistrar((session) =>
