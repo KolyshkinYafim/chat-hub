@@ -1631,6 +1631,7 @@ export default function App() {
         projects={projects}
         activeId={activeId}
         attentionSeen={attention.seen}
+        needsYou={attention.queue}
         busy={busy}
         collapsed={sidebarCollapsed}
         width={sidebarWidth}

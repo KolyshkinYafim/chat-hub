@@ -6,7 +6,10 @@ import {
   belongsInNeedsYouGroup,
   belongsInProjectGroups,
   belongsInSettledGroup,
+  partitionSidebarRows,
+  sessionBucket,
   type RowContext,
+  type RowHold,
 } from "../src/renderer/src/lib/sidebar-rows"
 
 function session(patch: Partial<SessionMeta> = {}): SessionMeta {
@@ -23,7 +26,12 @@ function session(patch: Partial<SessionMeta> = {}): SessionMeta {
   }
 }
 
-const idle: RowContext = { searching: false, activeId: null, seen: {} }
+const idle: RowContext = {
+  searching: false,
+  statusFiltered: false,
+  activeId: null,
+  seen: {},
+}
 
 describe("project groups", () => {
   it("lists a live session", () => {
@@ -249,6 +257,7 @@ describe("the four groups partition the sidebar", () => {
   it("puts every unarchived session in exactly one of them", () => {
     const ctx: RowContext = {
       searching: false,
+      statusFiltered: false,
       activeId: "open",
       seen: { "seen-done": 2 },
     }
@@ -260,6 +269,19 @@ describe("the four groups partition the sidebar", () => {
   it("still puts each in exactly one once a query is typed", () => {
     const ctx: RowContext = {
       searching: true,
+      statusFiltered: false,
+      activeId: "open",
+      seen: { "seen-done": 2 },
+    }
+    for (const s of all) {
+      expect(groupsHolding(s, ctx)).toHaveLength(1)
+    }
+  })
+
+  it("still puts each in exactly one while a status chip filters", () => {
+    const ctx: RowContext = {
+      searching: false,
+      statusFiltered: true,
       activeId: "open",
       seen: { "seen-done": 2 },
     }
@@ -271,11 +293,153 @@ describe("the four groups partition the sidebar", () => {
   it("leaves an archived session out of all four", () => {
     const ctx: RowContext = {
       searching: false,
+      statusFiltered: false,
       activeId: "open",
       seen: { "seen-done": 2 },
     }
     for (const s of all) {
       expect(groupsHolding({ ...s, archived: true }, ctx)).toHaveLength(0)
     }
+  })
+})
+
+describe("status chip bypass", () => {
+  const filtered: RowContext = { ...idle, statusFiltered: true }
+
+  it("returns attention sessions to the project groups while a chip is active", () => {
+    const waiting = session({ status: "waiting_input" })
+    expect(belongsInNeedsYouGroup(waiting, filtered)).toBe(false)
+    expect(belongsInProjectGroups(waiting, filtered)).toBe(true)
+  })
+
+  it("keeps the pre-branch favourite lift while a chip is active", () => {
+    const favWaiting = session({ favorite: true, status: "waiting_input" })
+    expect(belongsInFavoritesGroup(favWaiting, filtered)).toBe(true)
+    expect(belongsInProjectGroups(favWaiting, filtered)).toBe(false)
+  })
+
+  it("still excludes settled sessions from the project groups", () => {
+    expect(
+      belongsInProjectGroups(session({ settledAt: 5 }), filtered),
+    ).toBe(false)
+  })
+})
+
+describe("sessionBucket", () => {
+  const sample = [
+    session({ id: "live" }),
+    session({ id: "settled", settledAt: 5 }),
+    session({ id: "open", settledAt: 5 }),
+    session({ id: "fav", favorite: true }),
+    session({ id: "waiting", status: "waiting_input" }),
+    session({ id: "failed", status: "error" }),
+    session({ id: "fresh-done", status: "done" }),
+    session({ id: "seen-done", status: "done", updatedAt: 2 }),
+    session({ id: "fav-waiting", favorite: true, status: "waiting_input" }),
+    session({ id: "gone", archived: true }),
+  ]
+
+  const contexts: RowContext[] = [
+    { searching: false, statusFiltered: false, activeId: "open", seen: { "seen-done": 2 } },
+    { searching: true, statusFiltered: false, activeId: "open", seen: { "seen-done": 2 } },
+    { searching: false, statusFiltered: true, activeId: "open", seen: { "seen-done": 2 } },
+    { searching: false, statusFiltered: false, activeId: null, seen: {} },
+  ]
+
+  it("agrees with the four membership predicates in every context", () => {
+    for (const ctx of contexts) {
+      for (const s of sample) {
+        const bucket = sessionBucket(s, ctx)
+        expect(bucket === "archived").toBe(s.archived === true)
+        expect(bucket === "needs-you").toBe(belongsInNeedsYouGroup(s, ctx))
+        expect(bucket === "favorites").toBe(belongsInFavoritesGroup(s, ctx))
+        expect(bucket === "settled").toBe(belongsInSettledGroup(s, ctx))
+        expect(bucket === "projects").toBe(belongsInProjectGroups(s, ctx))
+      }
+    }
+  })
+})
+
+describe("partitionSidebarRows", () => {
+  const waiting = session({ id: "w", status: "waiting_input", updatedAt: 10 })
+  const failed = session({ id: "f", status: "error", updatedAt: 20 })
+  const done = session({ id: "d", status: "done", updatedAt: 30 })
+  const plain = session({ id: "p", updatedAt: 40 })
+  const fav = session({ id: "s", favorite: true, updatedAt: 50 })
+  const put = session({ id: "z", settledAt: 5, updatedAt: 60 })
+  const sessions = [waiting, failed, done, plain, fav, put]
+  const queue = [waiting, failed, done]
+
+  it("passes the queue through in its given order, without re-filtering", () => {
+    const rows = partitionSidebarRows(sessions, queue, idle, null)
+    expect(rows.needsYou.map((s) => s.id)).toEqual(["w", "f", "d"])
+    expect(rows.favorites.map((s) => s.id)).toEqual(["s"])
+    expect(rows.projects.map((s) => s.id)).toEqual(["p"])
+    expect(rows.settled.map((s) => s.id)).toEqual(["z"])
+    expect(rows.archived).toEqual([])
+  })
+
+  it("hides the queue and restores classic groups while a chip filters", () => {
+    const rows = partitionSidebarRows(
+      sessions,
+      queue,
+      { ...idle, statusFiltered: true },
+      null,
+    )
+    expect(rows.needsYou).toEqual([])
+    expect(rows.projects.map((s) => s.id).sort()).toEqual(["d", "f", "p", "w"])
+  })
+
+  it("holds a row in Needs you at its old index while it is being renamed", () => {
+    const hold: RowHold = { session: failed, seen: {}, queueIndex: 1 }
+    const seenNow = { f: failed.updatedAt }
+    const settledQueue = [waiting, done]
+    const rows = partitionSidebarRows(
+      sessions,
+      settledQueue,
+      { ...idle, seen: seenNow },
+      hold,
+    )
+    expect(rows.needsYou.map((s) => s.id)).toEqual(["w", "f", "d"])
+    expect(rows.projects.map((s) => s.id)).toEqual(["p"])
+  })
+
+  it("re-inserts the live row, so its rendered fields stay current", () => {
+    const renamed = { ...failed, title: "Renamed meanwhile" }
+    const hold: RowHold = { session: failed, seen: {}, queueIndex: 0 }
+    const rows = partitionSidebarRows(
+      [renamed, plain],
+      [],
+      { ...idle, seen: { f: failed.updatedAt } },
+      hold,
+    )
+    expect(rows.needsYou[0]?.title).toBe("Renamed meanwhile")
+  })
+
+  it("holds a row in its project group when it starts waiting mid-interaction", () => {
+    const wasIdle = session({ id: "p2", updatedAt: 40 })
+    const nowWaiting = { ...wasIdle, status: "waiting_input" as const }
+    const hold: RowHold = { session: wasIdle, seen: {}, queueIndex: -1 }
+    const rows = partitionSidebarRows(
+      [nowWaiting, plain],
+      [nowWaiting],
+      idle,
+      hold,
+    )
+    expect(rows.needsYou).toEqual([])
+    expect(rows.projects.map((s) => s.id).sort()).toEqual(["p", "p2"])
+  })
+
+  it("lets the deferred reparent land once the hold is released", () => {
+    const wasIdle = session({ id: "p2", updatedAt: 40 })
+    const nowWaiting = { ...wasIdle, status: "waiting_input" as const }
+    const rows = partitionSidebarRows(
+      [nowWaiting, plain],
+      [nowWaiting],
+      idle,
+      null,
+    )
+    expect(rows.needsYou.map((s) => s.id)).toEqual(["p2"])
+    expect(rows.projects.map((s) => s.id)).toEqual(["p"])
   })
 })

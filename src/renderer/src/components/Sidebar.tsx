@@ -9,17 +9,12 @@ import {
 } from "@shared/search"
 import { formatRelative, statusLabel } from "../lib/format"
 import { PROJECT_MIME, SESSION_MIME } from "../lib/pane-layout"
+import { needsAction } from "@shared/attention"
+import { type AttentionSeen } from "../lib/attention"
 import {
-  attentionQueue,
-  dampOrder,
-  type AttentionSeen,
-  type DampedOrder,
-} from "../lib/attention"
-import {
-  belongsInFavoritesGroup,
-  belongsInNeedsYouGroup,
-  belongsInProjectGroups,
-  belongsInSettledGroup,
+  partitionSidebarRows,
+  type RowContext,
+  type RowHold,
 } from "../lib/sidebar-rows"
 import { StatusDot } from "./StatusDot"
 import { ResizeHandle } from "./ResizeHandle"
@@ -41,6 +36,7 @@ type Props = {
   projects: Project[]
   activeId: string | null
   attentionSeen: AttentionSeen
+  needsYou: SessionMeta[]
   busy: boolean
   collapsed: boolean
   width: number
@@ -83,6 +79,7 @@ export function Sidebar({
   projects,
   activeId,
   attentionSeen,
+  needsYou,
   busy,
   collapsed: railCollapsed,
   width,
@@ -213,64 +210,40 @@ export function Sidebar({
   )
 
   const searching = query.trim() !== ""
-  const dampers = useRef(new Map<string, DampedOrder>())
-  useEffect(() => {
-    if (searching) dampers.current.clear()
-  }, [searching])
-
-  function damped<T>(key: string, items: T[], idOf: (item: T) => string): T[] {
-    if (searching) return items
-    const next = dampOrder(
-      dampers.current.get(key) ?? null,
-      items.map(idOf),
-      Date.now(),
-    )
-    dampers.current.set(key, next)
-    const byId = new Map(items.map((item) => [idOf(item), item]))
-    return next.order
-      .map((id) => byId.get(id))
-      .filter((item): item is T => item !== undefined)
-  }
-
-  const archivedSessions = useMemo(
-    () =>
-      sessions
-        .filter((s) => s.archived)
-        .sort((a, b) => b.updatedAt - a.updatedAt),
-    [sessions],
+  const statusFiltered = statusFilter !== "all"
+  const rowContext = useMemo<RowContext>(
+    () => ({ searching, statusFiltered, activeId, seen: attentionSeen }),
+    [searching, statusFiltered, activeId, attentionSeen],
   )
 
-  const needsYouSessions = useMemo(() => {
-    const ctx = { searching, activeId, seen: attentionSeen }
-    return attentionQueue(
-      sessions.filter((s) => belongsInNeedsYouGroup(s, ctx)),
-      attentionSeen,
-    )
-  }, [sessions, searching, activeId, attentionSeen])
+  const [dragId, setDragId] = useState<string | null>(null)
+  const interactingId = editingId ?? rowMenuFor ?? dragId
+  const [hold, setHold] = useState<RowHold | null>(null)
+  useEffect(() => {
+    if (!interactingId) {
+      setHold(null)
+      return
+    }
+    setHold((curr) => {
+      if (curr && curr.session.id === interactingId) return curr
+      const live = sessions.find((s) => s.id === interactingId)
+      if (!live) return null
+      return {
+        session: live,
+        seen: attentionSeen,
+        queueIndex: needsYou.findIndex((s) => s.id === interactingId),
+      }
+    })
+  }, [interactingId, sessions, attentionSeen, needsYou])
 
-  const favoriteSessions = useMemo(() => {
-    const ctx = { searching, activeId, seen: attentionSeen }
-    return sessions
-      .filter((s) => belongsInFavoritesGroup(s, ctx))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-  }, [sessions, searching, activeId, attentionSeen])
-
-  const settledSessions = useMemo(() => {
-    const ctx = { searching, activeId, seen: attentionSeen }
-    return sessions
-      .filter((s) => belongsInSettledGroup(s, ctx))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-  }, [sessions, searching, activeId, attentionSeen])
+  const rows = useMemo(
+    () => partitionSidebarRows(sessions, needsYou, rowContext, hold),
+    [sessions, needsYou, rowContext, hold],
+  )
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase()
-    let filtered = sessions.filter((s) =>
-      belongsInProjectGroups(s, {
-        searching: q !== "",
-        activeId,
-        seen: attentionSeen,
-      }),
-    )
+    let filtered = rows.projects
     if (statusFilter === "waiting") {
       filtered = filtered.filter((s) => s.status === "waiting_input")
     } else if (statusFilter === "running") {
@@ -335,25 +308,7 @@ export function Sidebar({
       g.sessions.sort((a, b) => b.updatedAt - a.updatedAt)
     }
     return list.sort((a, b) => b.sortTs - a.sortTs)
-  }, [
-    sessions,
-    projects,
-    query,
-    collapsed,
-    statusFilter,
-    hits,
-    activeId,
-    attentionSeen,
-  ])
-
-  const needsYouRows = damped("needs-you", needsYouSessions, (s) => s.id)
-  const favoriteRows = damped("favorites", favoriteSessions, (s) => s.id)
-  const settledRows = damped("settled", settledSessions, (s) => s.id)
-  const archivedRows = damped("archived", archivedSessions, (s) => s.id)
-  const orderedGroups = damped("groups", groups, (g) => g.key).map((g) => ({
-    ...g,
-    sessions: damped(`group:${g.key}`, g.sessions, (s) => s.id),
-  }))
+  }, [rows.projects, projects, query, collapsed, statusFilter, hits])
 
   const transcriptOnly = useMemo(
     () =>
@@ -392,7 +347,9 @@ export function Sidebar({
           e.dataTransfer.effectAllowed = "copy"
           e.dataTransfer.setData(SESSION_MIME, s.id)
           e.dataTransfer.setData("text/plain", s.title)
+          setDragId(s.id)
         }}
+        onDragEnd={() => setDragId(null)}
         onClick={() => onSelect(s.id)}
         onKeyDown={(e) => {
           if (editing) return
@@ -556,9 +513,11 @@ export function Sidebar({
 
   if (railCollapsed) {
     const running = sessions.filter((s) => s.status === "running").length
-    const waiting = sessions.filter((s) => s.status === "waiting_input").length
+    const waiting = sessions.filter(
+      (s) => needsAction(s) && s.status === "waiting_input",
+    ).length
     const failed = sessions.filter(
-      (s) => s.status === "error" && !s.archived,
+      (s) => needsAction(s) && s.status === "error",
     ).length
     return (
       <aside className="sidebar rail-collapsed">
@@ -748,7 +707,7 @@ export function Sidebar({
       ) : null}
 
       <div className="session-scroll" role="tree">
-        {favoriteRows.length > 0 ? (
+        {rows.favorites.length > 0 ? (
           <div className="project-group favorites-group" role="group">
             <div className="project-head-row">
               <button
@@ -763,14 +722,14 @@ export function Sidebar({
                   ★
                 </span>
                 <span className="project-name">Favorites</span>
-                <span className="project-count">{favoriteRows.length}</span>
+                <span className="project-count">{rows.favorites.length}</span>
               </button>
             </div>
-            {showFavorites ? favoriteRows.map((s) => renderRow(s, false)) : null}
+            {showFavorites ? rows.favorites.map((s) => renderRow(s, false)) : null}
           </div>
         ) : null}
 
-        {needsYouRows.length > 0 ? (
+        {rows.needsYou.length > 0 ? (
           <div className="project-group needs-group" role="group">
             <div className="project-head-row">
               <button
@@ -783,14 +742,14 @@ export function Sidebar({
                   ⚑
                 </span>
                 <span className="project-name">Needs you</span>
-                <span className="project-count">{needsYouRows.length}</span>
+                <span className="project-count">{rows.needsYou.length}</span>
               </button>
             </div>
-            {showNeedsYou ? needsYouRows.map((s) => renderRow(s, false)) : null}
+            {showNeedsYou ? rows.needsYou.map((s) => renderRow(s, false)) : null}
           </div>
         ) : null}
 
-        {orderedGroups.length === 0 ? (
+        {groups.length === 0 ? (
           <div className="sidebar-empty">
             {query ? (
               <>
@@ -808,7 +767,7 @@ export function Sidebar({
             )}
           </div>
         ) : (
-          orderedGroups.map((g) => (
+          groups.map((g) => (
             <div key={g.key} className="project-group" role="group">
               <div className="project-head-row">
                 <button
@@ -900,7 +859,7 @@ export function Sidebar({
           ))
         )}
 
-        {settledRows.length > 0 ? (
+        {rows.settled.length > 0 ? (
           <div className="project-group settled-group" role="group">
             <div className="project-head-row">
               <button
@@ -913,14 +872,14 @@ export function Sidebar({
                   ✓
                 </span>
                 <span className="project-name">Settled</span>
-                <span className="project-count">{settledRows.length}</span>
+                <span className="project-count">{rows.settled.length}</span>
               </button>
             </div>
-            {showSettled ? settledRows.map((s) => renderRow(s, false)) : null}
+            {showSettled ? rows.settled.map((s) => renderRow(s, false)) : null}
           </div>
         ) : null}
 
-        {archivedRows.length > 0 ? (
+        {rows.archived.length > 0 ? (
           <div className="project-group archived-group" role="group">
             <div className="project-head-row">
               <button
@@ -933,10 +892,10 @@ export function Sidebar({
                   ⤓
                 </span>
                 <span className="project-name">Archived</span>
-                <span className="project-count">{archivedRows.length}</span>
+                <span className="project-count">{rows.archived.length}</span>
               </button>
             </div>
-            {showArchived ? archivedRows.map((s) => renderRow(s, true)) : null}
+            {showArchived ? rows.archived.map((s) => renderRow(s, true)) : null}
           </div>
         ) : null}
       </div>
