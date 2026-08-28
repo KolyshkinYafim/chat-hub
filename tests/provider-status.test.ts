@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { applyStatusesToProviders } from "@renderer/lib/provider-status"
+import {
+  applyStatusesToProviders,
+  formatCheckedAgo,
+} from "@renderer/lib/provider-status"
 import type { ProviderId, ProviderInfo } from "@shared/types"
 import type { ProviderStatus } from "@shared/settings-types"
 
@@ -71,5 +74,32 @@ describe("applyStatusesToProviders", () => {
       ["claude", false],
       ["grok", false],
     ])
+  })
+})
+
+describe("formatCheckedAgo", () => {
+  const now = 10 * 60 * 60_000
+
+  it("says just now inside the first minute", () => {
+    expect(formatCheckedAgo(now - 59_000, now)).toBe("checked just now")
+  })
+
+  it("counts whole minutes under an hour", () => {
+    expect(formatCheckedAgo(now - 60_000, now)).toBe("checked 1 min ago")
+    expect(formatCheckedAgo(now - 59 * 60_000, now)).toBe("checked 59 min ago")
+  })
+
+  it("switches to hours and then days", () => {
+    expect(formatCheckedAgo(now - 60 * 60_000, now)).toBe("checked 1 h ago")
+    expect(formatCheckedAgo(now - 23 * 60 * 60_000, now)).toBe(
+      "checked 23 h ago",
+    )
+    expect(formatCheckedAgo(now - 48 * 60 * 60_000, now)).toBe(
+      "checked 2 d ago",
+    )
+  })
+
+  it("treats a clock that ran backwards as just now", () => {
+    expect(formatCheckedAgo(now + 5 * 60_000, now)).toBe("checked just now")
   })
 })
