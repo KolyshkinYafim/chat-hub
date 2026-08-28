@@ -12,8 +12,6 @@ import type {
   Mode,
   ProviderConfig,
   ProviderInstance,
-  ProviderStatus,
-  ProviderStatusCache,
   RedactedProviderConfig,
 } from "@shared/settings-types"
 import { parseThemeDef, type ThemeDef } from "@shared/theme"
@@ -91,17 +89,6 @@ export class SettingsStore {
     }
     await this.save()
     return this.snapshot
-  }
-
-  get providerStatusCache(): ProviderStatusCache | null {
-    return this.data.providerStatusCache
-      ? structuredClone(this.data.providerStatusCache)
-      : null
-  }
-
-  async setProviderStatusCache(cache: ProviderStatusCache): Promise<void> {
-    this.data = { ...this.data, providerStatusCache: cache }
-    await this.save()
   }
 
   getProviderConfig(id: ProviderId): ProviderConfig {
@@ -279,9 +266,6 @@ export class SettingsStore {
           typeof parsed.zoomLevel === "number"
             ? clampZoomLevel(parsed.zoomLevel)
             : undefined,
-        providerStatusCache: coerceProviderStatusCache(
-          parsed.providerStatusCache,
-        ),
       }
     } catch (err) {
       // Defaults here mean losing every sealed API key: park the file first so the
@@ -483,26 +467,6 @@ function sanitizeMode(raw: unknown): Mode {
     clean.permissionMode = m.permissionMode
   }
   return clean
-}
-
-export function coerceProviderStatusCache(
-  raw: unknown,
-): ProviderStatusCache | undefined {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined
-  const cache = raw as { statuses?: unknown; cachedAt?: unknown }
-  if (!Array.isArray(cache.statuses)) return undefined
-  if (typeof cache.cachedAt !== "number" || !Number.isFinite(cache.cachedAt)) {
-    return undefined
-  }
-  const statuses = cache.statuses.filter(
-    (item): item is ProviderStatus =>
-      Boolean(item) &&
-      typeof item === "object" &&
-      typeof (item as ProviderStatus).id === "string" &&
-      typeof (item as ProviderStatus).instanceId === "string" &&
-      Array.isArray((item as ProviderStatus).models),
-  )
-  return { statuses, cachedAt: cache.cachedAt }
 }
 
 function coerceMcpEnv(

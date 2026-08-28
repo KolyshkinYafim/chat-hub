@@ -98,6 +98,7 @@ import {
   toggleHandyTranscription,
 } from "./voice-handy"
 import { inspectAttachmentPaths } from "./attachments"
+import { ProviderStatusCacheStore } from "./provider-status-cache"
 import { chatHubBrowserSocketPath } from "@shared/bridge-path"
 import { BrowserControl } from "./surfaces/browser-control"
 import { SurfaceControl } from "./surfaces/surface-control"
@@ -356,6 +357,7 @@ let providerRefresh: Promise<ProviderStatus[]> | null = null
 function refreshProviderStatuses(
   settings: SettingsStore,
   bus: EventBus,
+  statusCache: ProviderStatusCacheStore,
   opts?: { force?: boolean },
 ): Promise<ProviderStatus[]> {
   if (!opts?.force && providerRefresh) return providerRefresh
@@ -363,7 +365,7 @@ function refreshProviderStatuses(
     async (statuses) => {
       const cachedAt = Date.now()
       try {
-        await settings.setProviderStatusCache({ statuses, cachedAt })
+        await statusCache.set({ statuses, cachedAt })
       } catch (err) {
         console.error("[providers] status cache save failed", err)
       }
@@ -388,6 +390,7 @@ function registerIpc(
   userData: string,
   usageLedger: UsageLedger,
   bus: EventBus,
+  statusCache: ProviderStatusCacheStore,
   ready: Promise<void>,
 ): void {
   ipcMain.handle(IpcChannels.getSnapshot, async () => {
@@ -812,8 +815,8 @@ function registerIpc(
 
   ipcMain.handle(IpcChannels.getSettings, () => {
     const snap = settings.snapshot
-    const cached = settings.providerStatusCache
-    void refreshProviderStatuses(settings, bus).catch((err) =>
+    const cached = statusCache.current
+    void refreshProviderStatuses(settings, bus, statusCache).catch((err) =>
       console.error("[providers] status refresh failed", err),
     )
     return {
@@ -967,7 +970,7 @@ function registerIpc(
   )
 
   ipcMain.handle(IpcChannels.getProviderStatuses, async () => {
-    return refreshProviderStatuses(settings, bus, { force: true })
+    return refreshProviderStatuses(settings, bus, statusCache, { force: true })
   })
 
   ipcMain.handle(
@@ -994,7 +997,7 @@ function registerIpc(
         enabled: typeof p.enabled === "boolean" ? p.enabled : undefined,
         env,
       })
-      const statuses = await refreshProviderStatuses(settings, bus, {
+      const statuses = await refreshProviderStatuses(settings, bus, statusCache, {
         force: true,
       })
       return {
@@ -1053,7 +1056,9 @@ function registerIpc(
       })
       return {
         instances: settings.listInstances(),
-        statuses: await refreshProviderStatuses(settings, bus, { force: true }),
+        statuses: await refreshProviderStatuses(settings, bus, statusCache, {
+          force: true,
+        }),
       }
     },
   )
@@ -1073,7 +1078,9 @@ function registerIpc(
       })
       return {
         instances: settings.listInstances(),
-        statuses: await refreshProviderStatuses(settings, bus, { force: true }),
+        statuses: await refreshProviderStatuses(settings, bus, statusCache, {
+          force: true,
+        }),
       }
     },
   )
@@ -1083,7 +1090,9 @@ function registerIpc(
     await settings.removeInstance(id)
     return {
       instances: settings.listInstances(),
-      statuses: await refreshProviderStatuses(settings, bus, { force: true }),
+      statuses: await refreshProviderStatuses(settings, bus, statusCache, {
+        force: true,
+      }),
     }
   })
 
@@ -1511,6 +1520,10 @@ async function bootstrap(): Promise<void> {
   const settings = new SettingsStore(SettingsStore.defaultPath(userData))
   await settings.load()
   settingsStore = settings
+  const statusCache = new ProviderStatusCacheStore(
+    ProviderStatusCacheStore.defaultPath(userData),
+  )
+  await statusCache.load()
   const projects = new ProjectStore(ProjectStore.defaultPath(userData))
   const bridge = new SessionMonitorBridge(SessionMonitorBridge.defaultPath())
   const notifications = new NotificationService((id) =>
@@ -1568,7 +1581,17 @@ async function bootstrap(): Promise<void> {
     )
   })()
 
-  registerIpc(sm, bridge, settings, projects, userData, usageLedger, bus, ready)
+  registerIpc(
+    sm,
+    bridge,
+    settings,
+    projects,
+    userData,
+    usageLedger,
+    bus,
+    statusCache,
+    ready,
+  )
   registerSurfaceIpc(terminals)
   registerBrowserIpc()
   registerMediaProtocol()

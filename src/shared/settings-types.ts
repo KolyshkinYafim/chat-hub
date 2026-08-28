@@ -146,7 +146,6 @@ export type HubSettings = {
   window?: WindowState
   /** Shell zoom step (`1.2 ** level`); absent = 100%. */
   zoomLevel?: number
-  providerStatusCache?: ProviderStatusCache
 }
 
 /** Env var names a provider commonly reads (surfaced as key/API-key fields). */

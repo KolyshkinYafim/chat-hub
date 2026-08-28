@@ -2,7 +2,6 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { ProviderStatus } from "../src/shared/settings-types"
 
 // safeStorage only exists inside a running Electron main process. Stand in a
 // reversible fake so seal/open round-trips exercise the encrypted branch.
@@ -330,91 +329,3 @@ describe("shell state", () => {
   })
 })
 
-describe("provider status cache", () => {
-  function probedStatus(id: "claude" | "grok"): ProviderStatus {
-    return {
-      id,
-      instanceId: id,
-      homeDir: null,
-      isExtra: false,
-      label: id,
-      installed: true,
-      binaryPath: `/usr/local/bin/${id}`,
-      version: "1.0.0",
-      auth: "connected",
-      authDetail: "ok",
-      models: [{ id: "m1", label: "M1" }],
-      defaultModel: "m1",
-      loginCommand: null,
-      docsUrl: null,
-      enabled: true,
-      envKeys: [],
-      envHints: [],
-    }
-  }
-
-  it("has no cached statuses before the first probe", async () => {
-    const { s } = await store()
-    expect(s.providerStatusCache).toBeNull()
-  })
-
-  it("round-trips the last probe through a reload", async () => {
-    const { s, file } = await store()
-    const cache = { statuses: [probedStatus("claude")], cachedAt: 1234 }
-    await s.setProviderStatusCache(cache)
-    const reloaded = new SettingsStore(file)
-    await reloaded.load()
-    expect(reloaded.providerStatusCache).toEqual(cache)
-  })
-
-  it("drops a malformed cache instead of loading garbage", async () => {
-    const { file } = await store()
-    await writeFile(
-      file,
-      JSON.stringify({
-        version: 2,
-        providerStatusCache: { statuses: "nope", cachedAt: 5 },
-      }),
-      "utf8",
-    )
-    const s = new SettingsStore(file)
-    await s.load()
-    expect(s.providerStatusCache).toBeNull()
-  })
-
-  it("keeps only rows that still look like provider statuses", async () => {
-    const { file } = await store()
-    await writeFile(
-      file,
-      JSON.stringify({
-        version: 2,
-        providerStatusCache: {
-          cachedAt: 42,
-          statuses: [probedStatus("claude"), { id: "grok" }, null, "x"],
-        },
-      }),
-      "utf8",
-    )
-    const s = new SettingsStore(file)
-    await s.load()
-    expect(s.providerStatusCache?.statuses.map((row) => row.id)).toEqual([
-      "claude",
-    ])
-    expect(s.providerStatusCache?.cachedAt).toBe(42)
-  })
-
-  it("requires a finite timestamp before trusting a cache", async () => {
-    const { file } = await store()
-    await writeFile(
-      file,
-      JSON.stringify({
-        version: 2,
-        providerStatusCache: { statuses: [], cachedAt: "yesterday" },
-      }),
-      "utf8",
-    )
-    const s = new SettingsStore(file)
-    await s.load()
-    expect(s.providerStatusCache).toBeNull()
-  })
-})
