@@ -44,7 +44,6 @@ import type {
   BuildInfo,
   DataPaths,
   ProviderConfig,
-  ProviderStatus,
   StorageStats,
 } from "@shared/settings-types"
 import { readBuildInfo } from "./build-info"
@@ -99,6 +98,7 @@ import {
 } from "./voice-handy"
 import { inspectAttachmentPaths } from "./attachments"
 import { ProviderStatusCacheStore } from "./provider-status-cache"
+import { ProviderStatusRefresher } from "./provider-status-refresh"
 import { chatHubBrowserSocketPath } from "@shared/bridge-path"
 import { BrowserControl } from "./surfaces/browser-control"
 import { SurfaceControl } from "./surfaces/surface-control"
@@ -352,36 +352,6 @@ function createWindow(): void {
   }
 }
 
-let providerRefresh: Promise<ProviderStatus[]> | null = null
-
-function refreshProviderStatuses(
-  settings: SettingsStore,
-  bus: EventBus,
-  statusCache: ProviderStatusCacheStore,
-  opts?: { force?: boolean },
-): Promise<ProviderStatus[]> {
-  if (!opts?.force && providerRefresh) return providerRefresh
-  const probe = probeAllProviders(buildProbeInputs(settings)).then(
-    async (statuses) => {
-      const cachedAt = Date.now()
-      try {
-        await statusCache.set({ statuses, cachedAt })
-      } catch (err) {
-        console.error("[providers] status cache save failed", err)
-      }
-      bus.emit({ type: "providers.statuses", statuses, cachedAt })
-      return statuses
-    },
-  )
-  providerRefresh = probe
-  void probe
-    .catch(() => undefined)
-    .then(() => {
-      if (providerRefresh === probe) providerRefresh = null
-    })
-  return probe
-}
-
 function registerIpc(
   sm: SessionManager,
   bridge: SessionMonitorBridge,
@@ -389,8 +359,7 @@ function registerIpc(
   projects: ProjectStore,
   userData: string,
   usageLedger: UsageLedger,
-  bus: EventBus,
-  statusCache: ProviderStatusCacheStore,
+  providerStatuses: ProviderStatusRefresher,
   ready: Promise<void>,
 ): void {
   ipcMain.handle(IpcChannels.getSnapshot, async () => {
@@ -815,10 +784,8 @@ function registerIpc(
 
   ipcMain.handle(IpcChannels.getSettings, () => {
     const snap = settings.snapshot
-    const cached = statusCache.current
-    void refreshProviderStatuses(settings, bus, statusCache).catch((err) =>
-      console.error("[providers] status refresh failed", err),
-    )
+    const cached = providerStatuses.cached
+    providerStatuses.kickIfStale()
     return {
       permissionMode: snap.permissionMode,
       providers: settings.redactedProviders(),
@@ -970,7 +937,7 @@ function registerIpc(
   )
 
   ipcMain.handle(IpcChannels.getProviderStatuses, async () => {
-    return refreshProviderStatuses(settings, bus, statusCache, { force: true })
+    return providerStatuses.refresh()
   })
 
   ipcMain.handle(
@@ -997,9 +964,7 @@ function registerIpc(
         enabled: typeof p.enabled === "boolean" ? p.enabled : undefined,
         env,
       })
-      const statuses = await refreshProviderStatuses(settings, bus, statusCache, {
-        force: true,
-      })
+      const statuses = await providerStatuses.refresh()
       return {
         providers: settings.redactedProviders(),
         statuses,
@@ -1056,9 +1021,7 @@ function registerIpc(
       })
       return {
         instances: settings.listInstances(),
-        statuses: await refreshProviderStatuses(settings, bus, statusCache, {
-          force: true,
-        }),
+        statuses: await providerStatuses.refresh(),
       }
     },
   )
@@ -1078,9 +1041,7 @@ function registerIpc(
       })
       return {
         instances: settings.listInstances(),
-        statuses: await refreshProviderStatuses(settings, bus, statusCache, {
-          force: true,
-        }),
+        statuses: await providerStatuses.refresh(),
       }
     },
   )
@@ -1090,9 +1051,7 @@ function registerIpc(
     await settings.removeInstance(id)
     return {
       instances: settings.listInstances(),
-      statuses: await refreshProviderStatuses(settings, bus, statusCache, {
-        force: true,
-      }),
+      statuses: await providerStatuses.refresh(),
     }
   })
 
@@ -1524,6 +1483,13 @@ async function bootstrap(): Promise<void> {
     ProviderStatusCacheStore.defaultPath(userData),
   )
   await statusCache.load()
+  const providerStatuses = new ProviderStatusRefresher({
+    probe: () => probeAllProviders(buildProbeInputs(settings)),
+    configKey: () => JSON.stringify(buildProbeInputs(settings)),
+    cache: statusCache,
+    emit: (statuses, cachedAt) =>
+      bus.emit({ type: "providers.statuses", statuses, cachedAt }),
+  })
   const projects = new ProjectStore(ProjectStore.defaultPath(userData))
   const bridge = new SessionMonitorBridge(SessionMonitorBridge.defaultPath())
   const notifications = new NotificationService((id) =>
@@ -1588,8 +1554,7 @@ async function bootstrap(): Promise<void> {
     projects,
     userData,
     usageLedger,
-    bus,
-    statusCache,
+    providerStatuses,
     ready,
   )
   registerSurfaceIpc(terminals)
