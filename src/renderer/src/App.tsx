@@ -82,6 +82,7 @@ import {
   RAIL_WIDTH,
   saveSidebarWidth,
 } from "./lib/shell-size"
+import { useAttention } from "./lib/use-attention"
 import { SettingsModal } from "./components/SettingsModal"
 import {
   NewSessionDialog,
@@ -220,6 +221,11 @@ export default function App() {
   // toggle), so they ride in refs kept fresh by the effects further down.
   const surfaceBySessionRef = useRef(surfaceBySession)
   const autoOpenDockRef = useRef(autoOpenDock)
+
+  const jumpToSession = useCallback((id: string) => {
+    selectSessionRef.current(id)
+  }, [])
+  const attention = useAttention(sessions, layout, activeId, jumpToSession)
 
   const applyEvent = useCallback((event: HubEvent) => {
     switch (event.type) {
@@ -1473,6 +1479,11 @@ export default function App() {
         openNewSession()
         return
       }
+      if (!meta && e.altKey && e.shiftKey && e.code === "KeyU") {
+        e.preventDefault()
+        attention.jumpNext()
+        return
+      }
       // Pane walk. Every other binding below resolves against the focused
       // pane, so this is the one that decides which chat they all mean.
       if (meta && e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
@@ -1549,6 +1560,7 @@ export default function App() {
     activeSession,
     activeSession?.id,
     activeSession?.status,
+    attention,
     pane.id,
     scriptsByCwd,
     runScript,
@@ -1610,6 +1622,7 @@ export default function App() {
         messagesBySession={messagesBySession}
         projects={projects}
         activeId={activeId}
+        attentionSeen={attention.seen}
         busy={busy}
         collapsed={sidebarCollapsed}
         width={sidebarWidth}
@@ -1739,7 +1752,9 @@ export default function App() {
         <CommandPalette
           sessions={sessions}
           activeId={activeId}
+          attentionCount={attention.queue.length}
           onSelect={(id) => void selectSession(id)}
+          onNextAttention={attention.jumpNext}
           onClose={() => setPaletteOpen(false)}
         />
       ) : null}
