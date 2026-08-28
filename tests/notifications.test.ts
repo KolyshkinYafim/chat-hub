@@ -18,7 +18,6 @@ vi.mock("electron", () => ({
       shown.push(this.opts)
     }
   },
-  shell: { beep: vi.fn() },
 }))
 
 const { NotificationService } = await import("../src/main/notifications")
@@ -53,15 +52,29 @@ describe("NotificationService", () => {
     svc.handle(statusEvent("waiting_input"))
     expect(shown).toHaveLength(1)
     expect(shown[0].title).toBe("Session needs input")
-    expect(shown[0].silent).toBe(false)
+    expect(shown[0].silent).toBe(true)
   })
 
-  it("notifies again after the session ran in between", () => {
+  it("treats an intervening running status as the same waiting stretch", () => {
     const svc = new NotificationService(() => session())
     svc.handle(statusEvent("waiting_input"))
     svc.handle(statusEvent("running"))
     svc.handle(statusEvent("waiting_input"))
-    expect(shown).toHaveLength(2)
+    svc.handle(statusEvent("running"))
+    svc.handle(statusEvent("waiting_input"))
+    expect(shown).toHaveLength(1)
+  })
+
+  it("starts a new waiting stretch after done, idle or error", () => {
+    for (const between of ["done", "idle", "error"] as const) {
+      shown.length = 0
+      const svc = new NotificationService(() => session())
+      svc.handle(statusEvent("waiting_input"))
+      svc.handle(statusEvent(between))
+      svc.handle(statusEvent("waiting_input"))
+      const waits = shown.filter((n) => n.title === "Session needs input")
+      expect(waits).toHaveLength(2)
+    }
   })
 
   it("stays quiet for running, idle and error statuses", () => {
@@ -72,19 +85,27 @@ describe("NotificationService", () => {
     expect(shown).toHaveLength(0)
   })
 
-  it("plays the completion sound only when the toggle is on, and mutes the banner", () => {
-    const play = vi.fn()
-    let enabled = false
-    const svc = new NotificationService(() => session(), () => enabled, play)
+  it("notifies done again when a later turn finishes, not on a republish", () => {
+    const svc = new NotificationService(() => session())
     svc.handle(statusEvent("done"))
-    expect(play).not.toHaveBeenCalled()
-    expect(shown[0].silent).toBe(false)
+    svc.handle(statusEvent("done"))
+    expect(shown).toHaveLength(1)
+    svc.handle(statusEvent("running"))
+    svc.handle(statusEvent("done"))
+    expect(shown).toHaveLength(2)
+    expect(shown[1].title).toBe("Session finished")
+  })
+
+  it("lets the banner carry the sound only when the toggle is on", () => {
+    let enabled = false
+    const svc = new NotificationService(() => session(), () => enabled)
+    svc.handle(statusEvent("done"))
+    expect(shown[0].silent).toBe(true)
 
     enabled = true
     svc.handle(statusEvent("running"))
     svc.handle(statusEvent("done"))
-    expect(play).toHaveBeenCalledTimes(1)
-    expect(shown[1].silent).toBe(true)
+    expect(shown[1].silent).toBe(false)
   })
 
   it("forgets a killed session so its next life notifies afresh", () => {

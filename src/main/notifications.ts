@@ -1,42 +1,33 @@
-import { spawn } from "node:child_process"
-import { Notification, shell } from "electron"
+import { Notification } from "electron"
 import type { SessionEvent, SessionMeta, SessionStatus } from "@shared/types"
 
-const MAC_COMPLETION_SOUND = "/System/Library/Sounds/Tink.aiff"
-
-export function playCompletionSound(): void {
-  if (process.platform !== "darwin") {
-    shell.beep()
-    return
-  }
-  const player = spawn("afplay", [MAC_COMPLETION_SOUND], { stdio: "ignore" })
-  player.on("error", () => shell.beep())
-  player.unref()
-}
+type Stretch = { last: SessionStatus; waiting: boolean }
 
 export class NotificationService {
-  private lastStatus = new Map<string, SessionStatus>()
+  private stretches = new Map<string, Stretch>()
 
   constructor(
     private readonly getSession: (id: string) => SessionMeta | undefined,
     private readonly soundEnabled: () => boolean = () => false,
-    private readonly playSound: () => void = playCompletionSound,
   ) {}
 
   handle(event: SessionEvent): void {
     if (event.type === "session.ended" && event.reason === "killed") {
-      this.lastStatus.delete(event.id)
+      this.stretches.delete(event.id)
       return
     }
     if (event.type !== "session.status") return
-    const previous = this.lastStatus.get(event.id)
-    this.lastStatus.set(event.id, event.status)
-    if (previous === event.status) return
-    if (event.status !== "waiting_input" && event.status !== "done") return
-
-    const sound = this.soundEnabled()
-    if (sound) this.playSound()
-    if (!Notification.isSupported()) return
+    const prev = this.stretches.get(event.id)
+    const fresh =
+      (event.status === "waiting_input" && prev?.waiting !== true) ||
+      (event.status === "done" && prev?.last !== "done")
+    this.stretches.set(event.id, {
+      last: event.status,
+      waiting:
+        event.status === "waiting_input" ||
+        (event.status === "running" && prev?.waiting === true),
+    })
+    if (!fresh || !Notification.isSupported()) return
 
     const session = this.getSession(event.id)
     const title =
@@ -47,7 +38,7 @@ export class NotificationService {
       ? `${session.title} (${session.provider})`
       : event.id
 
-    const n = new Notification({ title, body, silent: sound })
+    const n = new Notification({ title, body, silent: !this.soundEnabled() })
     n.show()
   }
 }

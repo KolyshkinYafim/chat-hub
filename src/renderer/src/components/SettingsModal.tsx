@@ -1061,8 +1061,9 @@ export function SettingsModal({
                   <div>
                     <div className="row-title">Completion sound</div>
                     <div className="row-desc">
-                      Play a short, subtle system sound when a session finishes
-                      or starts waiting on your input.
+                      Let the notification play the system sound when a session
+                      finishes or starts waiting on your input. Focus and Do
+                      Not Disturb still apply.
                     </div>
                   </div>
                   <label className="switch">
