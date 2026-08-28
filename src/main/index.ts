@@ -44,6 +44,7 @@ import type {
   BuildInfo,
   DataPaths,
   ProviderConfig,
+  ProviderStatus,
   StorageStats,
 } from "@shared/settings-types"
 import { readBuildInfo } from "./build-info"
@@ -350,6 +351,35 @@ function createWindow(): void {
   }
 }
 
+let providerRefresh: Promise<ProviderStatus[]> | null = null
+
+function refreshProviderStatuses(
+  settings: SettingsStore,
+  bus: EventBus,
+  opts?: { force?: boolean },
+): Promise<ProviderStatus[]> {
+  if (!opts?.force && providerRefresh) return providerRefresh
+  const probe = probeAllProviders(buildProbeInputs(settings)).then(
+    async (statuses) => {
+      const cachedAt = Date.now()
+      try {
+        await settings.setProviderStatusCache({ statuses, cachedAt })
+      } catch (err) {
+        console.error("[providers] status cache save failed", err)
+      }
+      bus.emit({ type: "providers.statuses", statuses, cachedAt })
+      return statuses
+    },
+  )
+  providerRefresh = probe
+  void probe
+    .catch(() => undefined)
+    .then(() => {
+      if (providerRefresh === probe) providerRefresh = null
+    })
+  return probe
+}
+
 function registerIpc(
   sm: SessionManager,
   bridge: SessionMonitorBridge,
@@ -357,10 +387,21 @@ function registerIpc(
   projects: ProjectStore,
   userData: string,
   usageLedger: UsageLedger,
+  bus: EventBus,
+  ready: Promise<void>,
 ): void {
-  ipcMain.handle(IpcChannels.getSnapshot, () => sm.getSnapshot())
-  ipcMain.handle(IpcChannels.usageSummary, () => usageLedger.summary())
-  ipcMain.handle(IpcChannels.listSessions, () => sm.listSessions())
+  ipcMain.handle(IpcChannels.getSnapshot, async () => {
+    await ready
+    return sm.getSnapshot()
+  })
+  ipcMain.handle(IpcChannels.usageSummary, async () => {
+    await ready
+    return usageLedger.summary()
+  })
+  ipcMain.handle(IpcChannels.listSessions, async () => {
+    await ready
+    return sm.listSessions()
+  })
   ipcMain.handle(IpcChannels.getMessages, (_e, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) {
       throw new Error("Invalid sessionId")
@@ -769,15 +810,19 @@ function registerIpc(
     }
   })
 
-  ipcMain.handle(IpcChannels.getSettings, async () => {
+  ipcMain.handle(IpcChannels.getSettings, () => {
     const snap = settings.snapshot
-    const statuses = await probeAllProviders(buildProbeInputs(settings))
+    const cached = settings.providerStatusCache
+    void refreshProviderStatuses(settings, bus).catch((err) =>
+      console.error("[providers] status refresh failed", err),
+    )
     return {
       permissionMode: snap.permissionMode,
       providers: settings.redactedProviders(),
       instances: settings.listInstances(),
       general: snap.general,
-      statuses,
+      statuses: cached?.statuses ?? [],
+      statusesCachedAt: cached?.cachedAt ?? null,
     }
   })
 
@@ -922,7 +967,7 @@ function registerIpc(
   )
 
   ipcMain.handle(IpcChannels.getProviderStatuses, async () => {
-    return probeAllProviders(buildProbeInputs(settings))
+    return refreshProviderStatuses(settings, bus, { force: true })
   })
 
   ipcMain.handle(
@@ -949,7 +994,9 @@ function registerIpc(
         enabled: typeof p.enabled === "boolean" ? p.enabled : undefined,
         env,
       })
-      const statuses = await probeAllProviders(buildProbeInputs(settings))
+      const statuses = await refreshProviderStatuses(settings, bus, {
+        force: true,
+      })
       return {
         providers: settings.redactedProviders(),
         statuses,
@@ -1006,7 +1053,7 @@ function registerIpc(
       })
       return {
         instances: settings.listInstances(),
-        statuses: await probeAllProviders(buildProbeInputs(settings)),
+        statuses: await refreshProviderStatuses(settings, bus, { force: true }),
       }
     },
   )
@@ -1026,7 +1073,7 @@ function registerIpc(
       })
       return {
         instances: settings.listInstances(),
-        statuses: await probeAllProviders(buildProbeInputs(settings)),
+        statuses: await refreshProviderStatuses(settings, bus, { force: true }),
       }
     },
   )
@@ -1036,7 +1083,7 @@ function registerIpc(
     await settings.removeInstance(id)
     return {
       instances: settings.listInstances(),
-      statuses: await probeAllProviders(buildProbeInputs(settings)),
+      statuses: await refreshProviderStatuses(settings, bus, { force: true }),
     }
   })
 
@@ -1221,7 +1268,10 @@ function registerIpc(
     }
   })
 
-  ipcMain.handle(IpcChannels.listProjects, () => projects.list())
+  ipcMain.handle(IpcChannels.listProjects, async () => {
+    await ready
+    return projects.list()
+  })
 
   ipcMain.handle(IpcChannels.addProject, async (_e, cwd: unknown) => {
     let folder: string | null =
@@ -1462,13 +1512,12 @@ async function bootstrap(): Promise<void> {
   await settings.load()
   settingsStore = settings
   const projects = new ProjectStore(ProjectStore.defaultPath(userData))
-  await projects.load()
   const bridge = new SessionMonitorBridge(SessionMonitorBridge.defaultPath())
   const notifications = new NotificationService((id) =>
     manager?.getSession(id),
   )
   const usageLedger = new UsageLedger(UsageLedger.defaultPath(userData))
-  manager = new SessionManager(
+  const sm = new SessionManager(
     bus,
     persistence,
     bridge,
@@ -1477,26 +1526,7 @@ async function bootstrap(): Promise<void> {
     undefined,
     { usageLedger },
   )
-  await manager.init()
-  await usageLedger.init(
-    seedFromSessions(manager.listSessions(), manager.getSnapshot().usage),
-  )
-
-  // Before the first turn can spawn: dispatch() reads the socket path to point
-  // the CLI's hook at us, so a broker that starts late loses that session's
-  // approvals to the island.
-  const sm = manager
-  permissions = new PermissionBroker(bus, (agentSessionId, cwd) =>
-    sm.findSessionForAgent(agentSessionId, cwd),
-  )
-  await permissions.start()
-  manager.setPermissionBroker(permissions)
-
-  // Backfill: every existing session folder becomes a first-class project so it
-  // stays pinned/manageable in the sidebar even after its sessions are gone.
-  for (const s of manager.listSessions()) {
-    await projects.ensure(s.cwd, s.project)
-  }
+  manager = sm
 
   bus.on((event) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1505,7 +1535,7 @@ async function bootstrap(): Promise<void> {
   })
 
   const store = settings
-  manager.setBrowserMcpRegistrar((session) =>
+  sm.setBrowserMcpRegistrar((session) =>
     registerBrowserMcp({
       provider: session.provider,
       root: session.cwd,
@@ -1520,15 +1550,41 @@ async function bootstrap(): Promise<void> {
       envFor: (serverId) => store.getMcpEnv(serverId),
     }),
   )
-  await browserService.start()
 
-  registerIpc(manager, bridge, settings, projects, userData, usageLedger)
+  const ready = (async () => {
+    await projects.load()
+    // Before the first turn can spawn: dispatch() reads the socket path to point
+    // the CLI's hook at us, so a broker that starts late loses that session's
+    // approvals to the island.
+    const broker = new PermissionBroker(bus, (agentSessionId, cwd) =>
+      sm.findSessionForAgent(agentSessionId, cwd),
+    )
+    permissions = broker
+    await broker.start()
+    sm.setPermissionBroker(broker)
+    await sm.init()
+    await usageLedger.init(
+      seedFromSessions(sm.listSessions(), sm.getSnapshot().usage),
+    )
+  })()
+
+  registerIpc(sm, bridge, settings, projects, userData, usageLedger, bus, ready)
   registerSurfaceIpc(terminals)
   registerBrowserIpc()
   registerMediaProtocol()
   createWindow()
 
-  commandBridge = new MonitorCommandBridge(manager, (sessionId) => {
+  await ready
+
+  // Backfill: every existing session folder becomes a first-class project so it
+  // stays pinned/manageable in the sidebar even after its sessions are gone.
+  for (const s of sm.listSessions()) {
+    await projects.ensure(s.cwd, s.project)
+  }
+
+  await browserService.start()
+
+  commandBridge = new MonitorCommandBridge(sm, (sessionId) => {
     if (!mainWindow || mainWindow.isDestroyed()) createWindow()
     mainWindow?.show()
     mainWindow?.focus()
