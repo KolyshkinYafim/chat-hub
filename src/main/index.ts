@@ -74,6 +74,7 @@ import {
   type ZoomController,
 } from "./window-state"
 import { MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH } from "@shared/window-bounds"
+import { resolveTheme, themeBackground } from "@shared/theme"
 import { DEFAULT_ZOOM_LEVEL } from "@shared/zoom"
 import {
   appendMcpPathsToGitignore,
@@ -279,7 +280,12 @@ function createWindow(): void {
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
     title: "Chat Hub",
-    backgroundColor: "#0c0d10",
+    backgroundColor: themeBackground(
+      resolveTheme(
+        settingsStore?.general.themeId,
+        settingsStore?.general.customThemes,
+      ),
+    ),
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 16 },
     webPreferences: {

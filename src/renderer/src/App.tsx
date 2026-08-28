@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -41,7 +42,6 @@ import { prunePreviewPicks } from "./lib/preview-picks"
 import { pruneScriptTerminals } from "./lib/script-terminals"
 import { mergeReplacedMessages } from "./lib/transcript-window"
 import { applyStatusesToProviders } from "./lib/provider-status"
-import { BootSkeleton } from "./components/BootSkeleton"
 import { Sidebar } from "./components/Sidebar"
 import { Workspace, type WorkspaceDrop } from "./components/Workspace"
 import type { PaneActions } from "./components/WorkspacePane"
@@ -515,6 +515,11 @@ export default function App() {
       unsub()
     }
   }, [applyEvent])
+
+  useLayoutEffect(() => {
+    if (!booted) return
+    document.getElementById("boot-skeleton")?.remove()
+  }, [booted])
 
   const activeSession = useMemo(
     () => sessions.find((s) => s.id === activeId) ?? null,
@@ -1619,9 +1624,7 @@ export default function App() {
       <div
         className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""}`}
         style={{ "--sidebar-w": `${sidebarWidth}px` } as CSSProperties}
-      >
-        <BootSkeleton />
-      </div>
+      />
     )
   }
 
