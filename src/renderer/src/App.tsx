@@ -451,6 +451,12 @@ export default function App() {
           }
         }
         setProjects(pinned)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setBooted(true)
+      }
+      try {
         const legacyArchived = readArchivedForMigration()
         if (legacyArchived.length > 0) {
           await window.chatHub.migrateArchived(legacyArchived)
@@ -458,8 +464,6 @@ export default function App() {
         clearMigratedArchive()
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
-      } finally {
-        setBooted(true)
       }
     })()
 
