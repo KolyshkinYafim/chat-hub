@@ -51,19 +51,10 @@ describe("needsAction", () => {
 })
 
 describe("attentionBadge", () => {
-  it("counts waiting and error sessions", () => {
-    const badge = attentionBadge([
-      session({ id: "a", status: "waiting_input" }),
-      session({ id: "b", status: "error" }),
-      session({ id: "c", status: "running" }),
-      session({ id: "d", status: "done" }),
-    ])
-    expect(badge).toBe("2")
-  })
-
-  it("is empty when nothing needs action", () => {
-    expect(attentionBadge([session({ status: "running" })])).toBe("")
-    expect(attentionBadge([])).toBe("")
+  it("prints a positive count and hides zero", () => {
+    expect(attentionBadge(2)).toBe("2")
+    expect(attentionBadge(1)).toBe("1")
+    expect(attentionBadge(0)).toBe("")
   })
 })
 

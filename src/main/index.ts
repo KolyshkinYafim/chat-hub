@@ -9,7 +9,7 @@ import { EventBus } from "./event-bus"
 import { SessionMonitorBridge } from "./bridge"
 import { MonitorCommandBridge } from "./command-bridge"
 import { NotificationService } from "./notifications"
-import { wireDockBadge } from "./dock-badge"
+import { wireDockBadge, type DockBadge } from "./dock-badge"
 import { Persistence } from "./persistence"
 import { ProjectStore } from "./project-store"
 import { SessionManager, type SendOpts } from "./session-manager"
@@ -152,6 +152,7 @@ let mainWindow: BrowserWindow | null = null
 let manager: SessionManager | null = null
 let commandBridge: MonitorCommandBridge | null = null
 let permissions: PermissionBroker | null = null
+let dockBadge: DockBadge | null = null
 // createWindow also runs from `activate` and the monitor bridge, long after
 // bootstrap handed the store around, so the window path reads it from here.
 let settingsStore: SettingsStore | null = null
@@ -315,6 +316,7 @@ function createWindow(): void {
   mainWindow.on("closed", () => {
     mainWindow = null
     zoom = null
+    dockBadge?.clearRendererCount()
     // Media tokens are capabilities into a workspace; nothing may replay them
     // against the next window, which can be pointed at a different project.
     revokeMediaGrants()
@@ -1506,7 +1508,13 @@ async function bootstrap(): Promise<void> {
     }
   })
 
-  wireDockBadge(bus, () => sm.listSessions())
+  dockBadge = wireDockBadge(bus, () => sm.listSessions())
+  ipcMain.on(IpcChannels.attentionCount, (_e, count: unknown) => {
+    if (typeof count !== "number" || !Number.isFinite(count) || count < 0) {
+      return
+    }
+    dockBadge?.setRendererCount(count)
+  })
 
   const store = settings
   manager.setBrowserMcpRegistrar((session) =>

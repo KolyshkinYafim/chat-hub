@@ -21,7 +21,6 @@ export function needsAction(session: SessionMeta): boolean {
   return session.status === "waiting_input" || session.status === "error"
 }
 
-export function attentionBadge(sessions: readonly SessionMeta[]): string {
-  const count = sessions.filter(needsAction).length
-  return count === 0 ? "" : String(count)
+export function attentionBadge(count: number): string {
+  return count > 0 ? String(Math.floor(count)) : ""
 }

@@ -228,6 +228,10 @@ export default function App() {
   }, [])
   const attention = useAttention(sessions, layout, activeId, jumpToSession)
 
+  useEffect(() => {
+    window.chatHub.reportAttentionCount(attention.queue.length)
+  }, [attention.queue.length])
+
   const applyEvent = useCallback((event: HubEvent) => {
     switch (event.type) {
       case "sessions.replaced":

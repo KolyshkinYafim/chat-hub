@@ -464,6 +464,9 @@ const api = {
   reportSurfaceState: (state: SurfaceStateReport): void => {
     ipcRenderer.send(IpcChannels.surfaceState, state)
   },
+  reportAttentionCount: (count: number): void => {
+    ipcRenderer.send(IpcChannels.attentionCount, count)
+  },
   mcpList: (cwd: string): Promise<McpListResult> =>
     ipcRenderer.invoke(IpcChannels.mcpList, cwd),
   mcpUpsert: (cwd: string, server: McpServerDef): Promise<McpListResult> =>
