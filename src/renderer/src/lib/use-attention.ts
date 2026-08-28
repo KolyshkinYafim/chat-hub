@@ -8,31 +8,19 @@ import {
   isUnseenDone,
   markSeen,
   nextAttention,
+  parseAttentionSeen,
   pruneSeen,
   type AttentionSeen,
 } from "./attention"
+import { useDampedOrder } from "./use-damped-order"
 
 const SEEN_KEY = "chat-hub.attention.seen"
 
 export function loadAttentionSeen(): AttentionSeen {
-  const raw = localStorage.getItem(SEEN_KEY)
-  if (raw === null) return {}
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {}
-    const out: Record<string, number> = {}
-    for (const [id, at] of Object.entries(parsed)) {
-      if (typeof at === "number" && Number.isFinite(at)) out[id] = at
-    }
-    return out
-  } catch {
-    return {}
-  }
+  return parseAttentionSeen(localStorage.getItem(SEEN_KEY))
 }
 
-function saveAttentionSeen(seen: AttentionSeen): void {
-  localStorage.setItem(SEEN_KEY, JSON.stringify(seen))
-}
+type DwellEntry = { stamp: number; timer: number }
 
 export function useAttention(
   sessions: SessionMeta[],
@@ -44,63 +32,108 @@ export function useAttention(
   queue: SessionMeta[]
   jumpNext: () => void
 } {
-  const [seen, setSeen] = useState<AttentionSeen>(loadAttentionSeen)
-  const [pageVisible, setPageVisible] = useState(
-    () => document.visibilityState === "visible",
-  )
+  const [boot] = useState(() => {
+    const raw = localStorage.getItem(SEEN_KEY)
+    return { seen: parseAttentionSeen(raw), stored: raw !== null }
+  })
+  const [seen, setSeen] = useState<AttentionSeen>(boot.seen)
+  const seededRef = useRef(boot.stored)
 
   useEffect(() => {
-    const sync = () => setPageVisible(document.visibilityState === "visible")
-    document.addEventListener("visibilitychange", sync)
-    return () => document.removeEventListener("visibilitychange", sync)
-  }, [])
+    localStorage.setItem(SEEN_KEY, JSON.stringify(seen))
+  }, [seen])
 
-  const commitSeen = useCallback(
-    (update: (curr: AttentionSeen) => AttentionSeen) => {
-      setSeen((curr) => {
-        const next = update(curr)
-        if (next !== curr) saveAttentionSeen(next)
-        return next
-      })
-    },
-    [],
-  )
+  useEffect(() => {
+    if (seededRef.current || sessions.length === 0) return
+    seededRef.current = true
+    setSeen((curr) => {
+      let next = curr
+      for (const s of sessions) {
+        if (s.status === "done") next = markSeen(next, s.id, activityStamp(s))
+      }
+      return next
+    })
+  }, [sessions])
 
   useEffect(() => {
     if (sessions.length === 0) return
     const live = new Set(sessions.map((s) => s.id))
-    commitSeen((curr) => pruneSeen(curr, live))
-  }, [sessions, commitSeen])
+    setSeen((curr) => pruneSeen(curr, live))
+  }, [sessions])
+
+  const [pageVisible, setPageVisible] = useState(
+    () => document.visibilityState === "visible",
+  )
+  const [windowFocused, setWindowFocused] = useState(() => document.hasFocus())
+
+  useEffect(() => {
+    const sync = () => setPageVisible(document.visibilityState === "visible")
+    const focus = () => setWindowFocused(true)
+    const blur = () => setWindowFocused(false)
+    document.addEventListener("visibilitychange", sync)
+    window.addEventListener("focus", focus)
+    window.addEventListener("blur", blur)
+    return () => {
+      document.removeEventListener("visibilitychange", sync)
+      window.removeEventListener("focus", focus)
+      window.removeEventListener("blur", blur)
+    }
+  }, [])
+
+  const attended = pageVisible && windowFocused
 
   const visibleDone = useMemo(() => {
     const shown = new Set(layout.panes.map((p) => p.sessionId))
     return sessions.filter((s) => shown.has(s.id) && isUnseenDone(s, seen))
   }, [layout.panes, sessions, seen])
 
-  const visibleDoneRef = useRef(visibleDone)
-  useEffect(() => {
-    visibleDoneRef.current = visibleDone
-  }, [visibleDone])
-
-  const visibleDoneKey = visibleDone
-    .map((s) => `${s.id}:${activityStamp(s)}`)
-    .join("|")
+  const dwellRef = useRef(new Map<string, DwellEntry>())
 
   useEffect(() => {
-    if (!pageVisible || visibleDoneKey === "") return
-    const timers = visibleDoneRef.current.map((s) => {
-      const id = s.id
-      const at = activityStamp(s)
-      return window.setTimeout(() => {
-        commitSeen((curr) => markSeen(curr, id, at))
-      }, DONE_SEEN_DWELL_MS)
-    })
-    return () => {
-      for (const timer of timers) window.clearTimeout(timer)
+    const dwells = dwellRef.current
+    const wanted = new Map<string, number>()
+    if (attended) {
+      for (const s of visibleDone) wanted.set(s.id, activityStamp(s))
     }
-  }, [pageVisible, visibleDoneKey, commitSeen])
+    for (const [id, entry] of [...dwells]) {
+      if (wanted.get(id) === entry.stamp) continue
+      window.clearTimeout(entry.timer)
+      dwells.delete(id)
+    }
+    for (const [id, stamp] of wanted) {
+      if (dwells.has(id)) continue
+      const timer = window.setTimeout(() => {
+        dwellRef.current.delete(id)
+        setSeen((curr) => markSeen(curr, id, stamp))
+      }, DONE_SEEN_DWELL_MS)
+      dwells.set(id, { stamp, timer })
+    }
+  }, [attended, visibleDone])
 
-  const queue = useMemo(() => attentionQueue(sessions, seen), [sessions, seen])
+  useEffect(() => {
+    const dwells = dwellRef.current
+    return () => {
+      for (const { timer } of dwells.values()) window.clearTimeout(timer)
+      dwells.clear()
+    }
+  }, [])
+
+  const liveQueue = useMemo(
+    () => attentionQueue(sessions, seen),
+    [sessions, seen],
+  )
+  const liveIds = useMemo(() => liveQueue.map((s) => s.id), [liveQueue])
+  const orderedIds = useDampedOrder(liveIds)
+
+  const queue = useMemo(() => {
+    const byId = new Map(liveQueue.map((s) => [s.id, s]))
+    const out: SessionMeta[] = []
+    for (const id of orderedIds) {
+      const s = byId.get(id)
+      if (s) out.push(s)
+    }
+    return out
+  }, [liveQueue, orderedIds])
 
   const jumpNext = useCallback(() => {
     const target = nextAttention(queue, activeId)

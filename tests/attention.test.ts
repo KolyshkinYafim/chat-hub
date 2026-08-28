@@ -8,6 +8,7 @@ import {
   isUnseenDone,
   markSeen,
   nextAttention,
+  parseAttentionSeen,
   pruneSeen,
   RESORT_INTERVAL_MS,
   type DampedOrder,
@@ -121,6 +122,29 @@ describe("seen semantics for done sessions", () => {
     const seen = { a: 1, b: 2 }
     expect(pruneSeen(seen, new Set(["a"]))).toEqual({ a: 1 })
     expect(pruneSeen(seen, new Set(["a", "b"]))).toBe(seen)
+  })
+})
+
+describe("parseAttentionSeen", () => {
+  it("reads a stored map of finite stamps", () => {
+    expect(parseAttentionSeen('{"a":10,"b":20}')).toEqual({ a: 10, b: 20 })
+  })
+
+  it("treats an absent value as an empty store", () => {
+    expect(parseAttentionSeen(null)).toEqual({})
+  })
+
+  it("drops entries that are not finite numbers", () => {
+    expect(
+      parseAttentionSeen('{"a":1,"b":"x","c":null,"d":1e999}'),
+    ).toEqual({ a: 1 })
+  })
+
+  it("survives corrupt or non-object payloads", () => {
+    expect(parseAttentionSeen("{not json")).toEqual({})
+    expect(parseAttentionSeen("[1,2]")).toEqual({})
+    expect(parseAttentionSeen('"seen"')).toEqual({})
+    expect(parseAttentionSeen("null")).toEqual({})
   })
 })
 
