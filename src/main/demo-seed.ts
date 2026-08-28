@@ -96,7 +96,7 @@ export function buildDemoState(): {
   })
 
   const t3 = session({
-    title: "Оценка T3 code обвязки",
+    title: "Оценка сторонней обвязки",
     project: "NSFW",
     provider: "mock",
     cwd: "/Users/dev/projects/NSFW",
