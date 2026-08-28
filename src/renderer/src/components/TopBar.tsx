@@ -1,6 +1,7 @@
 import { useState } from "react"
 import type { GitCheckoutInfo, SessionMeta } from "@shared/types"
 import type { ProjectScript } from "@shared/scripts"
+import { needsAction } from "@shared/attention"
 import { StatusDot } from "./StatusDot"
 import { ScriptsMenu } from "./ScriptsMenu"
 import { shortCwd, statusLabel } from "../lib/format"
@@ -40,7 +41,7 @@ export function TopBar({
     <header className="topbar">
       <div className="topbar-left">
         <span title={`${statusLabel[session.status]} · ${session.provider}`}>
-          <StatusDot status={session.status} />
+          <StatusDot status={session.status} attention={needsAction(session)} />
         </span>
         <h1 className="topbar-title">
           <button

@@ -358,7 +358,9 @@ export function Sidebar({
         tabIndex={0}
       >
         <div className="session-row-main t3">
-          {live ? <StatusDot status={s.status} showLabel /> : null}
+          {live ? (
+            <StatusDot status={s.status} showLabel attention={needsAction(s)} />
+          ) : null}
           {editing ? (
             <input
               className="session-title-input"
@@ -545,13 +547,13 @@ export function Sidebar({
             ) : null}
             {waiting > 0 ? (
               <span className="rail-live-row" title={`${waiting} waiting`}>
-                <i className="status-dot waiting_input" />
+                <i className="status-dot attention waiting_input" />
                 {waiting}
               </span>
             ) : null}
             {failed > 0 ? (
               <span className="rail-live-row" title={`${failed} failed`}>
-                <i className="status-dot error" />
+                <i className="status-dot attention error" />
                 {failed}
               </span>
             ) : null}

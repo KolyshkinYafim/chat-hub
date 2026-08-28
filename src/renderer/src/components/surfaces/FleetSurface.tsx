@@ -89,7 +89,7 @@ function FleetRowButton({
       className={`fleet-row ${active ? "active" : ""} ${row.settled ? "settled" : ""}`}
       onClick={() => onSelect(row.id)}
     >
-      <StatusDot status={row.status} />
+      <StatusDot status={row.status} attention={row.attention} />
       <span className="fleet-row-body">
         <span className="fleet-row-head">
           <span className="fleet-row-title">{row.title}</span>

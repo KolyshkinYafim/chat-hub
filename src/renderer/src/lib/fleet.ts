@@ -5,7 +5,7 @@ import type {
   SessionStatus,
   SessionUsage,
 } from "@shared/types"
-import { STATUS_RANK } from "@shared/attention"
+import { needsAction, STATUS_RANK } from "@shared/attention"
 import { buildTranscript } from "./tool-runs"
 import { currentStep, type LiveStep } from "./live-step"
 
@@ -21,6 +21,7 @@ export type FleetRow = {
   costUsd: number | null
   queuedCount: number
   settled: boolean
+  attention: boolean
 }
 
 export type FleetGroup = {
@@ -110,6 +111,7 @@ export function buildFleet(
       costUsd: usage[session.id]?.costUsd ?? null,
       queuedCount: queued[session.id]?.length ?? 0,
       settled,
+      attention: needsAction(session),
     }
     if (settled) counts.settled += 1
     else if (session.status === "running") counts.working += 1

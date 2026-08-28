@@ -13,6 +13,7 @@ import type {
   SessionUsage,
 } from "@shared/types"
 import type { PermissionMode } from "@shared/permission"
+import { needsAction } from "@shared/attention"
 import type { EffortLevel, Mode, ModelInfo } from "@shared/settings-types"
 import type { ProjectScript } from "@shared/scripts"
 import { collectAgentActions, editedPathsInMessage } from "../lib/agent-actions"
@@ -336,7 +337,12 @@ function PaneView({
         <span className="pane-grip" aria-hidden>
           ⋮⋮
         </span>
-        {session ? <StatusDot status={session.status} /> : null}
+        {session ? (
+          <StatusDot
+            status={session.status}
+            attention={needsAction(session)}
+          />
+        ) : null}
         <span className="pane-head-title" title={session?.cwd}>
           {session ? session.title : "Empty pane — drop a chat here"}
         </span>
