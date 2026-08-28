@@ -74,6 +74,7 @@ import {
   type ZoomController,
 } from "./window-state"
 import { MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH } from "@shared/window-bounds"
+import { resolveTheme, themeBackground } from "@shared/theme"
 import { DEFAULT_ZOOM_LEVEL } from "@shared/zoom"
 import {
   appendMcpPathsToGitignore,
@@ -97,6 +98,8 @@ import {
   toggleHandyTranscription,
 } from "./voice-handy"
 import { inspectAttachmentPaths } from "./attachments"
+import { ProviderStatusCacheStore } from "./provider-status-cache"
+import { ProviderStatusRefresher } from "./provider-status-refresh"
 import { chatHubBrowserSocketPath } from "@shared/bridge-path"
 import { BrowserControl } from "./surfaces/browser-control"
 import { SurfaceControl } from "./surfaces/surface-control"
@@ -277,7 +280,12 @@ function createWindow(): void {
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
     title: "Chat Hub",
-    backgroundColor: "#0c0d10",
+    backgroundColor: themeBackground(
+      resolveTheme(
+        settingsStore?.general.themeId,
+        settingsStore?.general.customThemes,
+      ),
+    ),
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 16 },
     webPreferences: {
@@ -350,17 +358,28 @@ function createWindow(): void {
   }
 }
 
-function registerIpc(
+export function registerIpc(
   sm: SessionManager,
   bridge: SessionMonitorBridge,
   settings: SettingsStore,
   projects: ProjectStore,
   userData: string,
   usageLedger: UsageLedger,
+  providerStatuses: ProviderStatusRefresher,
+  ready: Promise<void>,
 ): void {
-  ipcMain.handle(IpcChannels.getSnapshot, () => sm.getSnapshot())
-  ipcMain.handle(IpcChannels.usageSummary, () => usageLedger.summary())
-  ipcMain.handle(IpcChannels.listSessions, () => sm.listSessions())
+  ipcMain.handle(IpcChannels.getSnapshot, async () => {
+    await ready
+    return sm.getSnapshot()
+  })
+  ipcMain.handle(IpcChannels.usageSummary, async () => {
+    await ready
+    return usageLedger.summary()
+  })
+  ipcMain.handle(IpcChannels.listSessions, async () => {
+    await ready
+    return sm.listSessions()
+  })
   ipcMain.handle(IpcChannels.getMessages, (_e, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) {
       throw new Error("Invalid sessionId")
@@ -429,6 +448,7 @@ function registerIpc(
     },
   )
   ipcMain.handle(IpcChannels.createSession, async (_e, input: unknown) => {
+    await ready
     if (!input || typeof input !== "object") {
       throw new Error("Invalid createSession payload")
     }
@@ -456,6 +476,7 @@ function registerIpc(
   ipcMain.handle(
     IpcChannels.sendMessage,
     async (_e, sessionId: unknown, text: unknown, opts?: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid sessionId")
       }
@@ -478,18 +499,21 @@ function registerIpc(
     },
   )
   ipcMain.handle(IpcChannels.abortSession, async (_e, sessionId: unknown) => {
+    await ready
     if (typeof sessionId !== "string" || !sessionId) {
       throw new Error("Invalid sessionId")
     }
     return sm.abortSession(sessionId)
   })
   ipcMain.handle(IpcChannels.deleteSession, async (_e, sessionId: unknown) => {
+    await ready
     if (typeof sessionId !== "string" || !sessionId) {
       throw new Error("Invalid sessionId")
     }
     return sm.deleteSession(sessionId)
   })
-  ipcMain.handle(IpcChannels.setActiveSession, (_e, sessionId: unknown) => {
+  ipcMain.handle(IpcChannels.setActiveSession, async (_e, sessionId: unknown) => {
+    await ready
     if (sessionId !== null && typeof sessionId !== "string") {
       throw new Error("Invalid sessionId")
     }
@@ -727,7 +751,8 @@ function registerIpc(
   })
   ipcMain.handle(
     IpcChannels.checkpointRevert,
-    (_e, sessionId: unknown, ref: unknown) => {
+    async (_e, sessionId: unknown, ref: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid session id")
       }
@@ -769,15 +794,17 @@ function registerIpc(
     }
   })
 
-  ipcMain.handle(IpcChannels.getSettings, async () => {
+  ipcMain.handle(IpcChannels.getSettings, () => {
     const snap = settings.snapshot
-    const statuses = await probeAllProviders(buildProbeInputs(settings))
+    const cached = providerStatuses.cached
+    providerStatuses.kickIfStale()
     return {
       permissionMode: snap.permissionMode,
       providers: settings.redactedProviders(),
       instances: settings.listInstances(),
       general: snap.general,
-      statuses,
+      statuses: cached?.statuses ?? [],
+      statusesCachedAt: cached?.cachedAt ?? null,
     }
   })
 
@@ -851,6 +878,7 @@ function registerIpc(
   })
 
   ipcMain.handle(IpcChannels.wipeSessions, async () => {
+    await ready
     await sm.wipeSessions()
     return sm.getSnapshot()
   })
@@ -901,6 +929,7 @@ function registerIpc(
   ipcMain.handle(
     IpcChannels.setSessionPermission,
     async (_e, sessionId: unknown, mode: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Session id required")
       }
@@ -922,7 +951,7 @@ function registerIpc(
   )
 
   ipcMain.handle(IpcChannels.getProviderStatuses, async () => {
-    return probeAllProviders(buildProbeInputs(settings))
+    return providerStatuses.refresh()
   })
 
   ipcMain.handle(
@@ -949,7 +978,7 @@ function registerIpc(
         enabled: typeof p.enabled === "boolean" ? p.enabled : undefined,
         env,
       })
-      const statuses = await probeAllProviders(buildProbeInputs(settings))
+      const statuses = await providerStatuses.refresh()
       return {
         providers: settings.redactedProviders(),
         statuses,
@@ -1006,7 +1035,7 @@ function registerIpc(
       })
       return {
         instances: settings.listInstances(),
-        statuses: await probeAllProviders(buildProbeInputs(settings)),
+        statuses: await providerStatuses.refresh(),
       }
     },
   )
@@ -1026,7 +1055,7 @@ function registerIpc(
       })
       return {
         instances: settings.listInstances(),
-        statuses: await probeAllProviders(buildProbeInputs(settings)),
+        statuses: await providerStatuses.refresh(),
       }
     },
   )
@@ -1036,13 +1065,14 @@ function registerIpc(
     await settings.removeInstance(id)
     return {
       instances: settings.listInstances(),
-      statuses: await probeAllProviders(buildProbeInputs(settings)),
+      statuses: await providerStatuses.refresh(),
     }
   })
 
   ipcMain.handle(
     IpcChannels.setSessionModel,
-    (_e, sessionId: unknown, model: unknown) => {
+    async (_e, sessionId: unknown, model: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid sessionId")
       }
@@ -1053,7 +1083,8 @@ function registerIpc(
 
   ipcMain.handle(
     IpcChannels.applySessionMode,
-    (_e, sessionId: unknown, patch: unknown) => {
+    async (_e, sessionId: unknown, patch: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid sessionId")
       }
@@ -1079,7 +1110,8 @@ function registerIpc(
 
   ipcMain.handle(
     IpcChannels.sessionSetSettled,
-    (_e, sessionId: unknown, settled: unknown) => {
+    async (_e, sessionId: unknown, settled: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid sessionId")
       }
@@ -1090,7 +1122,8 @@ function registerIpc(
 
   ipcMain.handle(
     IpcChannels.sessionSetFavorite,
-    (_e, sessionId: unknown, favorite: unknown) => {
+    async (_e, sessionId: unknown, favorite: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid sessionId")
       }
@@ -1103,7 +1136,8 @@ function registerIpc(
 
   ipcMain.handle(
     IpcChannels.sessionRename,
-    (_e, sessionId: unknown, title: unknown) => {
+    async (_e, sessionId: unknown, title: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid sessionId")
       }
@@ -1114,7 +1148,8 @@ function registerIpc(
 
   ipcMain.handle(
     IpcChannels.sessionSetArchived,
-    (_e, sessionId: unknown, archived: unknown) => {
+    async (_e, sessionId: unknown, archived: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid sessionId")
       }
@@ -1125,14 +1160,16 @@ function registerIpc(
     },
   )
 
-  ipcMain.handle(IpcChannels.sessionMigrateArchived, (_e, ids: unknown) => {
+  ipcMain.handle(IpcChannels.sessionMigrateArchived, async (_e, ids: unknown) => {
+    await ready
     if (!Array.isArray(ids)) throw new Error("Invalid ids")
     sm.migrateArchived(ids.filter((id): id is string => typeof id === "string"))
   })
 
   ipcMain.handle(
     IpcChannels.sessionRegenerateTitle,
-    (_e, sessionId: unknown) => {
+    async (_e, sessionId: unknown) => {
+      await ready
       if (typeof sessionId !== "string" || !sessionId) {
         throw new Error("Invalid sessionId")
       }
@@ -1221,9 +1258,13 @@ function registerIpc(
     }
   })
 
-  ipcMain.handle(IpcChannels.listProjects, () => projects.list())
+  ipcMain.handle(IpcChannels.listProjects, async () => {
+    await ready
+    return projects.list()
+  })
 
   ipcMain.handle(IpcChannels.addProject, async (_e, cwd: unknown) => {
+    await ready
     let folder: string | null =
       typeof cwd === "string" && cwd.trim() ? cwd.trim() : null
     if (!folder) {
@@ -1243,6 +1284,7 @@ function registerIpc(
   ipcMain.handle(
     IpcChannels.renameProject,
     async (_e, id: unknown, name: unknown) => {
+      await ready
       if (typeof id !== "string" || !id) throw new Error("Invalid project id")
       if (typeof name !== "string") throw new Error("Invalid name")
       return projects.renameProject(id, name)
@@ -1250,6 +1292,7 @@ function registerIpc(
   )
 
   ipcMain.handle(IpcChannels.removeProject, async (_e, id: unknown) => {
+    await ready
     if (typeof id !== "string" || !id) throw new Error("Invalid project id")
     return projects.remove(id)
   })
@@ -1429,6 +1472,40 @@ export function startSingleInstance(
   return "boot"
 }
 
+export async function bootReadyChain(opts: {
+  projects: ProjectStore
+  sm: SessionManager
+  usageLedger: UsageLedger
+  startBroker: () => Promise<void>
+}): Promise<void> {
+  const { projects, sm, usageLedger } = opts
+  await projects.load()
+  // Before the first turn can spawn: dispatch() reads the socket path to point
+  // the CLI's hook at us, so a broker that starts late loses that session's
+  // approvals to the island.
+  await opts.startBroker()
+  await sm.init()
+  await usageLedger.init(
+    seedFromSessions(sm.listSessions(), sm.getSnapshot().usage),
+  )
+  // Backfill: every existing session folder becomes a first-class project so it
+  // stays pinned/manageable in the sidebar even after its sessions are gone.
+  // Runs before ready resolves — the renderer's gated listProjects must never
+  // race it, and it is disk-fast.
+  for (const s of sm.listSessions()) {
+    await projects.ensure(s.cwd, s.project)
+  }
+}
+
+export function failBootstrap(err: unknown): void {
+  console.error("[bootstrap] failed", err)
+  dialog.showErrorBox(
+    "Chat Hub failed to start",
+    err instanceof Error ? (err.stack ?? err.message) : String(err),
+  )
+  app.exit(1)
+}
+
 async function bootstrap(): Promise<void> {
   if (process.platform === "darwin") {
     app.setName("Chat Hub")
@@ -1461,14 +1538,24 @@ async function bootstrap(): Promise<void> {
   const settings = new SettingsStore(SettingsStore.defaultPath(userData))
   await settings.load()
   settingsStore = settings
+  const statusCache = new ProviderStatusCacheStore(
+    ProviderStatusCacheStore.defaultPath(userData),
+  )
+  await statusCache.load()
+  const providerStatuses = new ProviderStatusRefresher({
+    probe: () => probeAllProviders(buildProbeInputs(settings)),
+    configKey: () => JSON.stringify(buildProbeInputs(settings)),
+    cache: statusCache,
+    emit: (statuses, cachedAt) =>
+      bus.emit({ type: "providers.statuses", statuses, cachedAt }),
+  })
   const projects = new ProjectStore(ProjectStore.defaultPath(userData))
-  await projects.load()
   const bridge = new SessionMonitorBridge(SessionMonitorBridge.defaultPath())
   const notifications = new NotificationService((id) =>
     manager?.getSession(id),
   )
   const usageLedger = new UsageLedger(UsageLedger.defaultPath(userData))
-  manager = new SessionManager(
+  const sm = new SessionManager(
     bus,
     persistence,
     bridge,
@@ -1477,26 +1564,7 @@ async function bootstrap(): Promise<void> {
     undefined,
     { usageLedger },
   )
-  await manager.init()
-  await usageLedger.init(
-    seedFromSessions(manager.listSessions(), manager.getSnapshot().usage),
-  )
-
-  // Before the first turn can spawn: dispatch() reads the socket path to point
-  // the CLI's hook at us, so a broker that starts late loses that session's
-  // approvals to the island.
-  const sm = manager
-  permissions = new PermissionBroker(bus, (agentSessionId, cwd) =>
-    sm.findSessionForAgent(agentSessionId, cwd),
-  )
-  await permissions.start()
-  manager.setPermissionBroker(permissions)
-
-  // Backfill: every existing session folder becomes a first-class project so it
-  // stays pinned/manageable in the sidebar even after its sessions are gone.
-  for (const s of manager.listSessions()) {
-    await projects.ensure(s.cwd, s.project)
-  }
+  manager = sm
 
   bus.on((event) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1505,7 +1573,7 @@ async function bootstrap(): Promise<void> {
   })
 
   const store = settings
-  manager.setBrowserMcpRegistrar((session) =>
+  sm.setBrowserMcpRegistrar((session) =>
     registerBrowserMcp({
       provider: session.provider,
       root: session.cwd,
@@ -1520,15 +1588,41 @@ async function bootstrap(): Promise<void> {
       envFor: (serverId) => store.getMcpEnv(serverId),
     }),
   )
-  await browserService.start()
 
-  registerIpc(manager, bridge, settings, projects, userData, usageLedger)
+  const ready = bootReadyChain({
+    projects,
+    sm,
+    usageLedger,
+    startBroker: async () => {
+      const broker = new PermissionBroker(bus, (agentSessionId, cwd) =>
+        sm.findSessionForAgent(agentSessionId, cwd),
+      )
+      permissions = broker
+      await broker.start()
+      sm.setPermissionBroker(broker)
+    },
+  })
+
+  registerIpc(
+    sm,
+    bridge,
+    settings,
+    projects,
+    userData,
+    usageLedger,
+    providerStatuses,
+    ready,
+  )
   registerSurfaceIpc(terminals)
   registerBrowserIpc()
   registerMediaProtocol()
   createWindow()
 
-  commandBridge = new MonitorCommandBridge(manager, (sessionId) => {
+  await ready
+
+  await browserService.start()
+
+  commandBridge = new MonitorCommandBridge(sm, (sessionId) => {
     if (!mainWindow || mainWindow.isDestroyed()) createWindow()
     mainWindow?.show()
     mainWindow?.focus()
@@ -1559,7 +1653,7 @@ function boot(): void {
   // Privileged schemes are only registrable before "ready" — the media
   // protocol the Files surface streams video/audio through is one of them.
   registerMediaScheme()
-  void app.whenReady().then(bootstrap)
+  void app.whenReady().then(() => bootstrap().catch(failBootstrap))
 
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit()

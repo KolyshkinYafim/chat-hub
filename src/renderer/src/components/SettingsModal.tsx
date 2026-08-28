@@ -38,6 +38,7 @@ import {
 } from "@shared/theme"
 import type { ThemeDef, ThemeToken } from "@shared/theme"
 import { applyTheme } from "../lib/theme-apply"
+import { formatCheckedAgo } from "../lib/provider-status"
 import type {
   McpServerDef,
   McpServerStatus,
@@ -280,6 +281,10 @@ export function SettingsModal({
 }: Props) {
   const [tab, setTab] = useState<Tab>("providers")
   const [statuses, setStatuses] = useState<ProviderStatus[]>([])
+  const [statusesCheckedAt, setStatusesCheckedAt] = useState<number | null>(
+    null,
+  )
+  const [nowTick, setNowTick] = useState(() => Date.now())
   const [providersCfg, setProvidersCfg] = useState<
     SettingsSnapshot["providers"]
   >({})
@@ -390,6 +395,7 @@ export function SettingsModal({
         window.chatHub.getDataPaths(),
       ])
       setStatuses(snap.statuses)
+      setStatusesCheckedAt(snap.statusesCachedAt)
       setProvidersCfg(snap.providers)
       setGeneral(snap.general)
       setDataPaths(paths)
@@ -410,10 +416,40 @@ export function SettingsModal({
     }
   }, [projectCwd])
 
+  const probeNow = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const probed = await window.chatHub.getProviderStatuses()
+      setStatuses(probed)
+      setStatusesCheckedAt(Date.now())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (!open) return
     void refresh()
   }, [open, refresh])
+
+  useEffect(() => {
+    if (!open) return
+    return window.chatHub.onHubEvent((event) => {
+      if (event.type === "providers.statuses") {
+        setStatuses(event.statuses)
+        setStatusesCheckedAt(event.cachedAt)
+      }
+    })
+  }, [open])
+
+  useEffect(() => {
+    if (!open || tab !== "providers") return
+    const timer = setInterval(() => setNowTick(Date.now()), 30_000)
+    return () => clearInterval(timer)
+  }, [open, tab])
 
   useEffect(() => {
     if (!open) return
@@ -923,14 +959,21 @@ export function SettingsModal({
                       : "Advanced"}
           </h1>
           {tab === "providers" ? (
-            <button
-              type="button"
-              className="tb-btn"
-              disabled={loading}
-              onClick={() => void refresh()}
-            >
-              {loading ? "Checking…" : "↻ Refresh"}
-            </button>
+            <div className="settings-head-tools">
+              {statusesCheckedAt !== null ? (
+                <span className="settings-checked-at">
+                  {formatCheckedAgo(statusesCheckedAt, nowTick)}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                className="tb-btn"
+                disabled={loading}
+                onClick={() => void probeNow()}
+              >
+                {loading ? "Checking…" : "↻ Refresh"}
+              </button>
+            </div>
           ) : null}
         </header>
 
@@ -1544,7 +1587,7 @@ export function SettingsModal({
                                 type="button"
                                 className="tb-btn"
                                 disabled={loading}
-                                onClick={() => void refresh()}
+                                onClick={() => void probeNow()}
                               >
                                 Re-detect
                               </button>

@@ -3215,6 +3215,18 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   font-weight: 650;
 }
 
+.settings-head-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-checked-at {
+  color: var(--text-faint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .settings-scroll {
   flex: 1;
   min-height: 0;

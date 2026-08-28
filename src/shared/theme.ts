@@ -219,3 +219,7 @@ export function resolveTheme(
     customThemes?.find((t) => t.id === themeId)
   return found ?? BUILTIN_THEMES[0]
 }
+
+export function themeBackground(def: ThemeDef): string {
+  return def.tokens["--bg"] ?? BASE_TOKENS["--bg"]
+}

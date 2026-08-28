@@ -328,3 +328,4 @@ describe("shell state", () => {
     expect(s.windowState?.bounds.width).toBe(1000)
   })
 })
+

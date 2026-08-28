@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -40,6 +41,7 @@ import { prunePendingPrompts } from "./lib/pending-prompt"
 import { prunePreviewPicks } from "./lib/preview-picks"
 import { pruneScriptTerminals } from "./lib/script-terminals"
 import { mergeReplacedMessages } from "./lib/transcript-window"
+import { applyStatusesToProviders } from "./lib/provider-status"
 import { Sidebar } from "./components/Sidebar"
 import { Workspace, type WorkspaceDrop } from "./components/Workspace"
 import type { PaneActions } from "./components/WorkspacePane"
@@ -105,6 +107,7 @@ const AUTH_NAG_KEY = "chat-hub.authNagDismissed"
 const SCRIPT_PREVIEW_SWITCH_MS = 800
 
 export default function App() {
+  const [booted, setBooted] = useState(false)
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [messagesBySession, setMessagesBySession] = useState<
     Record<string, ChatMessage[]>
@@ -404,19 +407,23 @@ export default function App() {
           }
         })
         break
+      case "providers.statuses":
+        setProviderStatuses(event.statuses)
+        setProviders((curr) => applyStatusesToProviders(curr, event.statuses))
+        break
       default:
         break
     }
   }, [])
 
   useEffect(() => {
-    let unsub = () => {}
+    const unsub = window.chatHub.onHubEvent(applyEvent)
+    const snapPromise = window.chatHub.getSnapshot()
+
     void (async () => {
       try {
-        const [snap, prov, settings, pinned] = await Promise.all([
-          window.chatHub.getSnapshot(),
-          window.chatHub.listProviders(),
-          window.chatHub.getSettings(),
+        const [snap, pinned] = await Promise.all([
+          snapPromise,
           window.chatHub.listProjects(),
         ])
         setSessions(snap.sessions)
@@ -444,7 +451,27 @@ export default function App() {
           }
         }
         setProjects(pinned)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setBooted(true)
+      }
+      try {
+        const legacyArchived = readArchivedForMigration()
+        if (legacyArchived.length > 0) {
+          await window.chatHub.migrateArchived(legacyArchived)
+        }
+        clearMigratedArchive()
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+      }
+    })()
+
+    void (async () => {
+      try {
+        const prov = await window.chatHub.listProviders()
         setProviders(prov)
+        const settings = await window.chatHub.getSettings()
         setPermissionMode(settings.permissionMode)
         setProviderStatuses(settings.statuses)
         applyTheme(
@@ -475,25 +502,24 @@ export default function App() {
         if (savedOk) setProvider(saved)
         else if (firstAvailable) setProvider(firstAvailable.id)
         // First run: no onboarding done and nothing to show yet → wizard.
+        const snap = await snapPromise
         if (!settings.general.onboarded && snap.sessions.length === 0) {
           setWizardOpen(true)
         }
-        const legacyArchived = readArchivedForMigration()
-        if (legacyArchived.length > 0) {
-          await window.chatHub.migrateArchived(legacyArchived)
-        }
-        clearMigratedArchive()
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
       }
     })()
 
-    unsub = window.chatHub.onHubEvent(applyEvent)
-
     return () => {
       unsub()
     }
   }, [applyEvent])
+
+  useLayoutEffect(() => {
+    if (!booted) return
+    document.getElementById("boot-skeleton")?.remove()
+  }, [booted])
 
   const activeSession = useMemo(
     () => sessions.find((s) => s.id === activeId) ?? null,
@@ -1592,6 +1618,15 @@ export default function App() {
 
   const tiled = layout.panes.length > 1
   const showDock = pane.dockOpen && activeSession !== null
+
+  if (!booted) {
+    return (
+      <div
+        className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""}`}
+        style={{ "--sidebar-w": `${sidebarWidth}px` } as CSSProperties}
+      />
+    )
+  }
 
   return (
     <div

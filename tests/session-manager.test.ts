@@ -32,6 +32,7 @@ const { adapter, state } = vi.hoisted(() => {
     } | null,
     startEmitsRunning: false,
     startThrows: false,
+    startDelay: null as Promise<void> | null,
     // A real CLI reports "running" a tick late; turning this off reproduces
     // that window, where only the in-flight turn itself marks the session busy.
     sendEmitsRunning: true,
@@ -44,6 +45,7 @@ const { adapter, state } = vi.hoisted(() => {
     id: "mock" as const,
     available: true,
     async start(opts: AdapterStartOpts, cb: AdapterCallbacks): Promise<void> {
+      if (state.startDelay) await state.startDelay
       if (state.startThrows) throw new Error("binary not found")
       if (state.startEmitsRunning) {
         cb.onSessionEvent({
@@ -138,6 +140,7 @@ beforeEach(() => {
   state.pending = null
   state.startEmitsRunning = false
   state.startThrows = false
+  state.startDelay = null
   state.sendEmitsRunning = true
   state.usage = null
   state.lastEnv = undefined
@@ -816,6 +819,173 @@ describe("message archive overflow", () => {
     const archive = MessageArchive.fromStatePath("/tmp/whatever/state.json")
     expect(() => archive.fileFor("../../etc")).toThrow(/Invalid session id/)
     expect(() => archive.fileFor("")).toThrow(/Invalid session id/)
+  })
+})
+
+function restart(
+  dir: string,
+  persistence: InstanceType<typeof Persistence>,
+) {
+  const bus = new EventBus()
+  const events: HubEvent[] = []
+  bus.on((e) => events.push(e))
+  const restarted = new SessionManager(
+    bus,
+    persistence,
+    new SessionMonitorBridge(join(dir, "events.jsonl")),
+    { handle: () => {} } as unknown as NotificationService,
+    new SettingsStore(join(dir, "settings.json")),
+    { intervalMs: 60_000, silenceMs: 60_000 },
+    { titleGenerator: async () => null },
+  )
+  return { restarted, events }
+}
+
+describe("adapter restore on restart", () => {
+  it("publishes restored sessions before the adapters finish re-registering", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.flush()
+
+    let releaseStart = () => {}
+    state.startDelay = new Promise<void>((resolve) => {
+      releaseStart = resolve
+    })
+    const { restarted, events } = restart(dir, persistence)
+    await restarted.init()
+
+    expect(restarted.getSession(session.id)).toBeDefined()
+    expect(
+      events.some(
+        (e) => e.type === "sessions.replaced" && e.sessions.length === 1,
+      ),
+    ).toBe(true)
+    releaseStart()
+  })
+
+  it("holds a send until the restored adapter is ready", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.flush()
+
+    let releaseStart = () => {}
+    state.startDelay = new Promise<void>((resolve) => {
+      releaseStart = resolve
+    })
+    const { restarted } = restart(dir, persistence)
+    await restarted.init()
+
+    const send = restarted.sendMessage(session.id, "after restart")
+    expect(state.sent).toEqual([])
+    state.startDelay = null
+    releaseStart()
+    await send
+    expect(state.sent).toEqual(["after restart"])
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(restarted.getSession(session.id)?.status).toBe("idle"),
+    )
+  })
+
+  it("lets a new session send while another session's restore is stuck", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const stuck = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.flush()
+
+    let releaseStart = () => {}
+    state.startDelay = new Promise<void>((resolve) => {
+      releaseStart = resolve
+    })
+    const { restarted } = restart(dir, persistence)
+    await restarted.init()
+
+    state.startDelay = null
+    const fresh = await restarted.createSession({ provider: "mock", cwd: dir })
+    await restarted.sendMessage(fresh.id, "fresh session speaks")
+    expect(state.sent).toEqual(["fresh session speaks"])
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(restarted.getSession(fresh.id)?.status).toBe("idle"),
+    )
+
+    const gated = restarted.sendMessage(stuck.id, "still gated")
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(state.sent).toEqual(["fresh session speaks"])
+    releaseStart()
+    await gated
+    expect(state.sent).toEqual(["fresh session speaks", "still gated"])
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(restarted.getSession(stuck.id)?.status).toBe("idle"),
+    )
+  })
+})
+
+describe("browser MCP registration", () => {
+  it("registers once at creation and not again on the first send", async () => {
+    const { sm, dir } = await makeManager()
+    const registered: string[] = []
+    sm.setBrowserMcpRegistrar(async (target) => {
+      registered.push(target.id)
+    })
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    expect(registered).toEqual([session.id])
+
+    await sm.sendMessage(session.id, "hello")
+    expect(registered).toEqual([session.id])
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(sm.getSession(session.id)?.status).toBe("idle"),
+    )
+  })
+
+  it("never rewrites workspace configs from the boot-time restore", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.flush()
+
+    const { restarted } = restart(dir, persistence)
+    const registered: string[] = []
+    restarted.setBrowserMcpRegistrar(async (target) => {
+      registered.push(target.id)
+    })
+    await restarted.init()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(registered).toEqual([])
+
+    await restarted.sendMessage(session.id, "after restart")
+    expect(registered).toEqual([session.id])
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(restarted.getSession(session.id)?.status).toBe("idle"),
+    )
+
+    await restarted.sendMessage(session.id, "again")
+    expect(registered).toEqual([session.id])
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(restarted.getSession(session.id)?.status).toBe("idle"),
+    )
+  })
+
+  it("retries registration on the next send after a failure", async () => {
+    const { sm, dir } = await makeManager()
+    let fail = true
+    const registered: string[] = []
+    sm.setBrowserMcpRegistrar(async (target) => {
+      if (fail) throw new Error("materialize failed")
+      registered.push(target.id)
+    })
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    expect(registered).toEqual([])
+
+    fail = false
+    await sm.sendMessage(session.id, "first")
+    expect(registered).toEqual([session.id])
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(sm.getSession(session.id)?.status).toBe("idle"),
+    )
   })
 })
 

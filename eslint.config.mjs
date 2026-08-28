@@ -89,6 +89,10 @@ export default tseslint.config(
     languageOptions: { globals: globals.node },
   },
   {
+    files: ["src/renderer/public/**/*.js"],
+    languageOptions: { globals: globals.browser },
+  },
+  {
     // Plain JS config files (including this one) get no type information.
     files: ["**/*.{js,mjs,cjs}"],
     extends: [tseslint.configs.disableTypeChecked],

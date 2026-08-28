@@ -1,5 +1,6 @@
 import type { PermissionMode } from "./permission"
 import type { HookRun } from "./hooks"
+import type { ProviderStatus } from "./settings-types"
 
 export type SessionStatus =
   | "idle"
@@ -479,6 +480,11 @@ export type HubEvent =
   | { type: "input.resolved"; requestId: string; sessionId: string }
   /** One project-local hook finished (shell or prompt). See `src/main/hooks.ts`. */
   | { type: "hook.ran"; run: HookRun }
+  | {
+      type: "providers.statuses"
+      statuses: ProviderStatus[]
+      cachedAt: number
+    }
 
 export type CreateSessionInput = {
   provider: ProviderId

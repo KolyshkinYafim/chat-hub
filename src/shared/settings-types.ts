@@ -181,6 +181,11 @@ export type ProviderStatus = {
   envHints: ProviderEnvHint[]
 }
 
+export type ProviderStatusCache = {
+  statuses: ProviderStatus[]
+  cachedAt: number
+}
+
 export type SettingsSnapshot = {
   permissionMode: PermissionMode
   providers: Partial<Record<ProviderId, RedactedProviderConfig>>
@@ -188,6 +193,7 @@ export type SettingsSnapshot = {
   general: GeneralConfig
   /** One entry per instance (default + extras), grouped by provider. */
   statuses: ProviderStatus[]
+  statusesCachedAt: number | null
 }
 
 /** Filesystem locations + bridge health for the Advanced/Connections tabs. */

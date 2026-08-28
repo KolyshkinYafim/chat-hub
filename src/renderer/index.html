@@ -8,8 +8,217 @@
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Chat Hub</title>
+    <script src="./boot-theme.js"></script>
+    <style>
+      html,
+      body,
+      #root {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        background: var(--bg, #0c0d12);
+        overflow: hidden;
+      }
+      #boot-skeleton {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        background: var(--bg, #0c0d12);
+      }
+      .bs-side {
+        width: var(--sidebar-w, 268px);
+        flex: none;
+        box-sizing: border-box;
+        padding: 14px 12px;
+        background: var(--bg-sidebar, #131419);
+        border-right: 1px solid var(--border-soft, #24262b);
+        overflow: hidden;
+      }
+      .bs-shimmer {
+        display: block;
+        border-radius: 10px;
+        background: var(--bg-elevated, #1b1c21);
+        border: 1px solid var(--border-soft, #24262b);
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        .bs-shimmer {
+          animation: bs-pulse 1.4s ease-in-out infinite;
+        }
+      }
+      @keyframes bs-pulse {
+        50% {
+          opacity: 0.45;
+        }
+      }
+      .bs-brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 2px 4px 10px;
+      }
+      .bs-glyph {
+        width: 26px;
+        height: 26px;
+        border-radius: 8px;
+        flex: none;
+      }
+      .bs-line {
+        height: 12px;
+        border-radius: 6px;
+        width: 72%;
+      }
+      .bs-line.bs-sub {
+        height: 9px;
+        width: 48%;
+        opacity: 0.7;
+      }
+      .bs-brand .bs-line {
+        width: 96px;
+      }
+      .bs-search {
+        height: 30px;
+      }
+      .bs-rows {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 16px 2px 0;
+      }
+      .bs-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .bs-row:nth-child(2n) .bs-line {
+        width: 58%;
+      }
+      .bs-row:nth-child(2n) .bs-line.bs-sub {
+        width: 36%;
+      }
+      .bs-row:nth-child(3n) .bs-line {
+        width: 84%;
+      }
+      .bs-row:nth-child(3n) .bs-line.bs-sub {
+        width: 52%;
+      }
+      .bs-dot {
+        width: 22px;
+        height: 22px;
+        border-radius: 7px;
+        flex: none;
+      }
+      .bs-row-lines {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+      }
+      .bs-main {
+        display: flex;
+        flex: 1;
+        min-width: 0;
+        flex-direction: column;
+      }
+      .bs-fill {
+        flex: 1;
+      }
+      .bs-composer {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        box-sizing: border-box;
+        width: calc(100% - 40px);
+        max-width: 1060px;
+        margin: 8px auto 14px;
+        padding: 12px;
+        background: var(--composer-bg, #16181d);
+        border: 1px solid var(--border-strong, #515258);
+        border-radius: 16px;
+        opacity: 0.55;
+      }
+      .bs-composer-field {
+        flex: 1;
+        height: 44px;
+      }
+      .bs-composer-send {
+        width: 68px;
+        height: 30px;
+        border-radius: 8px;
+        flex: none;
+      }
+    </style>
   </head>
   <body>
+    <div id="boot-skeleton" aria-busy="true" aria-label="Loading Chat Hub">
+      <div class="bs-side">
+        <div class="bs-brand">
+          <span class="bs-shimmer bs-glyph"></span>
+          <span class="bs-shimmer bs-line"></span>
+        </div>
+        <div class="bs-shimmer bs-search"></div>
+        <div class="bs-rows">
+          <div class="bs-row">
+            <span class="bs-shimmer bs-dot"></span>
+            <span class="bs-row-lines">
+              <span class="bs-shimmer bs-line"></span>
+              <span class="bs-shimmer bs-line bs-sub"></span>
+            </span>
+          </div>
+          <div class="bs-row">
+            <span class="bs-shimmer bs-dot"></span>
+            <span class="bs-row-lines">
+              <span class="bs-shimmer bs-line"></span>
+              <span class="bs-shimmer bs-line bs-sub"></span>
+            </span>
+          </div>
+          <div class="bs-row">
+            <span class="bs-shimmer bs-dot"></span>
+            <span class="bs-row-lines">
+              <span class="bs-shimmer bs-line"></span>
+              <span class="bs-shimmer bs-line bs-sub"></span>
+            </span>
+          </div>
+          <div class="bs-row">
+            <span class="bs-shimmer bs-dot"></span>
+            <span class="bs-row-lines">
+              <span class="bs-shimmer bs-line"></span>
+              <span class="bs-shimmer bs-line bs-sub"></span>
+            </span>
+          </div>
+          <div class="bs-row">
+            <span class="bs-shimmer bs-dot"></span>
+            <span class="bs-row-lines">
+              <span class="bs-shimmer bs-line"></span>
+              <span class="bs-shimmer bs-line bs-sub"></span>
+            </span>
+          </div>
+          <div class="bs-row">
+            <span class="bs-shimmer bs-dot"></span>
+            <span class="bs-row-lines">
+              <span class="bs-shimmer bs-line"></span>
+              <span class="bs-shimmer bs-line bs-sub"></span>
+            </span>
+          </div>
+          <div class="bs-row">
+            <span class="bs-shimmer bs-dot"></span>
+            <span class="bs-row-lines">
+              <span class="bs-shimmer bs-line"></span>
+              <span class="bs-shimmer bs-line bs-sub"></span>
+            </span>
+          </div>
+        </div>
+      </div>
+      <div class="bs-main">
+        <div class="bs-fill"></div>
+        <div class="bs-composer">
+          <span class="bs-shimmer bs-composer-field"></span>
+          <span class="bs-shimmer bs-composer-send"></span>
+        </div>
+      </div>
+    </div>
     <div id="root"></div>
     <script type="module" src="./src/main.tsx"></script>
   </body>
