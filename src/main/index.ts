@@ -289,6 +289,17 @@ function registerBrowserIpc(): void {
 }
 
 function registerWindowIpc(): void {
+  // Registered before the first window loads: a renderer that boots fast would
+  // otherwise report into a channel nobody is listening on yet.
+  ipcMain.on(IpcChannels.attentionCount, (event, count: unknown) => {
+    if (typeof count !== "number" || !Number.isFinite(count) || count < 0) {
+      return
+    }
+    const hub = hubForWebContents(event.sender.id)
+    if (!hub) return
+    dockBadge?.setRendererCount(hub.id, count)
+  })
+
   // Each window keeps main's picture of what it is showing current, so a focus
   // request can land in the window already holding that chat.
   ipcMain.on(IpcChannels.windowSessions, (event, sessionIds: unknown) => {
@@ -1639,7 +1650,7 @@ if (process.env.ELECTRON_RENDERER_URL) {
  * the signal that the window path is ready, and a window made here would race
  * the one bootstrap is about to open.
  */
-function focusMainWindow(): void {
+function focusHubWindow(): void {
   const hub = focusedHubWindow()
   if (hub) {
     showWindow(hub)
@@ -1676,7 +1687,7 @@ export function startSingleInstance(
     hooks.quit()
     return "quit"
   }
-  hooks.onSecondInstance(focusMainWindow)
+  hooks.onSecondInstance(focusHubWindow)
   hooks.boot()
   return "boot"
 }
@@ -1842,14 +1853,6 @@ async function bootstrap(): Promise<void> {
   bootMark("ready.resolved")
 
   dockBadge = wireDockBadge(bus, () => sm.listSessions())
-  ipcMain.on(IpcChannels.attentionCount, (event, count: unknown) => {
-    if (typeof count !== "number" || !Number.isFinite(count) || count < 0) {
-      return
-    }
-    const hub = hubForWebContents(event.sender.id)
-    if (!hub) return
-    dockBadge?.setRendererCount(hub.id, count)
-  })
 
   await browserService.start()
 
@@ -1860,7 +1863,7 @@ async function bootstrap(): Promise<void> {
   // windows back — closing them all only put the Hub away, it did not quit it.
   app.on("activate", () => {
     if (windows.size === 0) openRememberedWindows()
-    else focusMainWindow()
+    else focusHubWindow()
   })
 }
 
