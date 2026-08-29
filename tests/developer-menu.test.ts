@@ -103,6 +103,37 @@ beforeEach(() => {
   electron.logsPath = mkdtempSync(join(tmpdir(), "chat-hub-developer-"))
 })
 
+describe("File menu", () => {
+  it("offers New Window on ⌘⇧N and still closes the window", () => {
+    const host = fakeContents()
+    const window = fakeWindow(host.contents)
+    const log = createMainLog(join(electron.logsPath, "menu.log"))
+    const opened: string[] = []
+    const file = submenu(
+      buildDeveloperMenuTemplate(() => window, log, undefined, () =>
+        opened.push("new"),
+      ),
+      "File",
+    )
+
+    const newWindow = item(file, "New Window")
+    expect(newWindow.accelerator).toBe("CommandOrControl+Shift+N")
+    click(newWindow)
+    expect(opened).toEqual(["new"])
+    // Close stays: it closes the window, and the app lives on without it.
+    expect(file.some((entry) => entry.role === "close")).toBe(true)
+  })
+
+  it("leaves the File menu as it was when no opener is supplied", () => {
+    const host = fakeContents()
+    const window = fakeWindow(host.contents)
+    const log = createMainLog(join(electron.logsPath, "menu.log"))
+    const file = submenu(buildDeveloperMenuTemplate(() => window, log), "File")
+    expect(file).toHaveLength(1)
+    expect(file[0]?.role).toBe("close")
+  })
+})
+
 describe("Developer menu", () => {
   it("declares the required actions and native shortcuts", () => {
     const host = fakeContents()

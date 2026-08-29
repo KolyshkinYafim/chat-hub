@@ -1639,6 +1639,7 @@ export default function App() {
     scriptsByCwd,
     runScript,
     abortSession,
+    openInNewWindow,
     toggleDockFor,
     toggleDiffSurface,
     toggleHistorySurface,
