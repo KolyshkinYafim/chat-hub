@@ -117,6 +117,8 @@ type Props = {
   /** True when the session has older turns in the on-disk overflow archive. */
   hasOlderMessages?: boolean
   loadingOlder?: boolean
+  /** The window itself is still in flight, so an empty list says nothing yet. */
+  transcriptPending?: boolean
   onLoadOlder?: () => void
   providers: ProviderInfo[]
   models: ModelInfo[]
@@ -619,6 +621,7 @@ export function ChatView({
   messages,
   hasOlderMessages = false,
   loadingOlder = false,
+  transcriptPending = false,
   onLoadOlder,
   providers,
   models,
@@ -1388,7 +1391,13 @@ export function ChatView({
         ref={transcriptRef}
         onScroll={onTranscriptScroll}
       >
-        {messages.length === 0 ? (
+        {messages.length === 0 && transcriptPending ? (
+          <div className="transcript-loading" aria-label="Loading transcript">
+            <span className="transcript-skeleton is-ask" />
+            <span className="transcript-skeleton is-reply" />
+            <span className="transcript-skeleton is-ask" />
+          </div>
+        ) : messages.length === 0 ? (
           <div className="transcript-empty">
             <p>Empty transcript</p>
             <span>

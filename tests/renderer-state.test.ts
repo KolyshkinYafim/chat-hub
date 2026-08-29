@@ -4,7 +4,17 @@ import {
   collectAgentActions,
   editedPathsInMessage,
 } from "@renderer/lib/agent-actions"
-import { mergeReplacedMessages } from "@renderer/lib/transcript-window"
+import {
+  mergeReplacedMessages,
+  reconcileFetchedMessages,
+} from "@renderer/lib/transcript-window"
+import {
+  evictableTranscripts,
+  retainedTranscripts,
+  touchRecent,
+  TRANSCRIPT_LRU,
+  withoutKeys,
+} from "@renderer/lib/transcript-cache"
 import { parseArchived } from "@renderer/lib/archive"
 import {
   buildTranscript,
@@ -274,6 +284,87 @@ describe("transcript window merge", () => {
     const replacement = [msg("live-1")]
     expect(mergeReplacedMessages(existing, replacement)).toEqual(replacement)
     expect(mergeReplacedMessages(existing, [])).toEqual([])
+  })
+})
+
+describe("cold transcript reconciliation", () => {
+  function msg(id: string, content = id): ChatMessage {
+    return { id, sessionId: "s1", role: "assistant", content, createdAt: 1 }
+  }
+
+  it("takes the fetched window when nothing arrived meanwhile", () => {
+    const fetched = [msg("m1"), msg("m2")]
+    expect(reconcileFetchedMessages([], fetched)).toEqual(fetched)
+  })
+
+  it("does not double a message the window already carries", () => {
+    // The event landed before main answered, so its content is already folded
+    // into the window; keeping the local copy too would show the turn twice.
+    const live = [msg("m2", "Hel")]
+    const fetched = [msg("m1"), msg("m2", "Hello")]
+    const merged = reconcileFetchedMessages(live, fetched)
+    expect(merged.map((m) => m.id)).toEqual(["m1", "m2"])
+    expect(merged[1]?.content).toBe("Hello")
+  })
+
+  it("keeps a message that arrived after the window was taken", () => {
+    const live = [msg("m3", "brand new")]
+    const fetched = [msg("m1"), msg("m2")]
+    const merged = reconcileFetchedMessages(live, fetched)
+    expect(merged.map((m) => m.id)).toEqual(["m1", "m2", "m3"])
+    expect(merged.at(-1)?.content).toBe("brand new")
+  })
+
+  it("neither loses nor duplicates across a mixed race", () => {
+    const live = [msg("m2", "Hel"), msg("m3", "next turn")]
+    const fetched = [msg("m1"), msg("m2", "Hello")]
+    expect(reconcileFetchedMessages(live, fetched).map((m) => m.id)).toEqual([
+      "m1",
+      "m2",
+      "m3",
+    ])
+  })
+})
+
+describe("transcript cache", () => {
+  it("keeps the newest first and caps the list", () => {
+    let recent: readonly string[] = []
+    for (const id of ["a", "b", "c"]) recent = touchRecent(recent, id, 2)
+    expect(recent).toEqual(["c", "b"])
+  })
+
+  it("moves a revisited chat back to the front without growing", () => {
+    const recent = touchRecent(["b", "a"], "a", 4)
+    expect(recent).toEqual(["a", "b"])
+  })
+
+  it("returns the same list when the chat is already the newest", () => {
+    const recent = ["a", "b"]
+    expect(touchRecent(recent, "a", 4)).toBe(recent)
+  })
+
+  it("evicts only what is neither on screen nor recent", () => {
+    const keep = retainedTranscripts(["pane-1", null], ["r1", "r2"])
+    expect(
+      evictableTranscripts(["pane-1", "r1", "r2", "cold"], keep).sort(),
+    ).toEqual(["cold"])
+  })
+
+  it("bounds what a long session of clicking can hold", () => {
+    let recent: readonly string[] = []
+    const visited = Array.from({ length: 40 }, (_, i) => `s${i}`)
+    for (const id of visited) recent = touchRecent(recent, id, TRANSCRIPT_LRU)
+    const keep = retainedTranscripts(["pane-1"], recent)
+    expect(keep.size).toBe(TRANSCRIPT_LRU + 1)
+    expect(evictableTranscripts(visited, keep)).toHaveLength(
+      visited.length - TRANSCRIPT_LRU,
+    )
+  })
+
+  it("drops evicted ids out of a keyed record, and only those", () => {
+    const before = { a: 1, b: 2, c: 3 }
+    expect(withoutKeys(before, new Set(["b"]))).toEqual({ a: 1, c: 3 })
+    expect(withoutKeys(before, new Set(["zz"]))).toBe(before)
   })
 })
 

@@ -40,7 +40,16 @@ import { prunePendingRuns, stashBrowserUrl, stashTerminalCommand } from "./lib/p
 import { prunePendingPrompts } from "./lib/pending-prompt"
 import { prunePreviewPicks } from "./lib/preview-picks"
 import { pruneScriptTerminals } from "./lib/script-terminals"
-import { mergeReplacedMessages } from "./lib/transcript-window"
+import {
+  mergeReplacedMessages,
+  reconcileFetchedMessages,
+} from "./lib/transcript-window"
+import {
+  evictableTranscripts,
+  retainedTranscripts,
+  touchRecent,
+  withoutKeys,
+} from "./lib/transcript-cache"
 import { applyStatusesToProviders } from "./lib/provider-status"
 import { Sidebar } from "./components/Sidebar"
 import { Workspace, type WorkspaceDrop } from "./components/Workspace"
@@ -111,9 +120,18 @@ const SCRIPT_PREVIEW_SWITCH_MS = 800
 export default function App() {
   const [booted, setBooted] = useState(false)
   const [sessions, setSessions] = useState<SessionMeta[]>([])
+  /**
+   * Loaded transcripts only. A missing key means "never fetched", which is why
+   * nothing here may be read as "this chat is empty" — `attachedRef` below is
+   * the synchronous answer to which sessions this map is allowed to carry.
+   */
   const [messagesBySession, setMessagesBySession] = useState<
     Record<string, ChatMessage[]>
   >({})
+  const [loadingTranscripts, setLoadingTranscripts] = useState<
+    ReadonlySet<string>
+  >(() => new Set())
+  const [recentSessions, setRecentSessions] = useState<readonly string[]>([])
   /** Transcript overflow: more pages available in archive.jsonl for this id. */
   const [overflowHasMore, setOverflowHasMore] = useState<
     Record<string, boolean>
@@ -217,8 +235,16 @@ export default function App() {
   const layoutRef = useRef(layout)
   const sessionsRef = useRef(sessions)
   const selectSessionRef = useRef<(id: string) => void>(() => {})
+  const loadOlderRef = useRef<(id: string) => void>(() => {})
   // Read after an await, where the value this render closed over is already old.
   const messagesBySessionRef = useRef(messagesBySession)
+  // Which sessions `messagesBySession` is carrying, answered synchronously: an
+  // event can land between attaching a transcript and React committing it, and
+  // a state-derived answer would drop that message on the floor.
+  const attachedRef = useRef<Set<string>>(new Set())
+  const transcriptFetchRef = useRef<Map<string, Promise<ChatMessage[]>>>(
+    new Map(),
+  )
   // applyEvent below is a stable (empty-deps) callback bridging main-process
   // events into state; it needs the latest dock/surface/pref values without
   // taking them as deps (which would re-subscribe the IPC listener on every
@@ -235,11 +261,106 @@ export default function App() {
     window.chatHub.reportAttentionCount(attention.queue.length)
   }, [attention.queue.length])
 
+  /**
+   * Transcript writes for one session, dropped unless that transcript is
+   * attached. An unloaded chat still gets its sidebar row from the session
+   * events beside these; loading it here would defeat the whole point, and a
+   * transcript grown from "whatever arrived since boot" would be a lie.
+   */
+  const editTranscript = useCallback(
+    (
+      sessionId: string,
+      edit: (list: readonly ChatMessage[]) => ChatMessage[],
+    ) => {
+      if (!attachedRef.current.has(sessionId)) return
+      setMessagesBySession((curr) => {
+        const list = curr[sessionId] ?? []
+        const next = edit(list)
+        return next === list ? curr : { ...curr, [sessionId]: next }
+      })
+    },
+    [],
+  )
+
+  const attachTranscripts = useCallback(
+    (loaded: Record<string, ChatMessage[]>) => {
+      for (const id of Object.keys(loaded)) attachedRef.current.add(id)
+      setMessagesBySession((curr) => ({ ...curr, ...loaded }))
+    },
+    [],
+  )
+
+  const detachTranscripts = useCallback((ids: ReadonlySet<string>) => {
+    if (ids.size === 0) return
+    for (const id of ids) attachedRef.current.delete(id)
+    setMessagesBySession((curr) => withoutKeys(curr, ids))
+    // A stale overflow flag would offer scroll-back over a transcript that is
+    // no longer there; the next open re-seeds it.
+    setOverflowHasMore((curr) => withoutKeys(curr, ids))
+  }, [])
+
+  /**
+   * Pull one session's transcript in, once, and answer with the window it now
+   * holds. Concurrent callers share the one request, and events that landed
+   * while it was in flight are folded in by id rather than replayed — see
+   * `reconcileFetchedMessages`.
+   */
+  const ensureTranscript = useCallback(
+    (id: string): Promise<ChatMessage[]> => {
+      const running = transcriptFetchRef.current.get(id)
+      if (running) return running
+      if (attachedRef.current.has(id)) {
+        return Promise.resolve(messagesBySessionRef.current[id] ?? [])
+      }
+      attachedRef.current.add(id)
+      setLoadingTranscripts((curr) => new Set(curr).add(id))
+      const fetching = window.chatHub
+        .getMessages(id)
+        .then((fetched) => {
+          setMessagesBySession((curr) => ({
+            ...curr,
+            [id]: reconcileFetchedMessages(curr[id] ?? [], fetched),
+          }))
+          return fetched
+        })
+        .catch((err: unknown) => {
+          attachedRef.current.delete(id)
+          setError(err instanceof Error ? err.message : String(err))
+          return [] as ChatMessage[]
+        })
+        .finally(() => {
+          transcriptFetchRef.current.delete(id)
+          setLoadingTranscripts((curr) => {
+            if (!curr.has(id)) return curr
+            const next = new Set(curr)
+            next.delete(id)
+            return next
+          })
+        })
+      transcriptFetchRef.current.set(id, fetching)
+      return fetching
+    },
+    [],
+  )
+
+  const noteRecent = useCallback((id: string) => {
+    setRecentSessions((curr) => touchRecent(curr, id))
+  }, [])
+
   const applyEvent = useCallback((event: HubEvent) => {
     switch (event.type) {
-      case "sessions.replaced":
+      case "sessions.replaced": {
         setSessions(event.sessions)
+        const live = new Set(event.sessions.map((s) => s.id))
+        detachTranscripts(
+          new Set([...attachedRef.current].filter((id) => !live.has(id))),
+        )
+        setRecentSessions((curr) => {
+          const next = curr.filter((id) => live.has(id))
+          return next.length === curr.length ? curr : next
+        })
         break
+      }
       case "queue.changed":
         setQueuedBySession((curr) => ({
           ...curr,
@@ -286,74 +407,44 @@ export default function App() {
         )
         break
       case "messages.replaced":
-        setMessagesBySession((curr) => ({
-          ...curr,
-          [event.sessionId]: mergeReplacedMessages(
-            curr[event.sessionId] ?? [],
-            event.messages,
-          ),
-        }))
+        editTranscript(event.sessionId, (list) =>
+          mergeReplacedMessages(list, event.messages),
+        )
         break
       case "chat.message":
-        setMessagesBySession((curr) => {
-          const list = curr[event.message.sessionId] ?? []
-          if (list.some((m) => m.id === event.message.id)) {
-            return {
-              ...curr,
-              [event.message.sessionId]: list.map((m) =>
-                m.id === event.message.id ? event.message : m,
-              ),
-            }
-          }
-          return {
-            ...curr,
-            [event.message.sessionId]: [...list, event.message],
-          }
-        })
+        editTranscript(event.message.sessionId, (list) =>
+          list.some((m) => m.id === event.message.id)
+            ? list.map((m) => (m.id === event.message.id ? event.message : m))
+            : [...list, event.message],
+        )
         break
       case "chat.delta":
-        setMessagesBySession((curr) => {
-          const list = curr[event.sessionId] ?? []
-          return {
-            ...curr,
-            [event.sessionId]: list.map((m) =>
-              m.id === event.messageId
-                ? {
-                    ...m,
-                    content: m.content + event.delta,
-                    streaming: true,
-                  }
-                : m,
-            ),
-          }
-        })
+        editTranscript(event.sessionId, (list) =>
+          list.map((m) =>
+            m.id === event.messageId
+              ? { ...m, content: m.content + event.delta, streaming: true }
+              : m,
+          ),
+        )
         break
       case "chat.item":
-        setMessagesBySession((curr) => {
-          const list = curr[event.sessionId] ?? []
-          return {
-            ...curr,
-            [event.sessionId]: list.map((message) => {
-              if (message.id !== event.messageId) return message
-              const items = [...(message.items ?? [])]
-              const index = items.findIndex((item) => item.id === event.item.id)
-              if (index === -1) items.push(event.item)
-              else items[index] = event.item
-              return { ...message, items }
-            }),
-          }
-        })
+        editTranscript(event.sessionId, (list) =>
+          list.map((message) => {
+            if (message.id !== event.messageId) return message
+            const items = [...(message.items ?? [])]
+            const index = items.findIndex((item) => item.id === event.item.id)
+            if (index === -1) items.push(event.item)
+            else items[index] = event.item
+            return { ...message, items }
+          }),
+        )
         break
       case "chat.done":
-        setMessagesBySession((curr) => {
-          const list = curr[event.sessionId] ?? []
-          return {
-            ...curr,
-            [event.sessionId]: list.map((m) =>
-              m.id === event.messageId ? { ...m, streaming: false } : m,
-            ),
-          }
-        })
+        editTranscript(event.sessionId, (list) =>
+          list.map((m) =>
+            m.id === event.messageId ? { ...m, streaming: false } : m,
+          ),
+        )
         break
       case "limits.changed":
         setLimitsBySession((curr) => ({
@@ -369,15 +460,9 @@ export default function App() {
         if (event.messageId && event.turn) {
           const turn = event.turn
           const messageId = event.messageId
-          setMessagesBySession((curr) => {
-            const list = curr[event.sessionId] ?? []
-            return {
-              ...curr,
-              [event.sessionId]: list.map((m) =>
-                m.id === messageId ? { ...m, usage: turn } : m,
-              ),
-            }
-          })
+          editTranscript(event.sessionId, (list) =>
+            list.map((m) => (m.id === messageId ? { ...m, usage: turn } : m)),
+          )
         }
         break
       case "permission.request":
@@ -433,11 +518,16 @@ export default function App() {
       default:
         break
     }
-  }, [])
+  }, [detachTranscripts, editTranscript])
 
   useEffect(() => {
     const unsub = window.chatHub.onHubEvent(applyEvent)
-    const snapPromise = window.chatHub.getSnapshot()
+    // The stored layout already names the only transcripts that will be on
+    // screen, so boot asks for those and leaves the rest on disk.
+    const onScreen = layoutRef.current.panes
+      .map((item) => item.sessionId)
+      .filter((id): id is string => id !== null)
+    const snapPromise = window.chatHub.getSnapshot(onScreen)
 
     void (async () => {
       try {
@@ -446,7 +536,7 @@ export default function App() {
           window.chatHub.listProjects(),
         ])
         setSessions(snap.sessions)
-        setMessagesBySession(snap.messages)
+        attachTranscripts(snap.messages)
         setQueuedBySession(snap.queued)
         setUsageBySession(snap.usage)
         setLimitsBySession(snap.rateLimits)
@@ -463,12 +553,18 @@ export default function App() {
         setLayout(restored)
         activeIdRef.current = focusedPane(restored).sessionId
         // A session restored into a pane never goes through selectSession, and
-        // would show no scroll-back without this.
+        // would show no scroll-back without this. `ensureTranscript` covers the
+        // pane the snapshot filled in for us, whose id the filter above could
+        // not know about.
         for (const restoredPane of restored.panes) {
           if (restoredPane.sessionId) {
             void seedOverflowFlag(restoredPane.sessionId)
+            void ensureTranscript(restoredPane.sessionId)
+            noteRecent(restoredPane.sessionId)
           }
         }
+        const focusedId = focusedPane(restored).sessionId
+        if (focusedId) noteRecent(focusedId)
         setProjects(pinned)
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
@@ -533,7 +629,7 @@ export default function App() {
     return () => {
       unsub()
     }
-  }, [applyEvent])
+  }, [applyEvent, attachTranscripts, ensureTranscript, noteRecent])
 
   useLayoutEffect(() => {
     if (!booted) return
@@ -569,6 +665,22 @@ export default function App() {
   useEffect(() => {
     messagesBySessionRef.current = messagesBySession
   }, [messagesBySession])
+
+  // Panes plus the last few chats visited; everything else gives its transcript
+  // back. Only state is dropped — the archive still holds the scroll-back, and
+  // reopening the session fetches its window again.
+  useEffect(() => {
+    const keep = retainedTranscripts(
+      layout.panes.map((item) => item.sessionId),
+      recentSessions,
+    )
+    const drop = new Set(
+      evictableTranscripts(attachedRef.current, keep).filter(
+        (id) => !transcriptFetchRef.current.has(id),
+      ),
+    )
+    detachTranscripts(drop)
+  }, [layout.panes, recentSessions, detachTranscripts])
 
   useEffect(() => {
     surfaceBySessionRef.current = surfaceBySession
@@ -954,8 +1066,9 @@ export default function App() {
     if (!paneForSession(layoutRef.current, sessionId)) {
       await selectSession(sessionId)
     }
-
-    const loaded = messagesBySessionRef.current[sessionId] ?? []
+    // A hit in a pane whose transcript is still arriving would otherwise fetch
+    // its archive against an empty head and land the pages out of order.
+    const loaded = await ensureTranscript(sessionId)
     if (loaded.some((m) => m.id === messageId)) return
 
     // The hit came out of archive.jsonl, so nothing on screen can scroll to it
@@ -1015,7 +1128,7 @@ export default function App() {
       await window.chatHub.resolveInput(requestId, answers)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
-      const snap = await window.chatHub.getSnapshot()
+      const snap = await window.chatHub.getSnapshot([])
       setInputRequests(snap.inputRequests)
     }
   }
@@ -1103,7 +1216,8 @@ export default function App() {
         if (curr.some((s) => s.id === session.id)) return curr
         return [session, ...curr]
       })
-      setMessagesBySession((curr) => ({ ...curr, [session.id]: [] }))
+      attachTranscripts({ [session.id]: [] })
+      noteRecent(session.id)
       // The folder is auto-pinned as a project in main — reflect it.
       void window.chatHub.listProjects().then(setProjects)
     } catch (err) {
@@ -1128,13 +1242,12 @@ export default function App() {
   async function adoptSession(id: string) {
     activeIdRef.current = id
     setError(null)
+    noteRecent(id)
+    const transcript = ensureTranscript(id)
     try {
       await window.chatHub.setActiveSession(id)
-      if (!messagesBySessionRef.current[id]) {
-        const msgs = await window.chatHub.getMessages(id)
-        setMessagesBySession((curr) => ({ ...curr, [id]: msgs }))
-      }
       await seedOverflowFlag(id)
+      await transcript
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -1150,14 +1263,16 @@ export default function App() {
   async function loadOlderMessages(sessionId: string) {
     if (loadingOlderRef.current !== null) return
     if (overflowRef.current[sessionId] === false) return
-    const list = messagesBySessionRef.current[sessionId] ?? []
-    const beforeId = list[0]?.id ?? null
     loadingOlderRef.current = sessionId
     setLoadingOlderFor(sessionId)
     try {
+      // Older pages are prepended, so they must never land while the live
+      // window is still on its way — the two would interleave in the wrong
+      // order. Claiming the flag first keeps a second scroll out of here.
+      const list = await ensureTranscript(sessionId)
       const page = await window.chatHub.loadArchivedMessages(
         sessionId,
-        beforeId,
+        list[0]?.id ?? null,
         50,
       )
       if (page.messages.length > 0) {
@@ -1182,6 +1297,7 @@ export default function App() {
 
   useEffect(() => {
     selectSessionRef.current = (id: string) => void selectSession(id)
+    loadOlderRef.current = (id: string) => void loadOlderMessages(id)
   })
 
   async function deleteSession(id: string) {
@@ -1196,9 +1312,14 @@ export default function App() {
     setError(null)
     try {
       await window.chatHub.deleteSession(id)
-      const snap = await window.chatHub.getSnapshot()
+      detachTranscripts(new Set([id]))
+      setRecentSessions((curr) => curr.filter((known) => known !== id))
+      // Everything still attached is re-read, so a transcript that changed
+      // under the delete is not left holding a message main has dropped.
+      const held = [...attachedRef.current].filter((known) => known !== id)
+      const snap = await window.chatHub.getSnapshot(held)
       setSessions(snap.sessions)
-      setMessagesBySession(snap.messages)
+      attachTranscripts(snap.messages)
       setQueuedBySession(snap.queued)
       setUsageBySession(snap.usage)
       setLimitsBySession(snap.rateLimits)
@@ -1406,7 +1527,7 @@ export default function App() {
       onEffortChange: changeEffort,
       onOpenFolder: openFolder,
       onOpenEditor: openEditor,
-      onLoadOlder: (id) => void loadOlderMessages(id),
+      onLoadOlder: (id) => loadOlderRef.current(id),
       onHighlightShown: clearHighlight,
       onResolvePermission: (id, allow) => void resolvePermission(id, allow),
       onResolveInput: (id, answers) => void resolveAgentInput(id, answers),
@@ -1718,6 +1839,7 @@ export default function App() {
         scriptsByCwd={scriptsByCwd}
         overflowHasMore={overflowHasMore}
         loadingOlderFor={loadingOlderFor}
+        loadingTranscripts={loadingTranscripts}
         sendingIds={sendingIds}
         highlight={highlight}
         providers={providers}
@@ -1774,12 +1896,12 @@ export default function App() {
           onFinish={() => {
             setWizardOpen(false)
             void Promise.all([
-              window.chatHub.getSnapshot(),
+              window.chatHub.getSnapshot([...attachedRef.current]),
               window.chatHub.getSettings(),
               window.chatHub.listProjects(),
             ]).then(([snap, s, pinned]) => {
               setSessions(snap.sessions)
-              setMessagesBySession(snap.messages)
+              attachTranscripts(snap.messages)
               setQueuedBySession(snap.queued)
               setUsageBySession(snap.usage)
               setLimitsBySession(snap.rateLimits)
@@ -1790,6 +1912,8 @@ export default function App() {
                 setLayout((curr) =>
                   assignSession(curr, curr.focusedPaneId, id),
                 )
+                void ensureTranscript(id)
+                noteRecent(id)
               }
               setProjects(pinned)
               setProviderStatuses(s.statuses)

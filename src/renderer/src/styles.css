@@ -1055,6 +1055,43 @@ select:focus-visible {
   font-size: 12px;
 }
 
+/* Stands in for the turns while a cold session's window is fetched, so opening
+   one never flashes "Empty transcript" at a chat that has plenty to say. */
+.transcript-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 8px 0;
+}
+
+.transcript-skeleton {
+  display: block;
+  height: 58px;
+  border-radius: 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-soft);
+}
+
+.transcript-skeleton.is-ask {
+  align-self: flex-end;
+  width: min(var(--bubble-w), 62%);
+}
+
+.transcript-skeleton.is-reply {
+  width: 84%;
+  height: 96px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .transcript-skeleton {
+    animation: usage-skeleton-pulse 1.4s ease-in-out infinite;
+  }
+
+  .transcript-skeleton.is-reply {
+    animation-delay: 0.2s;
+  }
+}
+
 .transcript-empty {
   margin: 24vh auto 0;
   max-width: 44ch;

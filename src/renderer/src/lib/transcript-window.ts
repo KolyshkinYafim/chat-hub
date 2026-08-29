@@ -19,3 +19,21 @@ export function mergeReplacedMessages(
   if (overlap <= 0) return [...replacement]
   return [...existing.slice(0, overlap), ...replacement]
 }
+
+/**
+ * Fold a `getMessages` answer into whatever live events piled up while it was
+ * in flight. The fetched window is authoritative for every id it carries — main
+ * had already folded those deltas in before it replied, so taking the local copy
+ * would double them — and anything the events introduced that the window does
+ * not mention is newer than the window, so it keeps its arrival order at the end.
+ */
+export function reconcileFetchedMessages(
+  live: readonly ChatMessage[],
+  fetched: readonly ChatMessage[],
+): ChatMessage[] {
+  if (live.length === 0) return [...fetched]
+  const inWindow = new Set(fetched.map((m) => m.id))
+  const after = live.filter((m) => !inWindow.has(m.id))
+  if (after.length === 0) return [...fetched]
+  return [...fetched, ...after]
+}

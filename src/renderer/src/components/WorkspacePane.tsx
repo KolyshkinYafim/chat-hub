@@ -91,6 +91,8 @@ type Props = {
   messages: ChatMessage[]
   hasOlderMessages: boolean
   loadingOlder: boolean
+  /** The transcript has not arrived yet — an empty list means nothing here. */
+  transcriptPending: boolean
   highlightMessageId: string | null
   usage: SessionUsage | null
   limits: ProviderRateLimits | null
@@ -140,6 +142,7 @@ function PaneView({
   messages,
   hasOlderMessages,
   loadingOlder,
+  transcriptPending,
   highlightMessageId,
   usage,
   limits,
@@ -236,6 +239,7 @@ function PaneView({
       messages={messages}
       hasOlderMessages={hasOlderMessages}
       loadingOlder={loadingOlder}
+      transcriptPending={transcriptPending}
       onLoadOlder={() => sessionId && actions.onLoadOlder(sessionId)}
       providers={providers}
       models={models}
