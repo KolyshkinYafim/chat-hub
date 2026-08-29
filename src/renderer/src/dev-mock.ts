@@ -37,6 +37,7 @@ import {
   type TranscriptHit,
 } from "@shared/search"
 import { encodeToolCardMeta, type ToolCardMeta } from "@shared/tool-card"
+import { parseWindowIntent, windowQuery } from "@shared/window-identity"
 import {
   BINARY_TYPE,
   TEXT_TYPE,
@@ -1799,6 +1800,21 @@ export function installDevMock(): void {
     voiceAvailable: async () => true,
     voiceToggle: async () => true,
     voiceCancel: async () => true,
+    // One browser tab is one window; the mock reads its own query string so
+    // `?windowId=2` exercises the per-window layout keys without Electron.
+    windowIntent: parseWindowIntent(window.location.search),
+    reportWindowSessions: () => {},
+    openWindow: async (sessionId?: string) => {
+      window.open(
+        `${window.location.pathname}${windowQuery({
+          windowId: Date.now() % 1000,
+          fresh: true,
+          sessionId: sessionId ?? null,
+        })}&mock=1`,
+        "_blank",
+      )
+      return 0
+    },
   } satisfies Partial<ChatHubApi>
   // Typed, never cast: a preload method with no stub here is a compile error
   // rather than a mock that crashes the moment a component calls it.

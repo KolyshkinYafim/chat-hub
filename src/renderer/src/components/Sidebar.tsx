@@ -52,6 +52,7 @@ type Props = {
   onSettle: (id: string, settled: boolean) => void
   onFavorite: (id: string, favorite: boolean) => void
   onDelete: (id: string) => void
+  onOpenInNewWindow: (id: string) => void
   onJumpToMessage: (sessionId: string, messageId: string) => void
   onOpenSettings: () => void
   onOpenSwitcher: () => void
@@ -93,6 +94,7 @@ export function Sidebar({
   onSettle,
   onFavorite,
   onDelete,
+  onOpenInNewWindow,
   onJumpToMessage,
   onOpenSettings,
   onOpenSwitcher,
@@ -506,6 +508,17 @@ export function Sidebar({
               }}
             >
               Regenerate title
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="session-row-menu-item"
+              onClick={() => {
+                setRowMenuFor(null)
+                onOpenInNewWindow(s.id)
+              }}
+            >
+              Open in new window
             </button>
           </div>
         ) : null}

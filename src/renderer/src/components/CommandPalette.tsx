@@ -2,6 +2,7 @@ import { useMemo, useState, type KeyboardEvent } from "react"
 import type { SessionMeta } from "@shared/types"
 import {
   buildPaletteEntries,
+  NEW_WINDOW_KEY,
   paletteKey,
   resolvePaletteCursor,
   type PaletteCursor,
@@ -15,6 +16,8 @@ type Props = {
   attentionCount: number
   onSelect: (id: string) => void
   onNextAttention: () => void
+  /** No id = an empty window; an id = that chat in the new window's pane. */
+  onNewWindow: (sessionId?: string) => void
   onClose: () => void
 }
 
@@ -25,6 +28,7 @@ export function CommandPalette({
   attentionCount,
   onSelect,
   onNextAttention,
+  onNewWindow,
   onClose,
 }: Props) {
   const [query, setQuery] = useState("")
@@ -41,9 +45,16 @@ export function CommandPalette({
     setCursor({ key: keys[index] ?? null, index })
   }
 
-  function pick(entry: PaletteEntry) {
-    if (entry.kind === "command") onNextAttention()
-    else onSelect(entry.session.id)
+  /** ⌘ held on a session means "somewhere else", the way a link does. */
+  function pick(entry: PaletteEntry, newWindow = false) {
+    if (entry.kind === "command") {
+      if (entry.key === NEW_WINDOW_KEY) onNewWindow()
+      else onNextAttention()
+    } else if (newWindow) {
+      onNewWindow(entry.session.id)
+    } else {
+      onSelect(entry.session.id)
+    }
     onClose()
   }
 
@@ -57,7 +68,7 @@ export function CommandPalette({
     } else if (e.key === "Enter") {
       e.preventDefault()
       const hit = entries[active]
-      if (hit) pick(hit)
+      if (hit) pick(hit, e.metaKey || e.ctrlKey)
     } else if (e.key === "Escape") {
       e.preventDefault()
       onClose()
@@ -112,7 +123,7 @@ export function CommandPalette({
                     i === active ? "on" : ""
                   }`}
                   onMouseEnter={() => moveTo(i)}
-                  onClick={() => pick(entry)}
+                  onClick={(e) => pick(entry, e.metaKey || e.ctrlKey)}
                 >
                   <span className="palette-title">
                     {command ? entry.label : entry.session.title}
@@ -125,7 +136,11 @@ export function CommandPalette({
                         }${entry.session.id === activeId ? " · current" : ""}`}
                   </span>
                   <span className={`palette-time ${command ? "kbd" : ""}`}>
-                    {command ? "⌥⇧U" : formatRelative(entry.session.updatedAt)}
+                    {command
+                      ? entry.key === NEW_WINDOW_KEY
+                        ? "⌘⇧N"
+                        : "⌥⇧U"
+                      : formatRelative(entry.session.updatedAt)}
                   </span>
                 </button>
               )
@@ -135,6 +150,7 @@ export function CommandPalette({
         <div className="palette-foot">
           <span className="kbd">↑↓</span> move
           <span className="kbd">↩</span> open
+          <span className="kbd">⌘↩</span> new window
           <span className="kbd">esc</span> close
         </div>
       </div>

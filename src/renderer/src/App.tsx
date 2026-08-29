@@ -61,6 +61,7 @@ import {
   pruneLayout,
   saveLayout,
   setPaneDock,
+  soloLayout,
   stepFocus,
   type DropTarget,
   type PaneLayout,
@@ -109,6 +110,8 @@ const AUTH_NAG_KEY = "chat-hub.authNagDismissed"
 const SCRIPT_PREVIEW_SWITCH_MS = 800
 
 export default function App() {
+  const windowIntent = window.chatHub.windowIntent
+  const windowId = windowIntent.windowId
   const [booted, setBooted] = useState(false)
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [messagesBySession, setMessagesBySession] = useState<
@@ -121,8 +124,13 @@ export default function App() {
   /** The session whose scroll-back is being fetched, if any. */
   const [loadingOlderFor, setLoadingOlderFor] = useState<string | null>(null)
   const loadingOlderRef = useRef<string | null>(null)
+  // A window opened on purpose starts on a solo layout — the panes stored under
+  // its id belong to the window it is replacing, and reviving them would make
+  // "new window" look like it reopened an old one.
   const [layout, setLayout] = useState<PaneLayout>(() =>
-    loadLayout(loadDockOpen()),
+    windowIntent.fresh
+      ? soloLayout(windowIntent.sessionId, loadDockOpen(windowId))
+      : loadLayout(loadDockOpen(windowId), windowId),
   )
   const [projects, setProjects] = useState<Project[]>([])
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -551,11 +559,21 @@ export default function App() {
 
   useEffect(() => {
     layoutRef.current = layout
-    saveLayout(layout)
-    // A workspace that is back to one pane keeps writing the app-wide dock
-    // preference, so nothing about single-pane persistence changed.
+    saveLayout(layout, windowId)
+    // A workspace that is back to one pane keeps writing the dock preference,
+    // so nothing about single-pane persistence changed — only its scope.
     const only = layout.panes.length === 1 ? layout.panes[0] : null
-    if (only) saveDockOpen(only.dockOpen)
+    if (only) saveDockOpen(only.dockOpen, windowId)
+  }, [layout, windowId])
+
+  // Main routes a notification or a Monitor click to the window already showing
+  // that chat, which it can only do if each window says what it is holding.
+  useEffect(() => {
+    window.chatHub.reportWindowSessions(
+      layout.panes
+        .map((p) => p.sessionId)
+        .filter((id): id is string => id !== null),
+    )
   }, [layout])
 
   useEffect(() => {
@@ -1147,6 +1165,15 @@ export default function App() {
     await adoptSession(id)
   }
 
+  /**
+   * Another window on the same sessions. The chat is left where it is — a
+   * session can sit in a pane of two different windows at once, and moving it
+   * out from under this one is not what "open in new window" offers.
+   */
+  const openInNewWindow = useCallback((sessionId?: string) => {
+    void window.chatHub.openWindow(sessionId)
+  }, [])
+
   async function loadOlderMessages(sessionId: string) {
     if (loadingOlderRef.current !== null) return
     if (overflowRef.current[sessionId] === false) return
@@ -1503,6 +1530,13 @@ export default function App() {
     // fires against a stale session or an overlay that has since closed.
     const onKey = (e: KeyboardEvent) => {
       const meta = e.metaKey || e.ctrlKey
+      // Also an app-menu item, which is what catches it while a native control
+      // has the key events — this copy answers with an overlay open.
+      if (meta && e.shiftKey && !e.altKey && e.key.toLowerCase() === "n") {
+        e.preventDefault()
+        openInNewWindow()
+        return
+      }
       if (meta && e.key === ",") {
         e.preventDefault()
         setSettingsOpen(true)
@@ -1689,6 +1723,7 @@ export default function App() {
           void jumpToMessage(sessionId, messageId)
         }
         onDelete={(id) => void deleteSession(id)}
+        onOpenInNewWindow={openInNewWindow}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenSwitcher={() => setPaletteOpen(true)}
         onShowShortcuts={() => setShortcutsOpen(true)}
@@ -1805,6 +1840,7 @@ export default function App() {
           attentionCount={attention.queue.length}
           onSelect={(id) => void selectSession(id)}
           onNextAttention={attention.jumpNext}
+          onNewWindow={openInNewWindow}
           onClose={() => setPaletteOpen(false)}
         />
       ) : null}

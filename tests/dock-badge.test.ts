@@ -14,7 +14,7 @@ vi.mock("electron", () => ({
   },
 }))
 
-const { wireDockBadge } = await import("../src/main/dock-badge")
+const { badgeCount, wireDockBadge } = await import("../src/main/dock-badge")
 
 let seq = 0
 
@@ -83,7 +83,7 @@ describe("wireDockBadge", () => {
     expect(badges).toEqual(["", "2"])
   })
 
-  it("prefers the renderer count and falls back once it is cleared", () => {
+  it("prefers the renderer count and falls back once the window goes", () => {
     const bus = makeBus()
     const badge = wireDockBadge(
       bus,
@@ -92,21 +92,21 @@ describe("wireDockBadge", () => {
     )
     expect(badges).toEqual(["1"])
 
-    badge.setRendererCount(3)
+    badge.setRendererCount(1, 3)
     expect(badges).toEqual(["1", "3"])
 
     bus.emit({ type: "sessions.replaced", sessions: [] })
     expect(badges).toEqual(["1", "3"])
 
-    badge.clearRendererCount()
+    badge.dropWindow(1)
     expect(badges).toEqual(["1", "3", ""])
   })
 
   it("never repeats the same badge text", () => {
     const bus = makeBus()
     const badge = wireDockBadge(bus, () => [], "darwin")
-    badge.setRendererCount(2)
-    badge.setRendererCount(2)
+    badge.setRendererCount(1, 2)
+    badge.setRendererCount(1, 2)
     bus.emit({
       type: "sessions.replaced",
       sessions: [session({ status: "error" }), session({ status: "error" })],
@@ -114,12 +114,90 @@ describe("wireDockBadge", () => {
     expect(badges).toEqual(["", "2"])
   })
 
+  it("badges the highest count any window reports", () => {
+    const bus = makeBus()
+    const badge = wireDockBadge(bus, () => [], "darwin")
+    badge.setRendererCount(1, 2)
+    badge.setRendererCount(2, 5)
+    badge.setRendererCount(3, 4)
+    expect(badges.at(-1)).toBe("5")
+
+    // A window catching up downward takes the badge down with it.
+    badge.setRendererCount(2, 1)
+    expect(badges.at(-1)).toBe("4")
+  })
+
+  it("drops a closed window's report and keeps the rest", () => {
+    const bus = makeBus()
+    const badge = wireDockBadge(bus, () => [], "darwin")
+    badge.setRendererCount(1, 2)
+    badge.setRendererCount(2, 6)
+    expect(badges.at(-1)).toBe("6")
+
+    badge.dropWindow(2)
+    expect(badges.at(-1)).toBe("2")
+  })
+
+  it("counts off the sessions again once the last window closes", () => {
+    const bus = makeBus()
+    const badge = wireDockBadge(
+      bus,
+      () => [session({ status: "waiting_input" })],
+      "darwin",
+    )
+    badge.setRendererCount(1, 0)
+    expect(badges.at(-1)).toBe("")
+
+    // The app lives on in the dock, so the badge goes back to what the sessions
+    // say rather than holding a count no window is reporting any more.
+    badge.dropWindow(1)
+    expect(badges.at(-1)).toBe("1")
+  })
+
+  it("ignores a window it never had a report from", () => {
+    const bus = makeBus()
+    const badge = wireDockBadge(bus, () => [], "darwin")
+    badge.setRendererCount(1, 3)
+    badge.dropWindow(9)
+    expect(badges).toEqual(["", "3"])
+  })
+
   it("does nothing off macOS", () => {
     const bus = makeBus()
     const listSessions = vi.fn(() => [] as SessionMeta[])
     const badge = wireDockBadge(bus, listSessions, "linux")
-    badge.setRendererCount(4)
+    badge.setRendererCount(1, 4)
     expect(listSessions).not.toHaveBeenCalled()
     expect(badges).toEqual([])
+  })
+})
+
+describe("badgeCount", () => {
+  it("falls back when no window has reported", () => {
+    expect(badgeCount(new Map(), 4)).toBe(4)
+  })
+
+  it("takes the highest report and ignores the fallback", () => {
+    expect(
+      badgeCount(
+        new Map([
+          [1, 0],
+          [2, 3],
+        ]),
+        9,
+      ),
+    ).toBe(3)
+  })
+
+  it("honours a unanimous zero rather than reviving the fallback", () => {
+    expect(
+      badgeCount(
+        new Map([
+          [1, 0],
+          [2, 0],
+        ]),
+        7,
+      ),
+    ).toBe(0)
   })
 })

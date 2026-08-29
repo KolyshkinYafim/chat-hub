@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { SessionMeta, SessionStatus } from "../src/shared/types"
 
 const shown = vi.hoisted(() => [] as { title: string; body: string; silent: boolean }[])
+/** Click handlers of every notification raised, in order. */
+const clicks = vi.hoisted(() => [] as (() => void)[])
 
 vi.mock("electron", () => ({
   Notification: class {
@@ -13,6 +15,11 @@ vi.mock("electron", () => ({
     constructor(
       private readonly opts: { title: string; body: string; silent: boolean },
     ) {}
+
+    on(event: string, handler: () => void) {
+      if (event === "click") clicks.push(handler)
+      return this
+    }
 
     show() {
       shown.push(this.opts)
@@ -43,6 +50,7 @@ function statusEvent(status: SessionStatus, id = "s1") {
 describe("NotificationService", () => {
   beforeEach(() => {
     shown.length = 0
+    clicks.length = 0
   })
 
   it("notifies on a transition into waiting_input, once per stretch", () => {
@@ -120,5 +128,25 @@ describe("NotificationService", () => {
     const svc = new NotificationService(() => undefined)
     svc.handle(statusEvent("done", "ghost"))
     expect(shown[0].body).toBe("ghost")
+  })
+
+  it("hands the clicked session to the focus hook", () => {
+    const focused: string[] = []
+    const svc = new NotificationService(
+      () => session(),
+      () => false,
+      (id) => focused.push(id),
+    )
+    svc.handle(statusEvent("waiting_input", "s7"))
+    expect(clicks).toHaveLength(1)
+    clicks[0]?.()
+    // The id, not the session on show: main resolves it to a window itself.
+    expect(focused).toEqual(["s7"])
+  })
+
+  it("survives a click with no focus hook wired", () => {
+    const svc = new NotificationService(() => session())
+    svc.handle(statusEvent("done"))
+    expect(() => clicks[0]?.()).not.toThrow()
   })
 })
