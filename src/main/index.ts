@@ -158,12 +158,10 @@ function buildProbeInputs(settings: SettingsStore): ProbeInput[] {
   return out
 }
 
-/** One open window: its frame, its own zoom, and what its panes are showing. */
 type HubWindow = {
   id: number
   window: BrowserWindow
   zoom: ZoomController
-  /** Chats on screen here, as this window's renderer last reported them. */
   sessions: Set<string>
 }
 
@@ -189,7 +187,6 @@ function hubForWebContents(webContentsId: number): HubWindow | null {
   )
 }
 
-/** Every window is a view on the same sessions, so agent traffic goes to all. */
 function sendToRenderer(channel: string, payload: unknown): void {
   for (const hub of liveWindows()) {
     hub.window.webContents.send(channel, payload)
@@ -208,11 +205,6 @@ function showWindow(hub: HubWindow): void {
   hub.window.focus()
 }
 
-/**
- * The window a session-shaped request belongs in: the one already showing that
- * chat, else the window in front, else a new one — the app outlives its windows
- * now, so "none open" is an ordinary state a focus request has to handle.
- */
 function windowForSession(sessionId: string | null): HubWindow {
   const shows = new Map<number, ReadonlySet<string>>(
     liveWindows().map((hub) => [hub.id, hub.sessions]),
@@ -223,12 +215,9 @@ function windowForSession(sessionId: string | null): HubWindow {
   return createWindow({ sessionId })
 }
 
-/** Raise the window that owns a chat and put that chat in its focused pane. */
 function focusSession(sessionId: string | null): void {
   const hub = windowForSession(sessionId)
   showWindow(hub)
-  // null means "surface only": pushing an id the manager refused would leave
-  // the renderer pointing at a session that no longer exists.
   if (!sessionId) return
   sendToWindow(hub, IpcChannels.hubEvent, {
     type: "session.active",
@@ -254,9 +243,6 @@ const browserControl = new BrowserControl({
 const surfaceControl = new SurfaceControl({
   session: (sessionId) => manager?.getSession(sessionId) ?? null,
   note: (sessionId, text) => manager?.note(sessionId, text),
-  // Broadcast on purpose, and still window-quiet: each renderer only pulls its
-  // dock open when that session is the one on screen there, so the window
-  // holding the chat acts on it and the rest just record the choice.
   open: (request) => sendToRenderer(IpcChannels.surfaceOpen, request),
 })
 
@@ -265,7 +251,6 @@ const browserService = new BrowserService(
   browserControl,
   {
     requestOpen: (sessionId) => {
-      // The browser panel belongs to one chat, so it opens where that chat is.
       const hub = windowForSession(sessionId)
       if (!hub.window.isDestroyed()) hub.window.show()
       sendToWindow(hub, IpcChannels.browserOpen, sessionId)
@@ -289,8 +274,6 @@ function registerBrowserIpc(): void {
 }
 
 function registerWindowIpc(): void {
-  // Registered before the first window loads: a renderer that boots fast would
-  // otherwise report into a channel nobody is listening on yet.
   ipcMain.on(IpcChannels.attentionCount, (event, count: unknown) => {
     if (typeof count !== "number" || !Number.isFinite(count) || count < 0) {
       return
@@ -300,8 +283,6 @@ function registerWindowIpc(): void {
     dockBadge?.setRendererCount(hub.id, count)
   })
 
-  // Each window keeps main's picture of what it is showing current, so a focus
-  // request can land in the window already holding that chat.
   ipcMain.on(IpcChannels.windowSessions, (event, sessionIds: unknown) => {
     const hub = hubForWebContents(event.sender.id)
     if (!hub) return
@@ -385,20 +366,12 @@ function bootMark(label: string): void {
 }
 
 export type CreateWindowOptions = {
-  /** Reuse a known id — a window being put back keeps its panes. */
   windowId?: number
-  /** Geometry to open at; omitted means "wherever a new window belongs". */
   state?: WindowState | null
-  /** Start on a solo layout instead of the panes this id has stored. */
   fresh?: boolean
-  /** Open with this chat in the focused pane. */
   sessionId?: string | null
 }
 
-/**
- * A new frame, cascaded off the window in front so it does not land exactly on
- * top of the one it was opened from and read as nothing having happened.
- */
 const CASCADE_STEP = 28
 
 function cascadeFrom(previous: BrowserWindow | null): WindowState | null {
@@ -444,9 +417,6 @@ function createWindow(options: CreateWindowOptions = {}): HubWindow {
 
   const store = settingsStore
 
-  // Each window drives its own zoom controller, but they all read and write the
-  // one persisted level: the shell size is a preference, not a property of a
-  // frame, so a step taken in one window is the size the next one opens at.
   const zoom = createZoomController(
     () => (window.isDestroyed() ? null : window.webContents),
     store?.zoomLevel ?? DEFAULT_ZOOM_LEVEL,
@@ -468,11 +438,8 @@ function createWindow(options: CreateWindowOptions = {}): HubWindow {
 
   window.on("closed", () => {
     windows.remove(id)
-    // The badge outlives the window: its report leaves with it, and with no
-    // reports left the count falls back to what the sessions themselves say.
     dockBadge?.dropWindow(id)
     // Media tokens are capabilities into a workspace; nothing may replay them
-    // against another window, which can be pointed at a different project.
     revokeMediaGrants(id)
     rememberWindows()
   })
@@ -480,8 +447,6 @@ function createWindow(options: CreateWindowOptions = {}): HubWindow {
   hardenWebviewHost(window.webContents, (url) => {
     void shell.openExternal(url)
   })
-  // The menu is one application-wide bar, so every item resolves the window it
-  // acts on at click time — the one in front, not the one that installed it.
   installDeveloperMenu(() => focusedHubWindow()?.window ?? null, {
     zoom: {
       zoomIn: () => focusedHubWindow()?.zoom.zoomIn(),
@@ -521,7 +486,6 @@ function createWindow(options: CreateWindowOptions = {}): HubWindow {
   return hub
 }
 
-/** The window the menu and single-instance focus act on. */
 function focusedHubWindow(): HubWindow | null {
   const focused = BrowserWindow.getFocusedWindow()
   if (focused) {
@@ -532,10 +496,6 @@ function focusedHubWindow(): HubWindow | null {
   return recent && !recent.window.isDestroyed() ? recent : null
 }
 
-/**
- * Write down the window set as it stands. Never called with none open — an
- * empty list would erase the set a dock click is supposed to bring back.
- */
 function rememberWindows(): void {
   const store = settingsStore
   if (!store) return
@@ -546,16 +506,9 @@ function rememberWindows(): void {
   }))
   if (open.length === 0) return
   void store.setWindowStates(open).catch(() => {
-    // Geometry is a convenience: a failed write must not break the window.
   })
 }
 
-/**
- * Put the remembered set back: on launch, and again whenever the Hub is asked
- * for a window while it has none — closing them all leaves it in the dock, so
- * this is the ordinary way back in. Each window reopens under its own id and
- * therefore its own stored panes.
- */
 function openRememberedWindows(): HubWindow[] {
   const opened = windowsToReopen(settingsStore?.windowStates ?? null).map(
     ({ windowId, state }) => createWindow({ windowId, state }),
@@ -1643,13 +1596,6 @@ if (process.env.ELECTRON_RENDERER_URL) {
   app.setPath("userData", `${app.getPath("userData")}-dev`)
 }
 
-/**
- * A duplicate launch fronts the window the user was last in — or, with the Hub
- * sitting in the dock with none open, puts the last set back, which is what
- * launching it again plainly means. Silent before bootstrap: settingsStore is
- * the signal that the window path is ready, and a window made here would race
- * the one bootstrap is about to open.
- */
 function focusHubWindow(): void {
   const hub = focusedHubWindow()
   if (hub) {
@@ -1788,12 +1734,6 @@ async function bootstrap(): Promise<void> {
   )
   manager = sm
 
-  // Every window watches the same sessions, so status, messages and usage all
-  // fan out to all of them. `session.active` is the exception: it is main's
-  // echo of whichever window last selected a chat, and a renderer adopts it by
-  // moving that chat into its own focused pane — broadcast, it would drag every
-  // window onto the session one of them just opened. The windows that should
-  // act on a focus request are picked deliberately, in `focusSession`.
   bus.on((event) => {
     if (event.type === "session.active") return
     sendToRenderer(IpcChannels.hubEvent, event)
@@ -1859,8 +1799,6 @@ async function bootstrap(): Promise<void> {
   commandBridge = new MonitorCommandBridge(sm, focusSession)
   commandBridge.start()
 
-  // Clicking the dock icon with nothing open is how the user asks for the
-  // windows back — closing them all only put the Hub away, it did not quit it.
   app.on("activate", () => {
     if (windows.size === 0) openRememberedWindows()
     else focusHubWindow()
@@ -1880,10 +1818,6 @@ function boot(): void {
   registerMediaScheme()
   void app.whenReady().then(() => bootstrap().catch(failBootstrap))
 
-  // On macOS closing the last window puts the Hub in the dock rather than
-  // ending it: the agents it is running are the point, and they keep going,
-  // still badging and still notifying. ⌘Q is what quits. Elsewhere the
-  // platform convention is the opposite, and it still holds.
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit()
   })

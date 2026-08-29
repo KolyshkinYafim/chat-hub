@@ -8,7 +8,6 @@ export const NEW_WINDOW_MATCH = "new window open another window"
 
 const MAX_SESSION_RESULTS = 12
 
-/** Commands carry their own key: two of them must not collide on one id. */
 export type PaletteCommandKey =
   | typeof NEXT_ATTENTION_KEY
   | typeof NEW_WINDOW_KEY
@@ -72,9 +71,6 @@ export function buildPaletteEntries(
     ranked.push({ entry: candidate.entry, score })
   }
 
-  // Sorting is stable, and the commands were appended after the sessions — so a
-  // command only climbs past a session it strictly outscores, and an empty
-  // query (everything at zero) leaves them below the recent chats.
   ranked.sort((a, b) => b.score - a.score)
   return ranked.map(({ entry }) => entry)
 }

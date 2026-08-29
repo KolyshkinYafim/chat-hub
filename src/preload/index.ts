@@ -63,21 +63,11 @@ import type {
 import type { ProjectScript, ScriptsFile } from "@shared/scripts"
 import type { ContextDocId, ProjectContext } from "@shared/project-context"
 
-/**
- * Read once, off the URL main gave this window. It has to be a value rather
- * than a call: the renderer needs its id before the first render, to pick which
- * stored layout is its own.
- *
- * `location` is real in a preload, which runs in the renderer — but main and
- * preload typecheck together without the DOM lib, so the one DOM global this
- * file needs is reached for by hand rather than handing main the whole of it.
- */
 const windowIntent = parseWindowIntent(
   (globalThis as { location?: { search?: string } }).location?.search ?? "",
 )
 
 const api = {
-  /** Who this window is — see `WindowIntent`. */
   windowIntent,
   getSnapshot: (): Promise<SessionSnapshot> =>
     ipcRenderer.invoke(IpcChannels.getSnapshot),
@@ -483,11 +473,9 @@ const api = {
   reportAttentionCount: (count: number): void => {
     ipcRenderer.send(IpcChannels.attentionCount, count)
   },
-  /** Which chats this window has on screen, so main can focus the right one. */
   reportWindowSessions: (sessionIds: string[]): void => {
     ipcRenderer.send(IpcChannels.windowSessions, sessionIds)
   },
-  /** ⌘⇧N, or a row's "Open in new window" when it names a session. */
   openWindow: (sessionId?: string): Promise<number> =>
     ipcRenderer.invoke(IpcChannels.windowOpen, sessionId ?? null),
   mcpList: (cwd: string): Promise<McpListResult> =>

@@ -1800,8 +1800,6 @@ export function installDevMock(): void {
     voiceAvailable: async () => true,
     voiceToggle: async () => true,
     voiceCancel: async () => true,
-    // One browser tab is one window; the mock reads its own query string so
-    // `?windowId=2` exercises the per-window layout keys without Electron.
     windowIntent: parseWindowIntent(window.location.search),
     reportWindowSessions: () => {},
     openWindow: async (sessionId?: string) => {

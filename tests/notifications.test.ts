@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { SessionMeta, SessionStatus } from "../src/shared/types"
 
 const shown = vi.hoisted(() => [] as { title: string; body: string; silent: boolean }[])
-/** Click handlers of every notification raised, in order. */
 const clicks = vi.hoisted(() => [] as (() => void)[])
 
 vi.mock("electron", () => ({
@@ -140,7 +139,6 @@ describe("NotificationService", () => {
     svc.handle(statusEvent("waiting_input", "s7"))
     expect(clicks).toHaveLength(1)
     clicks[0]?.()
-    // The id, not the session on show: main resolves it to a window itself.
     expect(focused).toEqual(["s7"])
   })
 

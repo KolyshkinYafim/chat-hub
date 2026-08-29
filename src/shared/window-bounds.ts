@@ -60,17 +60,10 @@ export function parseWindowState(raw: unknown): WindowState | null {
   }
 }
 
-/** One window's geometry, tagged with the id its renderer keys its layout by. */
 export type PersistedWindow = WindowState & { windowId: number }
 
-/** A window the launch path is about to open; no state means "first launch". */
 export type OpeningWindow = { windowId: number; state: WindowState | null }
 
-/**
- * Reads back the window list. Rows that no longer parse are dropped one by one
- * rather than failing the list, so one corrupt entry cannot cost the user every
- * other window's geometry.
- */
 export function parseWindowStates(raw: unknown): PersistedWindow[] | null {
   if (!Array.isArray(raw)) return null
   const out: PersistedWindow[] = []
@@ -88,12 +81,6 @@ export function parseWindowStates(raw: unknown): PersistedWindow[] | null {
   return out.sort((a, b) => a.windowId - b.windowId)
 }
 
-/**
- * What a launch opens. The saved set is reopened as it stood, because closing a
- * window is how the user says they no longer want it. An empty or unreadable
- * list still yields window 1 — the app never comes up with nothing, and window 1
- * is the one whose panes live under the pre-multiwindow storage keys.
- */
 export function windowsToReopen(
   saved: readonly PersistedWindow[] | null,
 ): OpeningWindow[] {

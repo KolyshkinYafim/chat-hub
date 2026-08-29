@@ -36,7 +36,6 @@ describe("pickWindowForSession", () => {
   })
 
   it("prefers the most recent of several showing it", () => {
-    // Both 2 and 3 hold "c"; the tail of the recency list is in front.
     expect(pickWindowForSession("c", shows, [3, 1, 2])).toBe(2)
     expect(pickWindowForSession("c", shows, [2, 1, 3])).toBe(3)
   })
@@ -115,7 +114,6 @@ describe("WindowRegistry", () => {
     expect(reg.size).toBe(0)
     expect(reg.mostRecentId()).toBeNull()
     expect(reg.mostRecent()).toBeUndefined()
-    // And the next window opened is window 1 again, back on its own panes.
     expect(reg.nextId()).toBe(1)
   })
 

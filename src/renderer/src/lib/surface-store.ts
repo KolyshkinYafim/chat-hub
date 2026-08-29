@@ -47,12 +47,6 @@ export function saveDockWidth(px: number): void {
   localStorage.setItem(WIDTH_KEY, String(Math.round(px)))
 }
 
-/**
- * Whether the dock stands open is part of a window's workspace, not a global
- * preference — so it is keyed the way the pane layout beside it is. Width and
- * the per-session surface choice stay shared: those are about the chat and the
- * user's taste, and follow them from window to window.
- */
 export function loadDockOpen(windowId = DEFAULT_WINDOW_ID): boolean {
   return localStorage.getItem(windowScopedKey(OPEN_KEY, windowId)) === "1"
 }

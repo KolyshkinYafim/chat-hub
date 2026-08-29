@@ -353,7 +353,6 @@ describe("the window set", () => {
   })
 
   it("reads a pre-multiwindow file as the one window it described", async () => {
-    // No migration step runs, so the upgrade has to find its frame here.
     const { s } = await store()
     await s.setWindowState({ bounds: BOUNDS, maximized: true })
     expect(s.windowStates).toEqual([
@@ -362,8 +361,6 @@ describe("the window set", () => {
   })
 
   it("refuses to write an empty set over the one it remembers", async () => {
-    // Closing the last window leaves the Hub in the dock; the set a dock click
-    // puts back is this one, so it must survive having no windows open.
     const { s, file } = await store()
     await s.setWindowStates([{ windowId: 2, bounds: BOUNDS, maximized: false }])
     await s.setWindowStates([])

@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest"
 
 import {
@@ -32,7 +31,6 @@ describe("per-window pane layout storage", () => {
   })
 
   it("reads a layout written before multiwindow existed", () => {
-    // No migration runs, so the upgrade has to find it under the bare key.
     saveLayout(layout("old"), 1)
     const raw = localStorage.getItem(LEGACY_KEY)
     localStorage.clear()
@@ -53,7 +51,6 @@ describe("per-window pane layout storage", () => {
   it("does not leak one window's layout into another", () => {
     saveLayout(layout("a"), 1)
     saveLayout(layout("b"), 2)
-    // Rewriting window 2 must leave window 1 exactly as it was.
     saveLayout(layout("b2"), 2)
     expect(loadLayout(false, 1).panes[0]?.sessionId).toBe("a")
   })
@@ -69,7 +66,6 @@ describe("per-window pane layout storage", () => {
     saveLayout(layout("b"), 2)
     saveLayout(layout("c"), 3)
 
-    // A restart is a fresh renderer against the same storage.
     const reopened = [1, 2, 3].map((id) => loadLayout(false, id))
     expect(reopened.map((l) => l.panes[0]?.sessionId)).toEqual(["a", "b", "c"])
   })

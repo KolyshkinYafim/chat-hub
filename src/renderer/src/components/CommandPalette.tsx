@@ -16,7 +16,6 @@ type Props = {
   attentionCount: number
   onSelect: (id: string) => void
   onNextAttention: () => void
-  /** No id = an empty window; an id = that chat in the new window's pane. */
   onNewWindow: (sessionId?: string) => void
   onClose: () => void
 }
@@ -45,7 +44,6 @@ export function CommandPalette({
     setCursor({ key: keys[index] ?? null, index })
   }
 
-  /** ⌘ held on a session means "somewhere else", the way a link does. */
   function pick(entry: PaletteEntry, newWindow = false) {
     if (entry.kind === "command") {
       if (entry.key === NEW_WINDOW_KEY) onNewWindow()

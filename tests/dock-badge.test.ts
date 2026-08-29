@@ -122,7 +122,6 @@ describe("wireDockBadge", () => {
     badge.setRendererCount(3, 4)
     expect(badges.at(-1)).toBe("5")
 
-    // A window catching up downward takes the badge down with it.
     badge.setRendererCount(2, 1)
     expect(badges.at(-1)).toBe("4")
   })
@@ -148,8 +147,6 @@ describe("wireDockBadge", () => {
     badge.setRendererCount(1, 0)
     expect(badges.at(-1)).toBe("")
 
-    // The app lives on in the dock, so the badge goes back to what the sessions
-    // say rather than holding a count no window is reporting any more.
     badge.dropWindow(1)
     expect(badges.at(-1)).toBe("1")
   })

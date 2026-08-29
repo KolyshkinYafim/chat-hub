@@ -120,7 +120,6 @@ describe("File menu", () => {
     expect(newWindow.accelerator).toBe("CommandOrControl+Shift+N")
     click(newWindow)
     expect(opened).toEqual(["new"])
-    // Close stays: it closes the window, and the app lives on without it.
     expect(file.some((entry) => entry.role === "close")).toBe(true)
   })
 

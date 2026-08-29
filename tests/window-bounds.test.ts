@@ -210,8 +210,6 @@ describe("windowsToReopen", () => {
   })
 
   it("does not resurrect window 1 when the user closed it", () => {
-    // Closing a window is how the user says they no longer want it; only an
-    // empty set falls back to window 1.
     expect(windowsToReopen([persisted(2)])).toEqual([
       { windowId: 2, state: { bounds: BOUNDS, maximized: false } },
     ])

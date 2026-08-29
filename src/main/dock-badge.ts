@@ -12,12 +12,6 @@ const INERT: DockBadge = {
   dropWindow: () => {},
 }
 
-/**
- * Every window counts the same shared queue off the same shared storage, so the
- * reports agree once they have all settled; the max is what keeps the badge
- * honest while one window is still catching up, and stops a window that has not
- * finished booting from erasing another's count.
- */
 export function badgeCount(
   reports: ReadonlyMap<number, number>,
   fallback: number,
@@ -56,9 +50,6 @@ export function wireDockBadge(
       reports.set(windowId, count)
       apply()
     },
-    // The app outlives its windows, so the badge has to keep meaning something
-    // with none open: the last window's report leaves with it and the count
-    // falls back to what the sessions themselves say.
     dropWindow(windowId) {
       if (!reports.delete(windowId)) return
       apply()

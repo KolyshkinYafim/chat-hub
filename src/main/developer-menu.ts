@@ -175,8 +175,6 @@ export function buildDeveloperMenuTemplate(
           { type: "separator" } satisfies MenuItemConstructorOptions,
         ]
       : []),
-    // Close the window, not the app: with the last one gone the Hub stays in
-    // the dock with its agents running, and ⌘Q is what ends the run.
     { role: "close" },
   ]
 
@@ -226,7 +224,6 @@ export type DeveloperMenuOptions = {
   logPath?: string
   /** Omitted in tests; production always supplies the persisted controller. */
   zoom?: ZoomActions
-  /** Omitted in tests; production opens another window on the same sessions. */
   newWindow?: () => void
 }
 

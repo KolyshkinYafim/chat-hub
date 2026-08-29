@@ -124,9 +124,6 @@ export default function App() {
   /** The session whose scroll-back is being fetched, if any. */
   const [loadingOlderFor, setLoadingOlderFor] = useState<string | null>(null)
   const loadingOlderRef = useRef<string | null>(null)
-  // A window opened on purpose starts on a solo layout — the panes stored under
-  // its id belong to the window it is replacing, and reviving them would make
-  // "new window" look like it reopened an old one.
   const [layout, setLayout] = useState<PaneLayout>(() =>
     windowIntent.fresh
       ? soloLayout(windowIntent.sessionId, loadDockOpen(windowId))
@@ -560,14 +557,10 @@ export default function App() {
   useEffect(() => {
     layoutRef.current = layout
     saveLayout(layout, windowId)
-    // A workspace that is back to one pane keeps writing the dock preference,
-    // so nothing about single-pane persistence changed — only its scope.
     const only = layout.panes.length === 1 ? layout.panes[0] : null
     if (only) saveDockOpen(only.dockOpen, windowId)
   }, [layout, windowId])
 
-  // Main routes a notification or a Monitor click to the window already showing
-  // that chat, which it can only do if each window says what it is holding.
   useEffect(() => {
     window.chatHub.reportWindowSessions(
       layout.panes
@@ -1165,11 +1158,6 @@ export default function App() {
     await adoptSession(id)
   }
 
-  /**
-   * Another window on the same sessions. The chat is left where it is — a
-   * session can sit in a pane of two different windows at once, and moving it
-   * out from under this one is not what "open in new window" offers.
-   */
   const openInNewWindow = useCallback((sessionId?: string) => {
     void window.chatHub.openWindow(sessionId)
   }, [])
@@ -1530,8 +1518,6 @@ export default function App() {
     // fires against a stale session or an overlay that has since closed.
     const onKey = (e: KeyboardEvent) => {
       const meta = e.metaKey || e.ctrlKey
-      // Also an app-menu item, which is what catches it while a native control
-      // has the key events — this copy answers with an overlay open.
       if (meta && e.shiftKey && !e.altKey && e.key.toLowerCase() === "n") {
         e.preventDefault()
         openInNewWindow()

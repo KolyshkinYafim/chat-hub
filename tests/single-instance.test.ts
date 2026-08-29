@@ -115,10 +115,6 @@ describe("startSingleInstance", () => {
     const { hooks, secondInstance } = spyHooks(true)
     startSingleInstance(hooks)
 
-    // The registry is empty on a fresh import, and bootstrap has not run — so
-    // there is neither a window to front nor a settings store to reopen the
-    // remembered set from. Focusing must not throw, or the duplicate launch
-    // takes the surviving instance down with it.
     expect(() => secondInstance()?.()).not.toThrow()
   })
 })

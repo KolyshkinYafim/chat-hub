@@ -9,7 +9,6 @@ import {
 
 describe("windowScopedKey", () => {
   it("leaves window 1 on the key it has always written", () => {
-    // The whole no-migration promise rests on this line.
     expect(windowScopedKey("chat-hub.workspace.panes", 1)).toBe(
       "chat-hub.workspace.panes",
     )
@@ -75,7 +74,6 @@ describe("parseWindowIntent", () => {
   })
 
   it("falls back to window 1 on a junk or hostile id", () => {
-    // A window that guessed wrong here would read another window's panes.
     for (const raw of ["abc", "0", "-3", "1.5", "", "NaN"]) {
       expect(parseWindowIntent(`?windowId=${raw}`).windowId).toBe(1)
     }

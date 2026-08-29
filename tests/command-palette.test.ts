@@ -28,7 +28,6 @@ function session(patch: Partial<SessionMeta> = {}): SessionMeta {
   }
 }
 
-/** Commands show up as their own key: two of them must stay distinguishable. */
 function kinds(entries: ReturnType<typeof buildPaletteEntries>) {
   return entries.map((e) => (e.kind === "command" ? e.key : e.session.id))
 }
@@ -59,7 +58,6 @@ describe("buildPaletteEntries", () => {
   })
 
   it("offers a new window even with nothing waiting", () => {
-    // Unlike Next waiting, it is never conditional on the queue.
     const entries = buildPaletteEntries([session()], "", 0)
     expect(kinds(entries)).toContain(NEW_WINDOW_KEY)
   })

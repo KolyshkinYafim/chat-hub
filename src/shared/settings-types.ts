@@ -143,9 +143,7 @@ export type HubSettings = {
    * Optional so older settings.json loads without a migration bump.
    */
   mcpEnv?: Record<string, Record<string, string>>
-  /** Pre-multiwindow geometry; still read so an upgrade keeps its frame. */
   window?: WindowState
-  /** Every window as the last run left it, refitted to today's displays. */
   windows?: PersistedWindow[]
   /** Shell zoom step (`1.2 ** level`); absent = 100%. */
   zoomLevel?: number

@@ -61,7 +61,6 @@ export {
   resolveWorkspaceRoot,
 } from "./paths"
 
-/** Which window a renderer call came from, so a media token can be revoked with it. */
 export type WindowOwnerLookup = (webContentsId: number) => number | null
 
 export function registerSurfaceIpc(

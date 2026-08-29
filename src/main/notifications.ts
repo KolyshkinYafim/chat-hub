@@ -9,7 +9,6 @@ export class NotificationService {
   constructor(
     private readonly getSession: (id: string) => SessionMeta | undefined,
     private readonly soundEnabled: () => boolean = () => false,
-    /** Clicking one raises the window holding that chat; see `focusSession`. */
     private readonly onActivate: (sessionId: string) => void = () => {},
   ) {}
 

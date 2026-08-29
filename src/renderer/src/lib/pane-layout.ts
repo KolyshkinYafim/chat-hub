@@ -363,10 +363,6 @@ export function serializeLayout(layout: PaneLayout): string {
   return JSON.stringify(stored)
 }
 
-/**
- * Each window keeps its own workspace. Window 1 stays on the bare key it has
- * always written, so an upgrade opens on the panes it was closed with.
- */
 export function layoutKey(windowId = DEFAULT_WINDOW_ID): string {
   return windowScopedKey(LAYOUT_KEY, windowId)
 }
