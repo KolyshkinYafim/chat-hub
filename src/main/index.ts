@@ -404,10 +404,14 @@ export function registerIpc(
     await ready
     return sm.listSessions()
   })
-  ipcMain.handle(IpcChannels.getMessages, (_e, sessionId: unknown) => {
+  // Gated like the snapshot now that it is how a transcript is opened at all:
+  // answering before restore would hand the renderer an empty chat and attach
+  // it, and nothing would push the real window afterwards.
+  ipcMain.handle(IpcChannels.getMessages, async (_e, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) {
       throw new Error("Invalid sessionId")
     }
+    await ready
     return sm.getMessages(sessionId)
   })
   ipcMain.handle(
