@@ -82,6 +82,23 @@ body {
   line-height: 1.45;
 }
 
+:root.cockpit {
+  --cockpit-dim: rgba(8, 9, 12, 0.34);
+}
+
+:root.cockpit,
+:root.cockpit body {
+  background: transparent;
+}
+
+:root.cockpit body {
+  background: var(--cockpit-dim);
+}
+
+:root.cockpit #boot-skeleton {
+  background: transparent;
+}
+
 button,
 input,
 select,
@@ -171,6 +188,68 @@ select:focus-visible {
 .main-column .main {
   flex: 1;
   min-height: 0;
+}
+
+.main-column .cockpit-chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.main-column .cockpit-chat[hidden] {
+  display: none;
+}
+
+.main-column .cockpit-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cockpit-tabs {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  height: 40px;
+  padding: 8px 10px 4px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  -webkit-app-region: drag;
+}
+
+.cockpit-tab {
+  padding: 4px 12px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  -webkit-app-region: no-drag;
+}
+
+.cockpit-tab:hover:not(:disabled) {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+
+.cockpit-tab.is-active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-active));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.cockpit-tab:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.cockpit-empty {
+  margin: auto;
+  padding: 24px;
+  color: var(--text-muted);
 }
 
 /* ——— Workspace ———

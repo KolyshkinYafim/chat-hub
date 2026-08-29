@@ -41,6 +41,7 @@ function fakeRoot() {
         add: (name: string) => {
           classes.add(name)
         },
+        contains: (name: string) => classes.has(name),
       },
     } as unknown as HTMLElement,
   }
@@ -121,7 +122,7 @@ describe("boot-theme.js", () => {
     "utf8",
   )
 
-  function run(stored: Record<string, string>) {
+  function run(stored: Record<string, string>, search = "") {
     const set = new Map<string, string>()
     const classes = new Set<string>()
     const documentStub = {
@@ -135,6 +136,9 @@ describe("boot-theme.js", () => {
           add: (name: string) => {
             classes.add(name)
           },
+          remove: (name: string) => {
+            classes.delete(name)
+          },
         },
       },
     }
@@ -144,6 +148,7 @@ describe("boot-theme.js", () => {
     runInNewContext(src, {
       document: documentStub,
       localStorage: localStorageStub,
+      location: { search },
     })
     return { set, classes }
   }
@@ -203,5 +208,16 @@ describe("boot-theme.js", () => {
       "chat-hub.sidebar.width": "260",
     })
     expect(set.get("--sidebar-w")).toBe("260px")
+  })
+
+  it("applies glass surface tokens in a cockpit window", () => {
+    const { set, classes } = run(
+      { [BOOT_THEME_KEY]: JSON.stringify(bootThemeSnapshot(daylight)) },
+      "?cockpit=1&vibrancy=hud",
+    )
+    expect(classes.has("cockpit")).toBe(true)
+    expect(classes.has("theme-light")).toBe(false)
+    expect(set.get("--bg-sidebar")).toBe("rgba(19, 20, 25, 0.66)")
+    expect(set.get("--bg")).toBe("rgba(12, 13, 18, 0.22)")
   })
 })

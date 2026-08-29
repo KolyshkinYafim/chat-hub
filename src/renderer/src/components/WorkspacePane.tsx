@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { DragEvent, HTMLAttributes } from "react"
 import type { HookRun } from "@shared/hooks"
 import type {
@@ -19,9 +19,15 @@ import type { ProjectScript } from "@shared/scripts"
 import { collectAgentActions, editedPathsInMessage } from "../lib/agent-actions"
 import type { SurfaceKind } from "../lib/surface-bridge"
 import type { Pane } from "../lib/pane-layout"
+import { readCockpitWindow } from "../lib/cockpit"
+import { CockpitTabs, type CockpitTab } from "./CockpitTabs"
 import { ChatView, type OnboardNotice } from "./ChatView"
 import { StatusDot } from "./StatusDot"
+import { DiffSurface } from "./surfaces/DiffSurface"
 import { SurfaceDock } from "./surfaces/SurfaceDock"
+import { TerminalSurface } from "./surfaces/TerminalSurface"
+
+const cockpitWindow = readCockpitWindow()
 
 /**
  * Everything a pane calls back into. Bundled into one object with a stable
@@ -174,6 +180,13 @@ function PaneView({
   const sessionId = session?.id ?? null
   const cwd = session?.cwd ?? null
   const dockOpen = pane.dockOpen && session !== null
+  const [tab, setTab] = useState<CockpitTab>("chat")
+
+  useEffect(() => {
+    if (!cockpitWindow.enabled) return
+    if (surface === "diff") setTab("diff")
+    if (surface === "terminal") setTab("terminal")
+  }, [surface])
 
   // The diff surface reads the same tool cards the transcript already parsed,
   // so there is one answer to "what did this turn change" rather than two.
@@ -279,8 +292,61 @@ function PaneView({
     />
   )
 
+  const chatNode = cockpitWindow.enabled ? (
+    <div className="cockpit-chat" hidden={tab !== "chat"}>
+      {chat}
+    </div>
+  ) : (
+    chat
+  )
+
+  const stage =
+    cockpitWindow.enabled && tab === "terminal" ? (
+      <div className="cockpit-stage">
+        {session ? (
+          <TerminalSurface
+            cwd={session.cwd}
+            sessionId={session.id}
+            hookRuns={hookRuns}
+          />
+        ) : (
+          <p className="cockpit-empty">Open a session to use the terminal.</p>
+        )}
+      </div>
+    ) : cockpitWindow.enabled && tab === "diff" ? (
+      <div className="cockpit-stage">
+        {session ? (
+          <DiffSurface
+            cwd={session.cwd}
+            sessionId={session.id}
+            refreshKey={gitRefresh}
+            focus={diffFocus}
+            actions={agentActions}
+            onClose={() => setTab("chat")}
+            onChanged={actions.onGitChanged}
+          />
+        ) : (
+          <p className="cockpit-empty">Open a session to review the diff.</p>
+        )}
+      </div>
+    ) : null
+
+  const column = (
+    <>
+      {cockpitWindow.enabled ? (
+        <CockpitTabs
+          value={tab}
+          onChange={setTab}
+          surfacesEnabled={session !== null}
+        />
+      ) : null}
+      {chatNode}
+      {stage}
+    </>
+  )
+
   const dock =
-    dockOpen && session ? (
+    !cockpitWindow.enabled && dockOpen && session ? (
       <SurfaceDock
         session={session}
         kind={surface}
@@ -310,7 +376,7 @@ function PaneView({
     return (
       <>
         <div className="main-column" data-pane-id={paneId} {...containerProps}>
-          {chat}
+          {column}
         </div>
         {dock}
       </>
@@ -357,7 +423,7 @@ function PaneView({
         </button>
       </header>
       <div className="pane-body">
-        <div className="main-column">{chat}</div>
+        <div className="main-column">{column}</div>
         {dock}
       </div>
     </section>

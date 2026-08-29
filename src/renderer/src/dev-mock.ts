@@ -1486,6 +1486,7 @@ function seedWorkspace(): void {
 export function installDevMock(): void {
   seedWorkspace()
   const api = {
+    cockpit: false,
     getSnapshot: async () => snapshot,
     listSessions: async () => sessions,
     getMessages: async (id: string) => messages[id] ?? [],

@@ -1,4 +1,4 @@
-import { parseColorChannels } from "./contrast"
+import { compositeOver, contrastRatio, parseColorChannels } from "./contrast"
 
 export const THEME_TOKENS = [
   "--bg",
@@ -199,6 +199,52 @@ export const BUILTIN_THEMES: ThemeDef[] = [
     },
   },
 ]
+
+export const GLASS_SURFACE_TOKENS: Partial<Record<ThemeToken, string>> = {
+  "--bg": "rgba(12, 13, 18, 0.22)",
+  "--bg-sidebar": "rgba(19, 20, 25, 0.66)",
+  "--bg-elevated": "rgba(26, 29, 38, 0.55)",
+  "--bg-hover": "rgba(35, 36, 41, 0.48)",
+  "--bg-active": "rgba(43, 44, 50, 0.58)",
+  "--bg-row-active": "rgba(53, 55, 60, 0.66)",
+  "--border": "rgba(255, 255, 255, 0.09)",
+  "--border-soft": "rgba(255, 255, 255, 0.06)",
+  "--border-strong": "rgba(255, 255, 255, 0.16)",
+  "--user-bg": "rgba(29, 36, 53, 0.58)",
+  "--code-bg": "rgba(18, 19, 23, 0.88)",
+  "--composer-bg": "rgba(22, 24, 29, 0.62)",
+}
+
+export const GLASS_DIM = "rgba(8, 9, 12, 0.34)"
+export const GLASS_DIM_AA = "rgba(8, 9, 12, 0.62)"
+
+export const GLASS_THEME: ThemeDef = {
+  id: "glass",
+  name: "Glass",
+  tokens: { ...BASE_TOKENS, ...GLASS_SURFACE_TOKENS },
+}
+
+export function withGlassSurfaces(def: ThemeDef): ThemeDef {
+  const source = isLightTheme(def) ? BASE_TOKENS : { ...BASE_TOKENS, ...def.tokens }
+  return {
+    id: def.id,
+    name: def.name,
+    tokens: { ...source, ...GLASS_SURFACE_TOKENS },
+  }
+}
+
+export function contrastOnGlass(
+  text: string,
+  surface: string,
+  dim: string,
+  wallpaper: string,
+): number | null {
+  const floor = compositeOver(dim, wallpaper)
+  if (!floor) return null
+  const painted = compositeOver(surface, floor)
+  if (!painted) return null
+  return contrastRatio(text, painted)
+}
 
 export const DEFAULT_THEME_ID = "midnight"
 

@@ -1,14 +1,21 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest"
+import { AA_TEXT } from "@shared/contrast"
 import {
   BASE_TOKENS,
   BUILTIN_THEMES,
+  contrastOnGlass,
   DEFAULT_THEME_ID,
+  GLASS_DIM,
+  GLASS_DIM_AA,
+  GLASS_SURFACE_TOKENS,
+  GLASS_THEME,
   isLightTheme,
   isThemeColor,
   parseThemeDef,
   resolveTheme,
   THEME_TOKENS,
+  withGlassSurfaces,
   type ThemeDef,
 } from "@shared/theme"
 import { applyTheme } from "@renderer/lib/theme-apply"
@@ -168,6 +175,93 @@ describe("applyTheme", () => {
     ).toBe("#010203")
     applyTheme({ id: "m", name: "M", tokens: {} })
     expect(document.documentElement.style.getPropertyValue("--bg")).toBe("")
+  })
+})
+
+describe("glass overlay", () => {
+  it("is not a built-in picker theme", () => {
+    expect(BUILTIN_THEMES.some((theme) => theme.id === "glass")).toBe(false)
+    expect(GLASS_THEME.id).toBe("glass")
+    expect(isThemeColor(GLASS_SURFACE_TOKENS["--bg-sidebar"]!)).toBe(true)
+  })
+
+  it("replaces surfaces and keeps a dark theme's accent", () => {
+    const graphite = BUILTIN_THEMES.find((theme) => theme.id === "graphite")!
+    const glass = withGlassSurfaces(graphite)
+    expect(glass.tokens["--bg-sidebar"]).toBe(GLASS_SURFACE_TOKENS["--bg-sidebar"])
+    expect(glass.tokens["--accent"]).toBe(graphite.tokens["--accent"])
+  })
+
+  it("forces midnight text when the source theme is light", () => {
+    const daylight = BUILTIN_THEMES.find((theme) => theme.id === "daylight")!
+    const glass = withGlassSurfaces(daylight)
+    expect(glass.tokens["--text"]).toBe(BASE_TOKENS["--text"])
+    expect(glass.tokens["--bg"]).toBe(GLASS_SURFACE_TOKENS["--bg"])
+  })
+
+  it("applyTheme paints glass only when the root is a cockpit window", () => {
+    const root = document.createElement("div")
+    const graphite = BUILTIN_THEMES.find((theme) => theme.id === "graphite")!
+    applyTheme(graphite, root)
+    expect(root.style.getPropertyValue("--bg-sidebar")).toBe(
+      graphite.tokens["--bg-sidebar"]!,
+    )
+
+    root.classList.add("cockpit")
+    applyTheme(graphite, root)
+    expect(root.style.getPropertyValue("--bg-sidebar")).toBe(
+      GLASS_SURFACE_TOKENS["--bg-sidebar"]!,
+    )
+    expect(root.classList.contains("theme-light")).toBe(false)
+  })
+
+  it("does not persist glass tokens into the boot snapshot", () => {
+    const store = new Map<string, string>()
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          store.set(key, value)
+        },
+      },
+    })
+    try {
+      const root = document.createElement("div")
+      root.classList.add("cockpit")
+      const graphite = BUILTIN_THEMES.find((theme) => theme.id === "graphite")!
+      applyTheme(graphite, root)
+      const persisted = JSON.parse(store.get("chat-hub.boot-theme")!)
+      expect(persisted.tokens["--bg-sidebar"]).toBe(graphite.tokens["--bg-sidebar"])
+    } finally {
+      delete (globalThis as Record<string, unknown>).localStorage
+    }
+  })
+
+  it("clears AA for body text on glass over a white desktop only with the heavier dim", () => {
+    const text = BASE_TOKENS["--text"]
+    const secondary = BASE_TOKENS["--text-secondary"]
+    const canvas = GLASS_SURFACE_TOKENS["--bg"]!
+    const chrome = [
+      GLASS_SURFACE_TOKENS["--bg-sidebar"]!,
+      GLASS_SURFACE_TOKENS["--bg-elevated"]!,
+    ]
+    expect(contrastOnGlass(text, canvas, GLASS_DIM, "#ffffff")).toBeLessThan(
+      AA_TEXT,
+    )
+    for (const surface of [canvas, ...chrome]) {
+      expect(
+        contrastOnGlass(text, surface, GLASS_DIM_AA, "#ffffff"),
+      ).toBeGreaterThanOrEqual(AA_TEXT)
+      expect(
+        contrastOnGlass(secondary, surface, GLASS_DIM_AA, "#ffffff"),
+      ).toBeGreaterThanOrEqual(AA_TEXT)
+    }
+    for (const surface of chrome) {
+      expect(
+        contrastOnGlass(text, surface, GLASS_DIM, "#ffffff"),
+      ).toBeGreaterThanOrEqual(AA_TEXT)
+    }
   })
 })
 

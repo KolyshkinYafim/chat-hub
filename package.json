@@ -7,6 +7,8 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
+    "dev:cockpit": "CHAT_HUB_COCKPIT=1 electron-vite dev",
+    "dev:cockpit:hud": "CHAT_HUB_COCKPIT=1 CHAT_HUB_COCKPIT_VIBRANCY=hud electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",

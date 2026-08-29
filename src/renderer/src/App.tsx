@@ -31,6 +31,7 @@ import type {
 } from "@shared/settings-types"
 import { DEFAULT_MODES } from "@shared/settings-types"
 import { resolveTheme } from "@shared/theme"
+import { readCockpitWindow } from "./lib/cockpit"
 import { applyTheme } from "./lib/theme-apply"
 import { projectFromCwd } from "@shared/project"
 import { clearMigratedArchive, readArchivedForMigration } from "./lib/archive"
@@ -107,6 +108,8 @@ const AUTH_NAG_KEY = "chat-hub.authNagDismissed"
 
 /** The terminal needs one mounted beat to start the script before the browser takes the dock. */
 const SCRIPT_PREVIEW_SWITCH_MS = 800
+
+const cockpitWindow = readCockpitWindow()
 
 export default function App() {
   const [booted, setBooted] = useState(false)
@@ -1648,7 +1651,9 @@ export default function App() {
   if (!booted) {
     return (
       <div
-        className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""}`}
+        className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""} ${
+          cockpitWindow.enabled ? "is-cockpit" : ""
+        }`}
         style={{ "--sidebar-w": `${sidebarWidth}px` } as CSSProperties}
       />
     )
@@ -1657,8 +1662,8 @@ export default function App() {
   return (
     <div
       className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""} ${
-        tiled ? "is-tiled" : showDock ? "dock-is-open" : ""
-      }`}
+        tiled ? "is-tiled" : showDock && !cockpitWindow.enabled ? "dock-is-open" : ""
+      } ${cockpitWindow.enabled ? "is-cockpit" : ""}`}
       style={
         {
           "--sidebar-w": `${sidebarWidth}px`,

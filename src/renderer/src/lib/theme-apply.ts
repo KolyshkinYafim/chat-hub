@@ -2,6 +2,7 @@ import {
   BASE_TOKENS,
   isLightTheme,
   THEME_TOKENS,
+  withGlassSurfaces,
   type ThemeDef,
   type ThemeToken,
 } from "@shared/theme"
@@ -44,11 +45,13 @@ export function applyTheme(
   def: ThemeDef,
   root: HTMLElement = document.documentElement,
 ): void {
+  const glass = root.classList.contains("cockpit")
+  const painted = glass ? withGlassSurfaces(def) : def
   for (const token of THEME_TOKENS) {
-    const value = def.tokens[token]
+    const value = painted.tokens[token]
     if (value) root.style.setProperty(token, value)
     else root.style.removeProperty(token)
   }
-  root.classList.toggle("theme-light", isLightTheme(def))
+  root.classList.toggle("theme-light", !glass && isLightTheme(def))
   persistBootTheme(def)
 }

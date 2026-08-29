@@ -75,6 +75,7 @@ import {
   type ZoomController,
 } from "./window-state"
 import { MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH } from "@shared/window-bounds"
+import { parseCockpitFlags } from "@shared/cockpit"
 import { resolveTheme, themeBackground } from "@shared/theme"
 import { DEFAULT_ZOOM_LEVEL } from "@shared/zoom"
 import {
@@ -283,25 +284,40 @@ function bootMark(label: string): void {
 
 function createWindow(): void {
   const saved = settingsStore?.windowState ?? null
+  const cockpit = parseCockpitFlags(process.argv, process.env)
+  const glass = cockpit.enabled && process.platform === "darwin"
+  const themeBg = themeBackground(
+    resolveTheme(
+      settingsStore?.general.themeId,
+      settingsStore?.general.customThemes,
+    ),
+  )
   mainWindow = new BrowserWindow({
     ...openingBounds(saved),
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
     title: "Chat Hub",
-    backgroundColor: themeBackground(
-      resolveTheme(
-        settingsStore?.general.themeId,
-        settingsStore?.general.customThemes,
-      ),
-    ),
+    backgroundColor: glass ? "#00000000" : themeBg,
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 16 },
+    ...(glass
+      ? {
+          vibrancy: cockpit.vibrancy,
+          visualEffectState: "active" as const,
+        }
+      : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
       webviewTag: true,
+      additionalArguments: cockpit.enabled
+        ? [
+            "--chat-hub-cockpit=1",
+            `--chat-hub-cockpit-vibrancy=${cockpit.vibrancy}`,
+          ]
+        : [],
     },
   })
 
@@ -361,8 +377,19 @@ function createWindow(): void {
     }
   })
 
+  if (cockpit.enabled) bootMark(`cockpit.${cockpit.vibrancy}`)
+
   if (process.env.ELECTRON_RENDERER_URL) {
-    void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+    const url = new URL(process.env.ELECTRON_RENDERER_URL)
+    if (cockpit.enabled) {
+      url.searchParams.set("cockpit", "1")
+      url.searchParams.set("vibrancy", cockpit.vibrancy)
+    }
+    void mainWindow.loadURL(url.toString())
+  } else if (cockpit.enabled) {
+    void mainWindow.loadFile(join(__dirname, "../renderer/index.html"), {
+      query: { cockpit: "1", vibrancy: cockpit.vibrancy },
+    })
   } else {
     void mainWindow.loadFile(join(__dirname, "../renderer/index.html"))
   }

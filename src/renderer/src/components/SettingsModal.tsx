@@ -182,6 +182,14 @@ const ENV_OVERRIDES: { key: string; detail: string }[] = [
     key: "CHAT_HUB_SELFTEST",
     detail: "Set to 1 to run the provider self-test before the window opens.",
   },
+  {
+    key: "CHAT_HUB_COCKPIT",
+    detail: "Set to 1 to open a glass cockpit window (vibrancy + tab strip). Spike only.",
+  },
+  {
+    key: "CHAT_HUB_COCKPIT_VIBRANCY",
+    detail: "Cockpit vibrancy material: under-window (default) or hud.",
+  },
 ]
 
 /** One label/value pair in an About or Storage card. */

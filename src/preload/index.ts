@@ -62,7 +62,12 @@ import type {
 import type { ProjectScript, ScriptsFile } from "@shared/scripts"
 import type { ContextDocId, ProjectContext } from "@shared/project-context"
 
+const cockpit =
+  process.argv.includes("--chat-hub-cockpit=1") ||
+  process.argv.includes("--chat-hub-cockpit")
+
 const api = {
+  cockpit,
   getSnapshot: (): Promise<SessionSnapshot> =>
     ipcRenderer.invoke(IpcChannels.getSnapshot),
   listSessions: (): Promise<SessionMeta[]> =>
