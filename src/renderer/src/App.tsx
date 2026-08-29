@@ -109,9 +109,8 @@ const AUTH_NAG_KEY = "chat-hub.authNagDismissed"
 /** The terminal needs one mounted beat to start the script before the browser takes the dock. */
 const SCRIPT_PREVIEW_SWITCH_MS = 800
 
-const cockpitWindow = readCockpitWindow()
-
 export default function App() {
+  const [cockpit, setCockpit] = useState(() => readCockpitWindow().enabled)
   const [booted, setBooted] = useState(false)
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [messagesBySession, setMessagesBySession] = useState<
@@ -436,6 +435,20 @@ export default function App() {
       default:
         break
     }
+  }, [])
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("cockpit", cockpit)
+  }, [cockpit])
+
+  useEffect(() => {
+    return window.chatHub.onCockpitChanged((enabled) => {
+      setCockpit(enabled)
+      document.documentElement.classList.toggle("cockpit", enabled)
+      void window.chatHub.getSettings().then((s) => {
+        applyTheme(resolveTheme(s.general.themeId, s.general.customThemes))
+      })
+    })
   }, [])
 
   useEffect(() => {
@@ -1652,7 +1665,7 @@ export default function App() {
     return (
       <div
         className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""} ${
-          cockpitWindow.enabled ? "is-cockpit" : ""
+          cockpit ? "is-cockpit" : ""
         }`}
         style={{ "--sidebar-w": `${sidebarWidth}px` } as CSSProperties}
       />
@@ -1662,8 +1675,8 @@ export default function App() {
   return (
     <div
       className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""} ${
-        tiled ? "is-tiled" : showDock && !cockpitWindow.enabled ? "dock-is-open" : ""
-      } ${cockpitWindow.enabled ? "is-cockpit" : ""}`}
+        tiled ? "is-tiled" : showDock && !cockpit ? "dock-is-open" : ""
+      } ${cockpit ? "is-cockpit" : ""}`}
       style={
         {
           "--sidebar-w": `${sidebarWidth}px`,
@@ -1740,6 +1753,7 @@ export default function App() {
         browserClaim={browserClaim}
         actions={paneActions}
         onDrop={onWorkspaceDrop}
+        cockpit={cockpit}
       />
       {settingsOpen ? (
         <SettingsModal
@@ -1772,6 +1786,10 @@ export default function App() {
             activeSession?.cwd ?? projects[0]?.cwd ?? null
           }
           sessions={sessions}
+          cockpit={cockpit}
+          onCockpitChange={(enabled) => {
+            void window.chatHub.setCockpit(enabled)
+          }}
         />
       ) : null}
       {wizardOpen ? (

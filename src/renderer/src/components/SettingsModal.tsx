@@ -106,6 +106,8 @@ type Props = {
   projectCwd?: string | null
   /** Feeds the Usage tab's per-session spend table. */
   sessions: SessionMeta[]
+  cockpit?: boolean
+  onCockpitChange?: (enabled: boolean) => void
 }
 
 type McpFormState = {
@@ -286,6 +288,8 @@ export function SettingsModal({
   onAutoOpenDockChange,
   projectCwd = null,
   sessions,
+  cockpit = false,
+  onCockpitChange,
 }: Props) {
   const [tab, setTab] = useState<Tab>("providers")
   const [statuses, setStatuses] = useState<ProviderStatus[]>([])
@@ -1278,6 +1282,27 @@ export function SettingsModal({
                     </span>
                   </div>
                 ))}
+              </div>
+
+              <h2 className="section-label">This window</h2>
+              <div className="settings-group">
+                <div className="settings-row">
+                  <div>
+                    <div className="row-title">Cockpit mode</div>
+                    <div className="row-desc">
+                      Glass chrome and Chat / Terminal / Diff / Browser tabs in
+                      this window only. Other windows stay as they are.
+                    </div>
+                  </div>
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={cockpit}
+                      onChange={(e) => onCockpitChange?.(e.target.checked)}
+                    />
+                    <span className="switch-track" />
+                  </label>
+                </div>
               </div>
 
               <h2 className="section-label">Customize</h2>

@@ -68,6 +68,15 @@ const cockpit =
 
 const api = {
   cockpit,
+  setCockpit: (enabled: boolean): Promise<{ enabled: boolean }> =>
+    ipcRenderer.invoke(IpcChannels.setWindowCockpit, enabled),
+  onCockpitChanged: (cb: (enabled: boolean) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, enabled: boolean) => cb(enabled)
+    ipcRenderer.on(IpcChannels.cockpitChanged, handler)
+    return () => {
+      ipcRenderer.removeListener(IpcChannels.cockpitChanged, handler)
+    }
+  },
   getSnapshot: (): Promise<SessionSnapshot> =>
     ipcRenderer.invoke(IpcChannels.getSnapshot),
   listSessions: (): Promise<SessionMeta[]> =>

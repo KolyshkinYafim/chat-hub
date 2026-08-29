@@ -123,8 +123,9 @@ describe("Developer menu", () => {
       "CommandOrControl+Shift+R",
     )
     expect(item(developer, "Reveal Main Log")).toBeDefined()
-    expect(item(developer, "Toggle cockpit (restart)")).toBeDefined()
-    expect(item(developer, "Cycle cockpit vibrancy (restart)")).toBeDefined()
+    expect(
+      developer.find((entry) => entry.label === "Toggle cockpit (restart)"),
+    ).toBeUndefined()
   })
 
   it("carries the native zoom accelerators without shadowing the existing ones", () => {

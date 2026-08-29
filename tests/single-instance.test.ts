@@ -50,6 +50,10 @@ vi.mock("electron", () => {
       },
     },
     shell: {},
+    nativeTheme: {
+      prefersReducedTransparency: false,
+      on: () => {},
+    },
   }
 })
 

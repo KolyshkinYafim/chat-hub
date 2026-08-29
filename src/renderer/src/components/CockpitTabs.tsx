@@ -1,10 +1,6 @@
-export const COCKPIT_TABS = [
-  { id: "chat", label: "Chat" },
-  { id: "terminal", label: "Terminal" },
-  { id: "diff", label: "Diff" },
-] as const
+import { COCKPIT_TABS, type CockpitTab } from "@shared/cockpit"
 
-export type CockpitTab = (typeof COCKPIT_TABS)[number]["id"]
+export type { CockpitTab }
 
 type Props = {
   value: CockpitTab

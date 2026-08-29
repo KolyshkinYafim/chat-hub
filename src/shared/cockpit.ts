@@ -1,3 +1,5 @@
+import type { SurfaceKind } from "./surfaces"
+
 export const COCKPIT_ENV = "CHAT_HUB_COCKPIT"
 export const COCKPIT_VIBRANCY_ENV = "CHAT_HUB_COCKPIT_VIBRANCY"
 
@@ -6,6 +8,25 @@ export type CockpitVibrancy = "under-window" | "hud"
 export type CockpitWindow = {
   enabled: boolean
   vibrancy: CockpitVibrancy
+}
+
+export const COCKPIT_TABS = [
+  { id: "chat", label: "Chat" },
+  { id: "terminal", label: "Terminal" },
+  { id: "diff", label: "Diff" },
+  { id: "browser", label: "Browser" },
+] as const
+
+export type CockpitTab = (typeof COCKPIT_TABS)[number]["id"]
+
+export function surfaceForCockpitTab(tab: CockpitTab): SurfaceKind | null {
+  if (tab === "chat") return null
+  return tab
+}
+
+export function cockpitTabForSurface(kind: SurfaceKind | null): CockpitTab {
+  if (kind === "terminal" || kind === "diff" || kind === "browser") return kind
+  return "chat"
 }
 
 function lastMatching(
@@ -35,11 +56,13 @@ function vibrancyArgValue(arg: string): string | null {
 export function parseCockpitEnabled(
   argv: string[],
   env: Record<string, string | undefined>,
+  saved?: boolean,
 ): boolean {
   const arg = lastMatching(argv, cockpitArgValue)
   if (arg === "0") return false
   if (arg === "1") return true
-  return env[COCKPIT_ENV] === "1"
+  if (env[COCKPIT_ENV] === "1") return true
+  return saved === true
 }
 
 export function parseCockpitVibrancy(
@@ -54,9 +77,10 @@ export function parseCockpitVibrancy(
 export function parseCockpitFlags(
   argv: string[],
   env: Record<string, string | undefined>,
+  saved?: boolean,
 ): CockpitWindow {
   return {
-    enabled: parseCockpitEnabled(argv, env),
+    enabled: parseCockpitEnabled(argv, env, saved),
     vibrancy: parseCockpitVibrancy(argv, env),
   }
 }

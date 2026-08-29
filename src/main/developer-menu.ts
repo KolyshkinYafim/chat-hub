@@ -7,12 +7,6 @@ import {
   type WebContents,
 } from "electron"
 import { join } from "node:path"
-import {
-  parseCockpitEnabled,
-  parseCockpitVibrancy,
-  withCockpitArg,
-  withCockpitVibrancyArg,
-} from "@shared/cockpit"
 import { createMainLog, type MainLog, type MainLogEvent } from "./main-log"
 
 const attachedInspectMenus = new WeakSet<WebContents>()
@@ -164,31 +158,6 @@ export function buildDeveloperMenuTemplate(
         click: () => {
           shell.showItemInFolder(log.path)
           log.write("developer.reveal-main-log")
-        },
-      },
-      { type: "separator" },
-      {
-        label: "Toggle cockpit (restart)",
-        click: () => {
-          const enabled = parseCockpitEnabled(process.argv, process.env)
-          app.relaunch({
-            args: withCockpitArg(process.argv.slice(1), !enabled),
-          })
-          app.exit(0)
-        },
-      },
-      {
-        label: "Cycle cockpit vibrancy (restart)",
-        click: () => {
-          const current = parseCockpitVibrancy(process.argv, process.env)
-          const next = current === "hud" ? "under-window" : "hud"
-          app.relaunch({
-            args: withCockpitVibrancyArg(
-              withCockpitArg(process.argv.slice(1), true),
-              next,
-            ),
-          })
-          app.exit(0)
         },
       },
     ],

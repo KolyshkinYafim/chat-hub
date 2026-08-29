@@ -215,8 +215,8 @@ export const GLASS_SURFACE_TOKENS: Partial<Record<ThemeToken, string>> = {
   "--composer-bg": "rgba(22, 24, 29, 0.62)",
 }
 
-export const GLASS_DIM = "rgba(8, 9, 12, 0.34)"
-export const GLASS_DIM_AA = "rgba(8, 9, 12, 0.62)"
+export const GLASS_SCRIM = "rgba(12, 13, 18, 0.88)"
+export const GLASS_CLEAR = "rgba(0, 0, 0, 0)"
 
 export const GLASS_THEME: ThemeDef = {
   id: "glass",

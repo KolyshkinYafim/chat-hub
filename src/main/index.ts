@@ -77,6 +77,7 @@ import {
 import { MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH } from "@shared/window-bounds"
 import { parseCockpitFlags } from "@shared/cockpit"
 import { resolveTheme, themeBackground } from "@shared/theme"
+import { applyCockpitChrome, watchReducedTransparency } from "./cockpit-window"
 import { DEFAULT_ZOOM_LEVEL } from "@shared/zoom"
 import {
   appendMcpPathsToGitignore,
@@ -282,16 +283,30 @@ function bootMark(label: string): void {
   console.log(`[boot] ${label} +${Date.now() - bootStart}ms`)
 }
 
-function createWindow(): void {
-  const saved = settingsStore?.windowState ?? null
-  const cockpit = parseCockpitFlags(process.argv, process.env)
-  const glass = cockpit.enabled && process.platform === "darwin"
-  const themeBg = themeBackground(
+function currentThemeBackground(): string {
+  return themeBackground(
     resolveTheme(
       settingsStore?.general.themeId,
       settingsStore?.general.customThemes,
     ),
   )
+}
+
+function currentCockpitFlags() {
+  return parseCockpitFlags(
+    process.argv,
+    process.env,
+    settingsStore?.windowState?.cockpit,
+  )
+}
+
+function createWindow(): void {
+  const saved = settingsStore?.windowState ?? null
+  const cockpit = currentCockpitFlags()
+  const themeBg = currentThemeBackground()
+  const glass =
+    cockpit.enabled &&
+    process.platform === "darwin"
   mainWindow = new BrowserWindow({
     ...openingBounds(saved),
     minWidth: MIN_WINDOW_WIDTH,
@@ -319,6 +334,39 @@ function createWindow(): void {
           ]
         : [],
     },
+  })
+
+  applyCockpitChrome(mainWindow, cockpit.enabled, cockpit.vibrancy, themeBg)
+  watchReducedTransparency(
+    () => mainWindow,
+    (win) => {
+      const flags = currentCockpitFlags()
+      applyCockpitChrome(
+        win,
+        flags.enabled && !win.isFullScreen(),
+        flags.vibrancy,
+        currentThemeBackground(),
+      )
+    },
+  )
+  mainWindow.on("enter-full-screen", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    applyCockpitChrome(
+      mainWindow,
+      false,
+      cockpit.vibrancy,
+      currentThemeBackground(),
+    )
+  })
+  mainWindow.on("leave-full-screen", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    const flags = currentCockpitFlags()
+    applyCockpitChrome(
+      mainWindow,
+      flags.enabled,
+      flags.vibrancy,
+      currentThemeBackground(),
+    )
   })
 
   if (saved?.maximized) mainWindow.maximize()
@@ -852,6 +900,26 @@ export function registerIpc(
   ipcMain.handle(IpcChannels.setGeneralConfig, async (_e, patch: unknown) => {
     const next = await settings.setGeneralConfig(sanitizeGeneralPatch(patch))
     return { general: next.general }
+  })
+
+  ipcMain.handle(IpcChannels.setWindowCockpit, async (_e, enabled: unknown) => {
+    const on = enabled === true
+    const win = mainWindow
+    if (!win || win.isDestroyed()) return { enabled: false }
+    const prev = settings.windowState
+    await settings.setWindowState({
+      bounds: prev?.bounds ?? win.getNormalBounds(),
+      maximized: prev?.maximized ?? win.isMaximized(),
+      cockpit: on,
+    })
+    applyCockpitChrome(
+      win,
+      on,
+      currentCockpitFlags().vibrancy,
+      currentThemeBackground(),
+    )
+    win.webContents.send(IpcChannels.cockpitChanged, on)
+    return { enabled: on }
   })
 
   ipcMain.handle(IpcChannels.getDataPaths, (): DataPaths => {

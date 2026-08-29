@@ -60,6 +60,7 @@ type Props = {
   onWidthChange: (width: number) => void
   onWidthCommit: (width: number) => void
   onClose: () => void
+  layout?: "side" | "stage"
 }
 
 export function SurfaceDock({
@@ -84,27 +85,35 @@ export function SurfaceDock({
   onWidthChange,
   onWidthCommit,
   onClose,
+  layout = "side",
 }: Props) {
   const clamp = useCallback(
     (px: number) => clampDockWidth(px, window.innerWidth, sidebarWidth),
     [sidebarWidth],
   )
 
+  const staged = layout === "stage"
+
   return (
-    <aside className="surface-dock" aria-label="Surface panel">
-      <ResizeHandle
-        className="surface-resizer"
-        label="Resize panel"
-        width={width}
-        min={MIN_DOCK_WIDTH}
-        max={maxDockWidth(window.innerWidth, sidebarWidth)}
-        defaultWidth={DEFAULT_DOCK_WIDTH}
-        growKey="ArrowLeft"
-        widthAt={(clientX) => window.innerWidth - clientX}
-        clamp={clamp}
-        onWidth={onWidthChange}
-        onCommit={onWidthCommit}
-      />
+    <aside
+      className={`surface-dock${staged ? " is-cockpit-stage" : ""}`}
+      aria-label="Surface panel"
+    >
+      {staged ? null : (
+        <ResizeHandle
+          className="surface-resizer"
+          label="Resize panel"
+          width={width}
+          min={MIN_DOCK_WIDTH}
+          max={maxDockWidth(window.innerWidth, sidebarWidth)}
+          defaultWidth={DEFAULT_DOCK_WIDTH}
+          growKey="ArrowLeft"
+          widthAt={(clientX) => window.innerWidth - clientX}
+          clamp={clamp}
+          onWidth={onWidthChange}
+          onCommit={onWidthCommit}
+        />
+      )}
       <header className="surface-head">
         <div className="surface-tabs">
           {SURFACE_KINDS.map((tab) => (

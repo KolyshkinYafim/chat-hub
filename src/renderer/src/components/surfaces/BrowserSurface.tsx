@@ -402,6 +402,7 @@ export function BrowserSurface({ sessionId }: Props) {
             ref={viewRef as unknown as React.Ref<HTMLElement>}
             src={initialUrl}
             partition="persist:chathub-browser"
+            webpreferences="transparent=no"
             className={`surface-web ${loading ? "loading" : ""}`}
           />
         ) : (

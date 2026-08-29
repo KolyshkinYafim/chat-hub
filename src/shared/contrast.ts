@@ -7,6 +7,7 @@
 
 /** WCAG AA for body text under 18pt. */
 export const AA_TEXT = 4.5
+export const AA_LARGE = 3
 /** WCAG AA for icons, borders and other non-text UI. */
 export const AA_UI = 3
 

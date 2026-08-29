@@ -88,6 +88,7 @@ type Props = {
   browserClaim: string | null
   actions: PaneActions
   onDrop: (drop: WorkspaceDrop) => void
+  cockpit?: boolean
 }
 
 const NO_MESSAGES: ChatMessage[] = []
@@ -122,6 +123,7 @@ function dragKind(types: readonly string[]): WorkspaceDrop["kind"] | null {
 }
 
 export function Workspace({
+  cockpit = false,
   layout,
   sessions,
   messagesBySession,
@@ -359,6 +361,7 @@ export function Workspace({
         queuedBySession={queuedBySession}
         actions={actions}
         containerProps={tiled ? undefined : containerProps}
+        cockpit={cockpit}
       />
     )
   }

@@ -6,8 +6,8 @@ import {
   BUILTIN_THEMES,
   contrastOnGlass,
   DEFAULT_THEME_ID,
-  GLASS_DIM,
-  GLASS_DIM_AA,
+  GLASS_CLEAR,
+  GLASS_SCRIM,
   GLASS_SURFACE_TOKENS,
   GLASS_THEME,
   isLightTheme,
@@ -238,30 +238,28 @@ describe("glass overlay", () => {
     }
   })
 
-  it("clears AA for body text on glass over a white desktop only with the heavier dim", () => {
-    const text = BASE_TOKENS["--text"]
-    const secondary = BASE_TOKENS["--text-secondary"]
+  it("keeps reading-column text AA on a local scrim over white and black", () => {
+    const roles = ["--text", "--text-secondary", "--text-muted"] as const
+    for (const wallpaper of ["#ffffff", "#000000"]) {
+      for (const role of roles) {
+        const ratio = contrastOnGlass(
+          BASE_TOKENS[role],
+          GLASS_SCRIM,
+          GLASS_CLEAR,
+          wallpaper,
+        )
+        expect(ratio, `${role} on scrim over ${wallpaper}`).toBeGreaterThanOrEqual(
+          AA_TEXT,
+        )
+      }
+    }
+  })
+
+  it("does not put body text on the raw glass canvas over white", () => {
     const canvas = GLASS_SURFACE_TOKENS["--bg"]!
-    const chrome = [
-      GLASS_SURFACE_TOKENS["--bg-sidebar"]!,
-      GLASS_SURFACE_TOKENS["--bg-elevated"]!,
-    ]
-    expect(contrastOnGlass(text, canvas, GLASS_DIM, "#ffffff")).toBeLessThan(
-      AA_TEXT,
-    )
-    for (const surface of [canvas, ...chrome]) {
-      expect(
-        contrastOnGlass(text, surface, GLASS_DIM_AA, "#ffffff"),
-      ).toBeGreaterThanOrEqual(AA_TEXT)
-      expect(
-        contrastOnGlass(secondary, surface, GLASS_DIM_AA, "#ffffff"),
-      ).toBeGreaterThanOrEqual(AA_TEXT)
-    }
-    for (const surface of chrome) {
-      expect(
-        contrastOnGlass(text, surface, GLASS_DIM, "#ffffff"),
-      ).toBeGreaterThanOrEqual(AA_TEXT)
-    }
+    expect(
+      contrastOnGlass(BASE_TOKENS["--text"], canvas, GLASS_CLEAR, "#ffffff"),
+    ).toBeLessThan(AA_TEXT)
   })
 })
 

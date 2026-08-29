@@ -83,18 +83,11 @@ body {
 }
 
 :root.cockpit {
-  --cockpit-dim: rgba(8, 9, 12, 0.34);
+  --cockpit-scrim: rgba(12, 13, 18, 0.88);
 }
 
 :root.cockpit,
-:root.cockpit body {
-  background: transparent;
-}
-
-:root.cockpit body {
-  background: var(--cockpit-dim);
-}
-
+:root.cockpit body,
 :root.cockpit #boot-skeleton {
   background: transparent;
 }
@@ -250,6 +243,75 @@ select:focus-visible {
   margin: auto;
   padding: 24px;
   color: var(--text-muted);
+}
+
+:root.cockpit .main,
+:root.cockpit .surface-dock.is-cockpit-stage .surface-body {
+  background: var(--cockpit-scrim);
+  backdrop-filter: blur(20px) saturate(1.2) brightness(0.72);
+}
+
+:root.cockpit .main {
+  --text-faint: var(--text-muted);
+}
+
+:root.cockpit .surface-dock.is-cockpit-stage {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  width: auto;
+  border-left: none;
+  background: transparent;
+}
+
+:root.cockpit .surface-browser-view,
+:root.cockpit .file-pdf,
+:root.cockpit .file-image-stage {
+  background: #0c0d12;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+:root.cockpit .surface-web,
+:root.cockpit .file-pdf-view {
+  background: #0c0d12;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root.cockpit {
+    --bg: #0c0d12;
+    --bg-sidebar: #131419;
+    --bg-elevated: #1b1c21;
+    --bg-hover: #232429;
+    --bg-active: #2b2c32;
+    --bg-row-active: #35373c;
+    --border: #34353b;
+    --border-soft: #24262b;
+    --border-strong: #515258;
+    --user-bg: #1d2435;
+    --code-bg: #121317;
+    --composer-bg: #16181d;
+    --cockpit-scrim: #0c0d12;
+  }
+
+  :root.cockpit,
+  :root.cockpit body,
+  :root.cockpit .main,
+  :root.cockpit .sidebar,
+  :root.cockpit .app,
+  :root.cockpit .surface-dock.is-cockpit-stage .surface-body {
+    background: var(--bg);
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root.cockpit .main,
+  :root.cockpit .surface-dock.is-cockpit-stage .surface-body {
+    backdrop-filter: none;
+  }
 }
 
 /* ——— Workspace ———

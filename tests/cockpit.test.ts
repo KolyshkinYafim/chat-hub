@@ -1,18 +1,29 @@
 import { describe, expect, it } from "vitest"
 import {
+  cockpitTabForSurface,
   parseCockpitEnabled,
   parseCockpitFlags,
   parseCockpitSearch,
   parseCockpitVibrancy,
+  surfaceForCockpitTab,
   withCockpitArg,
   withCockpitVibrancyArg,
 } from "@shared/cockpit"
 
 describe("parseCockpitEnabled", () => {
-  it("reads the env var when no argv override is present", () => {
+  it("stays off with no argv, env, or saved flag", () => {
     expect(parseCockpitEnabled([], {})).toBe(false)
+    expect(parseCockpitEnabled([], {}, false)).toBe(false)
+  })
+
+  it("reads the env var when no argv override is present", () => {
     expect(parseCockpitEnabled([], { CHAT_HUB_COCKPIT: "1" })).toBe(true)
     expect(parseCockpitEnabled([], { CHAT_HUB_COCKPIT: "0" })).toBe(false)
+  })
+
+  it("honours a saved per-window flag when env is unset", () => {
+    expect(parseCockpitEnabled([], {}, true)).toBe(true)
+    expect(parseCockpitEnabled([], {}, false)).toBe(false)
   })
 
   it("lets argv override the env var", () => {
@@ -60,6 +71,19 @@ describe("parseCockpitFlags", () => {
         CHAT_HUB_COCKPIT_VIBRANCY: "hud",
       }),
     ).toEqual({ enabled: true, vibrancy: "hud" })
+  })
+})
+
+describe("surface mapping", () => {
+  it("maps cockpit tabs onto the dock registry and back", () => {
+    expect(surfaceForCockpitTab("chat")).toBeNull()
+    expect(surfaceForCockpitTab("terminal")).toBe("terminal")
+    expect(surfaceForCockpitTab("diff")).toBe("diff")
+    expect(surfaceForCockpitTab("browser")).toBe("browser")
+    expect(cockpitTabForSurface(null)).toBe("chat")
+    expect(cockpitTabForSurface("files")).toBe("chat")
+    expect(cockpitTabForSurface("terminal")).toBe("terminal")
+    expect(cockpitTabForSurface("browser")).toBe("browser")
   })
 })
 

@@ -19,15 +19,15 @@ import type { ProjectScript } from "@shared/scripts"
 import { collectAgentActions, editedPathsInMessage } from "../lib/agent-actions"
 import type { SurfaceKind } from "../lib/surface-bridge"
 import type { Pane } from "../lib/pane-layout"
-import { readCockpitWindow } from "../lib/cockpit"
-import { CockpitTabs, type CockpitTab } from "./CockpitTabs"
+import {
+  cockpitTabForSurface,
+  surfaceForCockpitTab,
+  type CockpitTab,
+} from "@shared/cockpit"
+import { CockpitTabs } from "./CockpitTabs"
 import { ChatView, type OnboardNotice } from "./ChatView"
 import { StatusDot } from "./StatusDot"
-import { DiffSurface } from "./surfaces/DiffSurface"
 import { SurfaceDock } from "./surfaces/SurfaceDock"
-import { TerminalSurface } from "./surfaces/TerminalSurface"
-
-const cockpitWindow = readCockpitWindow()
 
 /**
  * Everything a pane calls back into. Bundled into one object with a stable
@@ -133,6 +133,7 @@ type Props = {
   queuedBySession: Record<string, QueuedMessage[]>
   actions: PaneActions
   containerProps?: HTMLAttributes<HTMLElement>
+  cockpit?: boolean
 }
 
 function PaneView({
@@ -175,6 +176,7 @@ function PaneView({
   queuedBySession,
   actions,
   containerProps,
+  cockpit = false,
 }: Props) {
   const paneId = pane.id
   const sessionId = session?.id ?? null
@@ -183,10 +185,9 @@ function PaneView({
   const [tab, setTab] = useState<CockpitTab>("chat")
 
   useEffect(() => {
-    if (!cockpitWindow.enabled) return
-    if (surface === "diff") setTab("diff")
-    if (surface === "terminal") setTab("terminal")
-  }, [surface])
+    if (!cockpit) return
+    setTab(cockpitTabForSurface(surface))
+  }, [cockpit, surface])
 
   // The diff surface reads the same tool cards the transcript already parsed,
   // so there is one answer to "what did this turn change" rather than two.
@@ -292,7 +293,17 @@ function PaneView({
     />
   )
 
-  const chatNode = cockpitWindow.enabled ? (
+  const pickTab = useCallback(
+    (next: CockpitTab) => {
+      setTab(next)
+      const kind = surfaceForCockpitTab(next)
+      if (!sessionId) return
+      actions.onSelectSurface(paneId, sessionId, kind)
+    },
+    [actions, paneId, sessionId],
+  )
+
+  const chatNode = cockpit ? (
     <div className="cockpit-chat" hidden={tab !== "chat"}>
       {chat}
     </div>
@@ -300,56 +311,27 @@ function PaneView({
     chat
   )
 
-  const stage =
-    cockpitWindow.enabled && tab === "terminal" ? (
-      <div className="cockpit-stage">
-        {session ? (
-          <TerminalSurface
-            cwd={session.cwd}
-            sessionId={session.id}
-            hookRuns={hookRuns}
-          />
-        ) : (
-          <p className="cockpit-empty">Open a session to use the terminal.</p>
-        )}
-      </div>
-    ) : cockpitWindow.enabled && tab === "diff" ? (
-      <div className="cockpit-stage">
-        {session ? (
-          <DiffSurface
-            cwd={session.cwd}
-            sessionId={session.id}
-            refreshKey={gitRefresh}
-            focus={diffFocus}
-            actions={agentActions}
-            onClose={() => setTab("chat")}
-            onChanged={actions.onGitChanged}
-          />
-        ) : (
-          <p className="cockpit-empty">Open a session to review the diff.</p>
-        )}
-      </div>
-    ) : null
-
   const column = (
     <>
-      {cockpitWindow.enabled ? (
+      {cockpit ? (
         <CockpitTabs
           value={tab}
-          onChange={setTab}
+          onChange={pickTab}
           surfacesEnabled={session !== null}
         />
       ) : null}
       {chatNode}
-      {stage}
     </>
   )
 
+  const dockSession = session
+  const stageDock = cockpit && tab !== "chat" && dockSession
+  const sideDock = !cockpit && dockOpen && dockSession
   const dock =
-    !cockpitWindow.enabled && dockOpen && session ? (
+    (stageDock || sideDock) && dockSession ? (
       <SurfaceDock
-        session={session}
-        kind={surface}
+        session={dockSession}
+        kind={surface ?? surfaceForCockpitTab(tab)}
         width={dockWidth}
         sidebarWidth={sidebarWidth}
         gitRefreshKey={gitRefresh}
@@ -368,7 +350,11 @@ function PaneView({
         onSelectKind={selectSurface}
         onWidthChange={actions.onDockWidthChange}
         onWidthCommit={actions.onDockWidthCommit}
-        onClose={() => actions.onToggleDock(paneId)}
+        onClose={() => {
+          if (cockpit) pickTab("chat")
+          else actions.onToggleDock(paneId)
+        }}
+        layout={stageDock ? "stage" : "side"}
       />
     ) : null
 
@@ -377,8 +363,9 @@ function PaneView({
       <>
         <div className="main-column" data-pane-id={paneId} {...containerProps}>
           {column}
+          {cockpit ? dock : null}
         </div>
-        {dock}
+        {cockpit ? null : dock}
       </>
     )
   }
@@ -386,7 +373,7 @@ function PaneView({
   return (
     <section
       className={`pane${focused ? " is-focused" : ""}${
-        dockOpen ? " has-dock" : ""
+        !cockpit && dockOpen ? " has-dock" : ""
       }`}
       data-pane-id={paneId}
       aria-label={session ? session.title : "Empty pane"}
@@ -423,8 +410,11 @@ function PaneView({
         </button>
       </header>
       <div className="pane-body">
-        <div className="main-column">{column}</div>
-        {dock}
+        <div className="main-column">
+          {column}
+          {cockpit ? dock : null}
+        </div>
+        {cockpit ? null : dock}
       </div>
     </section>
   )

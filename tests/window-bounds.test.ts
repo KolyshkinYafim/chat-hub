@@ -46,6 +46,24 @@ describe("parseWindowState", () => {
     ).toBeNull()
   })
 
+  it("keeps an explicit cockpit flag and ignores a missing one", () => {
+    expect(
+      parseWindowState({
+        bounds: { x: 0, y: 0, width: 900, height: 600 },
+        cockpit: true,
+      }),
+    ).toEqual({
+      bounds: { x: 0, y: 0, width: 900, height: 600 },
+      maximized: false,
+      cockpit: true,
+    })
+    expect(
+      parseWindowState({
+        bounds: { x: 0, y: 0, width: 900, height: 600 },
+      })?.cockpit,
+    ).toBeUndefined()
+  })
+
   it("treats a missing maximized flag as not maximized", () => {
     expect(
       parseWindowState({ bounds: { x: 0, y: 0, width: 900, height: 600 } })
