@@ -84,6 +84,7 @@ type Props = {
   error: string | null
   onboard: OnboardNotice | null
   anyOverlayOpen: boolean
+  inboxCount: number
   /** Pane that most recently asked for the one browser guest. */
   browserClaim: string | null
   actions: PaneActions
@@ -152,6 +153,7 @@ export function Workspace({
   error,
   onboard,
   anyOverlayOpen,
+  inboxCount,
   browserClaim,
   actions,
   onDrop,
@@ -348,6 +350,7 @@ export function Workspace({
         error={focused ? error : null}
         onboard={focused ? onboard : null}
         anyOverlayOpen={anyOverlayOpen}
+        inboxCount={inboxCount}
         dockWidth={dockWidth}
         sidebarWidth={sidebarWidth}
         gitRefresh={gitRefresh}

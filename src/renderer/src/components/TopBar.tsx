@@ -1,7 +1,7 @@
 import { useState } from "react"
 import type { GitCheckoutInfo, SessionMeta } from "@shared/types"
 import type { ProjectScript } from "@shared/scripts"
-import { needsAction } from "@shared/attention"
+import { attentionBadge, needsAction } from "@shared/attention"
 import { StatusDot } from "./StatusDot"
 import { ScriptsMenu } from "./ScriptsMenu"
 import { shortCwd, statusLabel } from "../lib/format"
@@ -12,6 +12,8 @@ type Props = {
   git: GitCheckoutInfo | null
   dockOpen: boolean
   scripts: ProjectScript[]
+  inboxCount: number
+  onOpenInbox: () => void
   onRunScript: (script: ProjectScript) => void
   onSaveScripts: (scripts: ProjectScript[]) => Promise<void>
   onToggleDock: () => void
@@ -26,6 +28,8 @@ export function TopBar({
   git,
   dockOpen,
   scripts,
+  inboxCount,
+  onOpenInbox,
   onRunScript,
   onSaveScripts,
   onToggleDock,
@@ -35,8 +39,7 @@ export function TopBar({
   onRename,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
-  // Provider/model/permission/effort live in system-banner + composer chips —
-  // keep the bar single-line with status, project path and git only.
+  const badge = attentionBadge(inboxCount)
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -72,6 +75,26 @@ export function TopBar({
       </div>
       {/* No Stop here: the only Stop lives next to Send, where the hand is. */}
       <div className="topbar-actions">
+        <div className="inbox-entry">
+          <button
+            type="button"
+            className="icon-chip"
+            title="Agent inbox (⌥⇧I)"
+            aria-label={
+              inboxCount > 0
+                ? `Agent inbox, ${inboxCount} waiting`
+                : "Agent inbox"
+            }
+            onClick={onOpenInbox}
+          >
+            <InboxIcon />
+          </button>
+          {badge ? (
+            <span className="inbox-badge" aria-hidden>
+              {badge}
+            </span>
+          ) : null}
+        </div>
         <ScriptsMenu
           scripts={scripts}
           onRun={onRunScript}
@@ -166,5 +189,25 @@ export function TopBar({
         </button>
       </div>
     </header>
+  )
+}
+
+function InboxIcon() {
+  return (
+    <svg
+      className="surface-icon"
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M2.2 8.2 3.6 3.4h8.8l1.4 4.8" />
+      <path d="M2.2 8.2h3.1l.9 1.6h3.6l.9-1.6h3.1v4.3a1 1 0 0 1-1 1H3.2a1 1 0 0 1-1-1V8.2Z" />
+    </svg>
   )
 }

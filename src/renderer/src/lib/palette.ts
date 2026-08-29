@@ -3,21 +3,31 @@ import { fuzzyScore } from "./fuzzy"
 
 export const NEXT_ATTENTION_KEY = "command:next-attention"
 export const NEXT_ATTENTION_MATCH = "next waiting needs you attention jump"
+export const AGENT_INBOX_KEY = "command:agent-inbox"
+export const AGENT_INBOX_MATCH =
+  "agent inbox panel permission question failed"
 
 const MAX_SESSION_RESULTS = 12
 
-export type PaletteEntry =
-  | { kind: "command"; label: string; sub: string }
-  | { kind: "session"; session: SessionMeta }
+export type PaletteCommand = {
+  kind: "command"
+  key: string
+  label: string
+  sub: string
+  hint: string
+}
+
+export type PaletteEntry = PaletteCommand | { kind: "session"; session: SessionMeta }
 
 export function paletteKey(entry: PaletteEntry): string {
-  return entry.kind === "command" ? NEXT_ATTENTION_KEY : entry.session.id
+  return entry.kind === "command" ? entry.key : entry.session.id
 }
 
 export function buildPaletteEntries(
   sessions: readonly SessionMeta[],
   query: string,
   attentionCount: number,
+  inboxCount = 0,
 ): PaletteEntry[] {
   const scored: { session: SessionMeta; score: number }[] = []
   for (const s of sessions) {
@@ -33,15 +43,42 @@ export function buildPaletteEntries(
     session,
   }))
 
-  const commandScore =
+  const commands: { score: number; entry: PaletteCommand }[] = []
+  const inboxScore = fuzzyScore(query, AGENT_INBOX_MATCH)
+  if (inboxScore !== null) {
+    commands.push({
+      score: inboxScore,
+      entry: {
+        kind: "command",
+        key: AGENT_INBOX_KEY,
+        label: "Agent inbox",
+        sub:
+          inboxCount > 0
+            ? `${inboxCount} waiting · permissions, questions and failures`
+            : "Review pending permissions, questions and failures",
+        hint: "⌥⇧I",
+      },
+    })
+  }
+  const nextScore =
     attentionCount > 0 ? fuzzyScore(query, NEXT_ATTENTION_MATCH) : null
-  if (commandScore === null) return entries
-  const outscored = top.findIndex(({ score }) => commandScore > score)
-  entries.splice(outscored === -1 ? entries.length : outscored, 0, {
-    kind: "command",
-    label: "Next waiting",
-    sub: `Jump to the next session that needs you · ${attentionCount} in queue`,
-  })
+  if (nextScore !== null) {
+    commands.push({
+      score: nextScore,
+      entry: {
+        kind: "command",
+        key: NEXT_ATTENTION_KEY,
+        label: "Next waiting",
+        sub: `Jump to the next session that needs you · ${attentionCount} in queue`,
+        hint: "⌥⇧U",
+      },
+    })
+  }
+  commands.sort((a, b) => a.score - b.score || a.entry.key.localeCompare(b.entry.key))
+  for (const command of commands) {
+    const outscored = top.findIndex(({ score }) => command.score > score)
+    entries.splice(outscored === -1 ? entries.length : outscored, 0, command.entry)
+  }
   return entries
 }
 

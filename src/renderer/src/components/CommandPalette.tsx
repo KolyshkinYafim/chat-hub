@@ -1,6 +1,7 @@
 import { useMemo, useState, type KeyboardEvent } from "react"
 import type { SessionMeta } from "@shared/types"
 import {
+  AGENT_INBOX_KEY,
   buildPaletteEntries,
   paletteKey,
   resolvePaletteCursor,
@@ -13,8 +14,10 @@ type Props = {
   sessions: SessionMeta[]
   activeId: string | null
   attentionCount: number
+  inboxCount: number
   onSelect: (id: string) => void
   onNextAttention: () => void
+  onOpenInbox: () => void
   onClose: () => void
 }
 
@@ -23,16 +26,18 @@ export function CommandPalette({
   sessions,
   activeId,
   attentionCount,
+  inboxCount,
   onSelect,
   onNextAttention,
+  onOpenInbox,
   onClose,
 }: Props) {
   const [query, setQuery] = useState("")
   const [cursor, setCursor] = useState<PaletteCursor>({ key: null, index: 0 })
 
   const entries = useMemo(
-    () => buildPaletteEntries(sessions, query, attentionCount),
-    [sessions, query, attentionCount],
+    () => buildPaletteEntries(sessions, query, attentionCount, inboxCount),
+    [sessions, query, attentionCount, inboxCount],
   )
   const keys = useMemo(() => entries.map(paletteKey), [entries])
   const active = resolvePaletteCursor(keys, cursor)
@@ -42,8 +47,10 @@ export function CommandPalette({
   }
 
   function pick(entry: PaletteEntry) {
-    if (entry.kind === "command") onNextAttention()
-    else onSelect(entry.session.id)
+    if (entry.kind === "command") {
+      if (entry.key === AGENT_INBOX_KEY) onOpenInbox()
+      else onNextAttention()
+    } else onSelect(entry.session.id)
     onClose()
   }
 
@@ -125,7 +132,7 @@ export function CommandPalette({
                         }${entry.session.id === activeId ? " · current" : ""}`}
                   </span>
                   <span className={`palette-time ${command ? "kbd" : ""}`}>
-                    {command ? "⌥⇧U" : formatRelative(entry.session.updatedAt)}
+                    {command ? entry.hint : formatRelative(entry.session.updatedAt)}
                   </span>
                 </button>
               )
