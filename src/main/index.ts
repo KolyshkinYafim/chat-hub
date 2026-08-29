@@ -259,11 +259,6 @@ function normalizeSendOpts(opts: unknown): SendOpts | undefined {
   return clean
 }
 
-/**
- * An absent filter means every transcript; an empty array means none. Anything
- * that is not an array of ids reads as absent rather than as an empty filter,
- * so a malformed call still answers with a usable snapshot.
- */
 function normalizeSessionIds(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined
   return value.filter((id): id is string => typeof id === "string" && id !== "")
@@ -404,9 +399,6 @@ export function registerIpc(
     await ready
     return sm.listSessions()
   })
-  // Gated like the snapshot now that it is how a transcript is opened at all:
-  // answering before restore would hand the renderer an empty chat and attach
-  // it, and nothing would push the real window afterwards.
   ipcMain.handle(IpcChannels.getMessages, async (_e, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) {
       throw new Error("Invalid sessionId")

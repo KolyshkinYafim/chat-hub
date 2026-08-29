@@ -465,7 +465,6 @@ describe("snapshot transcript filter", () => {
     )
     expect(snap.messages[first!.id]?.[0]?.content).toBe("alpha")
     expect(snap.messages[second!.id]).toBeUndefined()
-    // Everything that is not a transcript still covers the whole store.
     expect(snap.sessions).toHaveLength(3)
     expect(snap.sessions.map((s) => s.id).sort()).toEqual(
       made.map((s) => s.id).sort(),
@@ -502,8 +501,6 @@ describe("snapshot transcript filter", () => {
     const { sm, made } = await threeChats()
     const [first, second] = made
 
-    // `loadedFrom` names only what the renderer has: the other windows are
-    // main's to scan, or a lazily loaded transcript would fall out of search.
     const found = await sm.searchArchivedTranscripts("beta", {
       [first!.id]: null,
     })

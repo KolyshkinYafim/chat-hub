@@ -293,9 +293,6 @@ export class SessionManager {
     const q = query.trim()
     if (q.length < MIN_TRANSCRIPT_QUERY) return { hits: [], truncated: false }
 
-    // A session missing from `loadedFrom` is one the renderer holds nothing of,
-    // so its live window is ours to scan too — otherwise lazy transcripts would
-    // quietly shrink search to whatever happens to be open.
     const unheld: Record<string, ChatMessage[]> = {}
     for (const sessionId of this.sessions.keys()) {
       if (Object.hasOwn(loadedFrom, sessionId)) continue
@@ -767,11 +764,6 @@ export class SessionManager {
     }
   }
 
-  /**
-   * `sessionIds` narrows the one unbounded part — transcripts — to the sessions
-   * the caller is about to show; every other map still covers the whole store.
-   * Omitted means every transcript, which is what a wipe or a test wants.
-   */
   getSnapshot(sessionIds?: readonly string[]): SessionSnapshot {
     const wanted = sessionIds ? new Set(sessionIds) : null
     const messages: Record<string, ChatMessage[]> = {}

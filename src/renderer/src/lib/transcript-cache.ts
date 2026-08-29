@@ -1,9 +1,3 @@
-/**
- * Which transcripts the renderer keeps. Panes are never dropped — they are on
- * screen — and behind them sits a short most-recently-viewed list, so flipping
- * between a handful of chats stays instant without the whole store creeping
- * back into memory.
- */
 
 export const TRANSCRIPT_LRU = 8
 

@@ -298,8 +298,6 @@ describe("cold transcript reconciliation", () => {
   })
 
   it("does not double a message the window already carries", () => {
-    // The event landed before main answered, so its content is already folded
-    // into the window; keeping the local copy too would show the turn twice.
     const live = [msg("m2", "Hel")]
     const fetched = [msg("m1"), msg("m2", "Hello")]
     const merged = reconcileFetchedMessages(live, fetched)

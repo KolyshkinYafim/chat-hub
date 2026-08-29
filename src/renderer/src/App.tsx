@@ -120,11 +120,6 @@ const SCRIPT_PREVIEW_SWITCH_MS = 800
 export default function App() {
   const [booted, setBooted] = useState(false)
   const [sessions, setSessions] = useState<SessionMeta[]>([])
-  /**
-   * Loaded transcripts only. A missing key means "never fetched", which is why
-   * nothing here may be read as "this chat is empty" — `attachedRef` below is
-   * the synchronous answer to which sessions this map is allowed to carry.
-   */
   const [messagesBySession, setMessagesBySession] = useState<
     Record<string, ChatMessage[]>
   >({})
@@ -238,9 +233,6 @@ export default function App() {
   const loadOlderRef = useRef<(id: string) => void>(() => {})
   // Read after an await, where the value this render closed over is already old.
   const messagesBySessionRef = useRef(messagesBySession)
-  // Which sessions `messagesBySession` is carrying, answered synchronously: an
-  // event can land between attaching a transcript and React committing it, and
-  // a state-derived answer would drop that message on the floor.
   const attachedRef = useRef<Set<string>>(new Set())
   const transcriptFetchRef = useRef<Map<string, Promise<ChatMessage[]>>>(
     new Map(),
@@ -261,12 +253,6 @@ export default function App() {
     window.chatHub.reportAttentionCount(attention.queue.length)
   }, [attention.queue.length])
 
-  /**
-   * Transcript writes for one session, dropped unless that transcript is
-   * attached. An unloaded chat still gets its sidebar row from the session
-   * events beside these; loading it here would defeat the whole point, and a
-   * transcript grown from "whatever arrived since boot" would be a lie.
-   */
   const editTranscript = useCallback(
     (
       sessionId: string,
@@ -294,17 +280,9 @@ export default function App() {
     if (ids.size === 0) return
     for (const id of ids) attachedRef.current.delete(id)
     setMessagesBySession((curr) => withoutKeys(curr, ids))
-    // A stale overflow flag would offer scroll-back over a transcript that is
-    // no longer there; the next open re-seeds it.
     setOverflowHasMore((curr) => withoutKeys(curr, ids))
   }, [])
 
-  /**
-   * Pull one session's transcript in, once, and answer with the window it now
-   * holds. Concurrent callers share the one request, and events that landed
-   * while it was in flight are folded in by id rather than replayed — see
-   * `reconcileFetchedMessages`.
-   */
   const ensureTranscript = useCallback(
     (id: string): Promise<ChatMessage[]> => {
       const running = transcriptFetchRef.current.get(id)
@@ -522,8 +500,6 @@ export default function App() {
 
   useEffect(() => {
     const unsub = window.chatHub.onHubEvent(applyEvent)
-    // The stored layout already names the only transcripts that will be on
-    // screen, so boot asks for those and leaves the rest on disk.
     const onScreen = layoutRef.current.panes
       .map((item) => item.sessionId)
       .filter((id): id is string => id !== null)
@@ -666,9 +642,6 @@ export default function App() {
     messagesBySessionRef.current = messagesBySession
   }, [messagesBySession])
 
-  // Panes plus the last few chats visited; everything else gives its transcript
-  // back. Only state is dropped — the archive still holds the scroll-back, and
-  // reopening the session fetches its window again.
   useEffect(() => {
     const keep = retainedTranscripts(
       layout.panes.map((item) => item.sessionId),
@@ -1066,8 +1039,6 @@ export default function App() {
     if (!paneForSession(layoutRef.current, sessionId)) {
       await selectSession(sessionId)
     }
-    // A hit in a pane whose transcript is still arriving would otherwise fetch
-    // its archive against an empty head and land the pages out of order.
     const loaded = await ensureTranscript(sessionId)
     if (loaded.some((m) => m.id === messageId)) return
 
@@ -1266,9 +1237,6 @@ export default function App() {
     loadingOlderRef.current = sessionId
     setLoadingOlderFor(sessionId)
     try {
-      // Older pages are prepended, so they must never land while the live
-      // window is still on its way — the two would interleave in the wrong
-      // order. Claiming the flag first keeps a second scroll out of here.
       const list = await ensureTranscript(sessionId)
       const page = await window.chatHub.loadArchivedMessages(
         sessionId,
@@ -1314,8 +1282,6 @@ export default function App() {
       await window.chatHub.deleteSession(id)
       detachTranscripts(new Set([id]))
       setRecentSessions((curr) => curr.filter((known) => known !== id))
-      // Everything still attached is re-read, so a transcript that changed
-      // under the delete is not left holding a message main has dropped.
       const held = [...attachedRef.current].filter((known) => known !== id)
       const snap = await window.chatHub.getSnapshot(held)
       setSessions(snap.sessions)

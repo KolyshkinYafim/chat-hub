@@ -1486,8 +1486,6 @@ function seedWorkspace(): void {
 export function installDevMock(): void {
   seedWorkspace()
   const api = {
-    // Filtered exactly as main filters it, so dev mode exercises the same cold
-    // opens the packaged app does rather than a friendlier fiction.
     getSnapshot: async (sessionIds?: readonly string[]) => {
       if (!sessionIds) return snapshot
       const wanted = new Set(sessionIds)
