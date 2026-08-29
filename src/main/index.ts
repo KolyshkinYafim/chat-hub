@@ -1880,6 +1880,10 @@ function boot(): void {
   registerMediaScheme()
   void app.whenReady().then(() => bootstrap().catch(failBootstrap))
 
+  // On macOS closing the last window puts the Hub in the dock rather than
+  // ending it: the agents it is running are the point, and they keep going,
+  // still badging and still notifying. ⌘Q is what quits. Elsewhere the
+  // platform convention is the opposite, and it still holds.
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit()
   })
