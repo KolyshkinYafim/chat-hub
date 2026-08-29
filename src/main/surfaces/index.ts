@@ -61,7 +61,13 @@ export {
   resolveWorkspaceRoot,
 } from "./paths"
 
-export function registerSurfaceIpc(terminals: TerminalSessions): void {
+/** Which window a renderer call came from, so a media token can be revoked with it. */
+export type WindowOwnerLookup = (webContentsId: number) => number | null
+
+export function registerSurfaceIpc(
+  terminals: TerminalSessions,
+  ownerOf: WindowOwnerLookup = () => null,
+): void {
   ipcMain.handle(IpcChannels.boardRead, (_e, cwd: unknown) => readBoard(cwd))
 
   ipcMain.handle(IpcChannels.boardWrite, (_e, cwd: unknown, board: unknown) =>
@@ -109,9 +115,10 @@ export function registerSurfaceIpc(terminals: TerminalSessions): void {
     readFileText(cwd, relPath),
   )
 
-  ipcMain.handle(IpcChannels.openFile, (_e, cwd: unknown, relPath: unknown) =>
-    openFile(cwd, relPath, grantMediaUrl),
-  )
+  ipcMain.handle(IpcChannels.openFile, (e, cwd: unknown, relPath: unknown) => {
+    const owner = ownerOf(e.sender.id)
+    return openFile(cwd, relPath, (grant) => grantMediaUrl(grant, owner))
+  })
 
   ipcMain.handle(
     IpcChannels.saveFile,

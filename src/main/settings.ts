@@ -15,7 +15,12 @@ import type {
   RedactedProviderConfig,
 } from "@shared/settings-types"
 import { parseThemeDef, type ThemeDef } from "@shared/theme"
-import { parseWindowState, type WindowState } from "@shared/window-bounds"
+import {
+  parseWindowState,
+  parseWindowStates,
+  type PersistedWindow,
+  type WindowState,
+} from "@shared/window-bounds"
 import { clampZoomLevel, DEFAULT_ZOOM_LEVEL } from "@shared/zoom"
 import { openSecret, sealSecret } from "./secret"
 import { homeEnvFor } from "./instances"
@@ -70,6 +75,30 @@ export class SettingsStore {
 
   async setWindowState(state: WindowState): Promise<void> {
     this.data = { ...this.data, window: state }
+    await this.save()
+  }
+
+  /**
+   * The window set as the user last left it. A run that predates multiwindow
+   * only wrote `window`, so it reads back as the one window it described —
+   * nobody loses the frame they had.
+   */
+  get windowStates(): PersistedWindow[] | null {
+    if (this.data.windows && this.data.windows.length > 0) {
+      return structuredClone(this.data.windows)
+    }
+    const legacy = this.windowState
+    return legacy ? [{ windowId: 1, ...legacy }] : null
+  }
+
+  /**
+   * Empty is never written: closing the last window leaves the app in the dock,
+   * and the set it should put back on a dock click is the one that was open a
+   * moment ago.
+   */
+  async setWindowStates(states: readonly PersistedWindow[]): Promise<void> {
+    if (states.length === 0) return
+    this.data = { ...this.data, windows: [...states] }
     await this.save()
   }
 
@@ -262,6 +291,7 @@ export class SettingsStore {
             : {},
         mcpEnv: coerceMcpEnv(parsed.mcpEnv),
         window: parseWindowState(parsed.window) ?? undefined,
+        windows: parseWindowStates(parsed.windows) ?? undefined,
         zoomLevel:
           typeof parsed.zoomLevel === "number"
             ? clampZoomLevel(parsed.zoomLevel)

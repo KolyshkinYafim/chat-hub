@@ -74,7 +74,14 @@ import {
   trackWindowState,
   type ZoomController,
 } from "./window-state"
-import { MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH } from "@shared/window-bounds"
+import {
+  MIN_WINDOW_HEIGHT,
+  MIN_WINDOW_WIDTH,
+  windowsToReopen,
+  type WindowState,
+} from "@shared/window-bounds"
+import { windowQuery } from "@shared/window-identity"
+import { pickWindowForSession, WindowRegistry } from "./window-registry"
 import { resolveTheme, themeBackground } from "@shared/theme"
 import { DEFAULT_ZOOM_LEVEL } from "@shared/zoom"
 import {
@@ -151,7 +158,16 @@ function buildProbeInputs(settings: SettingsStore): ProbeInput[] {
   return out
 }
 
-let mainWindow: BrowserWindow | null = null
+/** One open window: its frame, its own zoom, and what its panes are showing. */
+type HubWindow = {
+  id: number
+  window: BrowserWindow
+  zoom: ZoomController
+  /** Chats on screen here, as this window's renderer last reported them. */
+  sessions: Set<string>
+}
+
+const windows = new WindowRegistry<HubWindow>()
 let manager: SessionManager | null = null
 let commandBridge: MonitorCommandBridge | null = null
 let permissions: PermissionBroker | null = null
@@ -159,14 +175,65 @@ let dockBadge: DockBadge | null = null
 // createWindow also runs from `activate` and the monitor bridge, long after
 // bootstrap handed the store around, so the window path reads it from here.
 let settingsStore: SettingsStore | null = null
-let zoom: ZoomController | null = null
 
 const PROVIDER_IDS = new Set(PROVIDERS.map((p) => p.id))
 
+function liveWindows(): HubWindow[] {
+  return windows.values().filter((hub) => !hub.window.isDestroyed())
+}
+
+function hubForWebContents(webContentsId: number): HubWindow | null {
+  return (
+    liveWindows().find((hub) => hub.window.webContents.id === webContentsId) ??
+    null
+  )
+}
+
+/** Every window is a view on the same sessions, so agent traffic goes to all. */
 function sendToRenderer(channel: string, payload: unknown): void {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send(channel, payload)
+  for (const hub of liveWindows()) {
+    hub.window.webContents.send(channel, payload)
   }
+}
+
+function sendToWindow(hub: HubWindow, channel: string, payload: unknown): void {
+  if (hub.window.isDestroyed()) return
+  hub.window.webContents.send(channel, payload)
+}
+
+function showWindow(hub: HubWindow): void {
+  if (hub.window.isDestroyed()) return
+  if (hub.window.isMinimized()) hub.window.restore()
+  hub.window.show()
+  hub.window.focus()
+}
+
+/**
+ * The window a session-shaped request belongs in: the one already showing that
+ * chat, else the window in front, else a new one — the app outlives its windows
+ * now, so "none open" is an ordinary state a focus request has to handle.
+ */
+function windowForSession(sessionId: string | null): HubWindow {
+  const shows = new Map<number, ReadonlySet<string>>(
+    liveWindows().map((hub) => [hub.id, hub.sessions]),
+  )
+  const pick = pickWindowForSession(sessionId, shows, windows.recency())
+  const existing = pick === null ? undefined : windows.get(pick)
+  if (existing && !existing.window.isDestroyed()) return existing
+  return createWindow({ sessionId })
+}
+
+/** Raise the window that owns a chat and put that chat in its focused pane. */
+function focusSession(sessionId: string | null): void {
+  const hub = windowForSession(sessionId)
+  showWindow(hub)
+  // null means "surface only": pushing an id the manager refused would leave
+  // the renderer pointing at a session that no longer exists.
+  if (!sessionId) return
+  sendToWindow(hub, IpcChannels.hubEvent, {
+    type: "session.active",
+    sessionId,
+  })
 }
 
 const terminals = new TerminalSessions({
@@ -187,6 +254,9 @@ const browserControl = new BrowserControl({
 const surfaceControl = new SurfaceControl({
   session: (sessionId) => manager?.getSession(sessionId) ?? null,
   note: (sessionId, text) => manager?.note(sessionId, text),
+  // Broadcast on purpose, and still window-quiet: each renderer only pulls its
+  // dock open when that session is the one on screen there, so the window
+  // holding the chat acts on it and the rest just record the choice.
   open: (request) => sendToRenderer(IpcChannels.surfaceOpen, request),
 })
 
@@ -195,8 +265,10 @@ const browserService = new BrowserService(
   browserControl,
   {
     requestOpen: (sessionId) => {
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
-      sendToRenderer(IpcChannels.browserOpen, sessionId)
+      // The browser panel belongs to one chat, so it opens where that chat is.
+      const hub = windowForSession(sessionId)
+      if (!hub.window.isDestroyed()) hub.window.show()
+      sendToWindow(hub, IpcChannels.browserOpen, sessionId)
     },
     surfaces: (request) => surfaceControl.handle(request),
   },
@@ -213,6 +285,26 @@ function registerBrowserIpc(): void {
   )
   ipcMain.on(IpcChannels.surfaceState, (_e, state: unknown) => {
     surfaceControl.setState(state)
+  })
+}
+
+function registerWindowIpc(): void {
+  // Each window keeps main's picture of what it is showing current, so a focus
+  // request can land in the window already holding that chat.
+  ipcMain.on(IpcChannels.windowSessions, (event, sessionIds: unknown) => {
+    const hub = hubForWebContents(event.sender.id)
+    if (!hub) return
+    if (!Array.isArray(sessionIds)) return
+    hub.sessions = new Set(
+      sessionIds.filter((id): id is string => typeof id === "string" && id !== ""),
+    )
+  })
+
+  ipcMain.handle(IpcChannels.windowOpen, (_e, sessionId: unknown) => {
+    const seed = typeof sessionId === "string" && sessionId ? sessionId : null
+    const hub = createWindow({ fresh: true, sessionId: seed })
+    showWindow(hub)
+    return hub.id
   })
 }
 
@@ -281,9 +373,41 @@ function bootMark(label: string): void {
   console.log(`[boot] ${label} +${Date.now() - bootStart}ms`)
 }
 
-function createWindow(): void {
-  const saved = settingsStore?.windowState ?? null
-  mainWindow = new BrowserWindow({
+export type CreateWindowOptions = {
+  /** Reuse a known id — a window being put back keeps its panes. */
+  windowId?: number
+  /** Geometry to open at; omitted means "wherever a new window belongs". */
+  state?: WindowState | null
+  /** Start on a solo layout instead of the panes this id has stored. */
+  fresh?: boolean
+  /** Open with this chat in the focused pane. */
+  sessionId?: string | null
+}
+
+/**
+ * A new frame, cascaded off the window in front so it does not land exactly on
+ * top of the one it was opened from and read as nothing having happened.
+ */
+const CASCADE_STEP = 28
+
+function cascadeFrom(previous: BrowserWindow | null): WindowState | null {
+  if (!previous || previous.isDestroyed()) return null
+  const bounds = previous.getNormalBounds()
+  return {
+    bounds: {
+      ...bounds,
+      x: bounds.x + CASCADE_STEP,
+      y: bounds.y + CASCADE_STEP,
+    },
+    maximized: false,
+  }
+}
+
+function createWindow(options: CreateWindowOptions = {}): HubWindow {
+  const id = options.windowId ?? windows.nextId()
+  const saved =
+    options.state ?? cascadeFrom(windows.mostRecent()?.window ?? null)
+  const window = new BrowserWindow({
     ...openingBounds(saved),
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
@@ -305,67 +429,129 @@ function createWindow(): void {
     },
   })
 
-  if (saved?.maximized) mainWindow.maximize()
+  if (saved?.maximized) window.maximize()
 
   const store = settingsStore
-  if (store) {
-    trackWindowState(mainWindow, (state) => {
-      void store.setWindowState(state).catch(() => {
-        // Geometry is a convenience: a failed write must not break the window.
-      })
-    })
-  }
 
-  // Chromium drops the zoom factor on every load, so the controller re-asserts
-  // it — including after the Developer menu's Reload.
-  zoom = createZoomController(
-    () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null),
+  // Each window drives its own zoom controller, but they all read and write the
+  // one persisted level: the shell size is a preference, not a property of a
+  // frame, so a step taken in one window is the size the next one opens at.
+  const zoom = createZoomController(
+    () => (window.isDestroyed() ? null : window.webContents),
     store?.zoomLevel ?? DEFAULT_ZOOM_LEVEL,
     (level) => {
       void store?.setZoomLevel(level).catch(() => {})
     },
   )
-  mainWindow.webContents.on("did-finish-load", () => zoom?.apply())
-  mainWindow.webContents.once("did-finish-load", () => bootMark("renderer.loaded"))
 
-  mainWindow.on("closed", () => {
-    mainWindow = null
-    zoom = null
-    dockBadge?.clearRendererCount()
+  const hub: HubWindow = { id, window, zoom, sessions: new Set() }
+  windows.add(id, hub)
+
+  if (store) {
+    trackWindowState(window, () => rememberWindows())
+  }
+  window.on("focus", () => windows.touch(id))
+
+  window.webContents.on("did-finish-load", () => zoom.apply())
+  window.webContents.once("did-finish-load", () => bootMark("renderer.loaded"))
+
+  window.on("closed", () => {
+    windows.remove(id)
+    // The badge outlives the window: its report leaves with it, and with no
+    // reports left the count falls back to what the sessions themselves say.
+    dockBadge?.dropWindow(id)
     // Media tokens are capabilities into a workspace; nothing may replay them
-    // against the next window, which can be pointed at a different project.
-    revokeMediaGrants()
+    // against another window, which can be pointed at a different project.
+    revokeMediaGrants(id)
+    rememberWindows()
   })
 
-  hardenWebviewHost(mainWindow.webContents, (url) => {
+  hardenWebviewHost(window.webContents, (url) => {
     void shell.openExternal(url)
   })
-  installDeveloperMenu(() => mainWindow, {
+  // The menu is one application-wide bar, so every item resolves the window it
+  // acts on at click time — the one in front, not the one that installed it.
+  installDeveloperMenu(() => focusedHubWindow()?.window ?? null, {
     zoom: {
-      zoomIn: () => zoom?.zoomIn(),
-      zoomOut: () => zoom?.zoomOut(),
-      reset: () => zoom?.reset(),
+      zoomIn: () => focusedHubWindow()?.zoom.zoomIn(),
+      zoomOut: () => focusedHubWindow()?.zoom.zoomOut(),
+      reset: () => focusedHubWindow()?.zoom.reset(),
+    },
+    newWindow: () => {
+      createWindow({ fresh: true })
     },
   })
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  window.webContents.setWindowOpenHandler(({ url }) => {
     if (isSafeExternalUrl(url)) {
       void shell.openExternal(url)
     }
     return { action: "deny" }
   })
 
-  mainWindow.webContents.on("will-navigate", (event, url) => {
+  window.webContents.on("will-navigate", (event, url) => {
     if (!isRendererNavigationAllowed(url)) {
       event.preventDefault()
     }
   })
 
+  const query = windowQuery({
+    windowId: id,
+    fresh: options.fresh === true,
+    sessionId: options.sessionId ?? null,
+  })
   if (process.env.ELECTRON_RENDERER_URL) {
-    void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+    void window.loadURL(`${process.env.ELECTRON_RENDERER_URL}${query}`)
   } else {
-    void mainWindow.loadFile(join(__dirname, "../renderer/index.html"))
+    void window.loadFile(join(__dirname, "../renderer/index.html"), {
+      search: query,
+    })
   }
+  return hub
+}
+
+/** The window the menu and single-instance focus act on. */
+function focusedHubWindow(): HubWindow | null {
+  const focused = BrowserWindow.getFocusedWindow()
+  if (focused) {
+    const hub = liveWindows().find((entry) => entry.window === focused)
+    if (hub) return hub
+  }
+  const recent = windows.mostRecent()
+  return recent && !recent.window.isDestroyed() ? recent : null
+}
+
+/**
+ * Write down the window set as it stands. Never called with none open — an
+ * empty list would erase the set a dock click is supposed to bring back.
+ */
+function rememberWindows(): void {
+  const store = settingsStore
+  if (!store) return
+  const open = liveWindows().map((hub) => ({
+    windowId: hub.id,
+    bounds: hub.window.getNormalBounds(),
+    maximized: hub.window.isMaximized(),
+  }))
+  if (open.length === 0) return
+  void store.setWindowStates(open).catch(() => {
+    // Geometry is a convenience: a failed write must not break the window.
+  })
+}
+
+/**
+ * Put the remembered set back: on launch, and again whenever the Hub is asked
+ * for a window while it has none — closing them all leaves it in the dock, so
+ * this is the ordinary way back in. Each window reopens under its own id and
+ * therefore its own stored panes.
+ */
+function openRememberedWindows(): HubWindow[] {
+  const opened = windowsToReopen(settingsStore?.windowStates ?? null).map(
+    ({ windowId, state }) => createWindow({ windowId, state }),
+  )
+  const front = opened[opened.length - 1]
+  if (front) showWindow(front)
+  return opened
 }
 
 export function registerIpc(
@@ -538,7 +724,7 @@ export function registerIpc(
   ipcMain.handle(IpcChannels.getBridgePath, () => bridge.path)
 
   ipcMain.handle(IpcChannels.pickFolder, async () => {
-    const win = BrowserWindow.getFocusedWindow() ?? mainWindow
+    const win = BrowserWindow.getFocusedWindow() ?? focusedHubWindow()?.window ?? null
     const result = await dialog.showOpenDialog(win ?? undefined!, {
       properties: ["openDirectory", "createDirectory"],
       title: "Open project folder",
@@ -1192,7 +1378,7 @@ export function registerIpc(
   )
 
   ipcMain.handle(IpcChannels.pickFiles, async () => {
-    const win = BrowserWindow.getFocusedWindow() ?? mainWindow
+    const win = BrowserWindow.getFocusedWindow() ?? focusedHubWindow()?.window ?? null
     const result = await dialog.showOpenDialog(win ?? undefined!, {
       properties: ["openFile", "multiSelections"],
       title: "Attach files",
@@ -1282,7 +1468,7 @@ export function registerIpc(
     let folder: string | null =
       typeof cwd === "string" && cwd.trim() ? cwd.trim() : null
     if (!folder) {
-      const win = BrowserWindow.getFocusedWindow() ?? mainWindow
+      const win = BrowserWindow.getFocusedWindow() ?? focusedHubWindow()?.window ?? null
       const result = await dialog.showOpenDialog(win ?? undefined!, {
         properties: ["openDirectory", "createDirectory"],
         title: "Add project folder",
@@ -1446,11 +1632,20 @@ if (process.env.ELECTRON_RENDERER_URL) {
   app.setPath("userData", `${app.getPath("userData")}-dev`)
 }
 
+/**
+ * A duplicate launch fronts the window the user was last in — or, with the Hub
+ * sitting in the dock with none open, puts the last set back, which is what
+ * launching it again plainly means. Silent before bootstrap: settingsStore is
+ * the signal that the window path is ready, and a window made here would race
+ * the one bootstrap is about to open.
+ */
 function focusMainWindow(): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return
-  if (mainWindow.isMinimized()) mainWindow.restore()
-  mainWindow.show()
-  mainWindow.focus()
+  const hub = focusedHubWindow()
+  if (hub) {
+    showWindow(hub)
+    return
+  }
+  if (settingsStore) openRememberedWindows()
 }
 
 export interface SingleInstanceHooks {
@@ -1568,6 +1763,7 @@ async function bootstrap(): Promise<void> {
   const notifications = new NotificationService(
     (id) => manager?.getSession(id),
     () => settings.general.completionSound === true,
+    focusSession,
   )
   const usageLedger = new UsageLedger(UsageLedger.defaultPath(userData))
   const sm = new SessionManager(
@@ -1581,10 +1777,15 @@ async function bootstrap(): Promise<void> {
   )
   manager = sm
 
+  // Every window watches the same sessions, so status, messages and usage all
+  // fan out to all of them. `session.active` is the exception: it is main's
+  // echo of whichever window last selected a chat, and a renderer adopts it by
+  // moving that chat into its own focused pane — broadcast, it would drag every
+  // window onto the session one of them just opened. The windows that should
+  // act on a focus request are picked deliberately, in `focusSession`.
   bus.on((event) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(IpcChannels.hubEvent, event)
-    }
+    if (event.type === "session.active") return
+    sendToRenderer(IpcChannels.hubEvent, event)
   })
 
   const store = settings
@@ -1628,42 +1829,38 @@ async function bootstrap(): Promise<void> {
     providerStatuses,
     ready,
   )
-  registerSurfaceIpc(terminals)
+  registerSurfaceIpc(terminals, (webContentsId) => {
+    return hubForWebContents(webContentsId)?.id ?? null
+  })
   registerBrowserIpc()
   registerMediaProtocol()
-  createWindow()
+  registerWindowIpc()
+  openRememberedWindows()
   bootMark("window.created")
 
   await ready
   bootMark("ready.resolved")
 
   dockBadge = wireDockBadge(bus, () => sm.listSessions())
-  ipcMain.on(IpcChannels.attentionCount, (_e, count: unknown) => {
+  ipcMain.on(IpcChannels.attentionCount, (event, count: unknown) => {
     if (typeof count !== "number" || !Number.isFinite(count) || count < 0) {
       return
     }
-    dockBadge?.setRendererCount(count)
+    const hub = hubForWebContents(event.sender.id)
+    if (!hub) return
+    dockBadge?.setRendererCount(hub.id, count)
   })
 
   await browserService.start()
 
-  commandBridge = new MonitorCommandBridge(sm, (sessionId) => {
-    if (!mainWindow || mainWindow.isDestroyed()) createWindow()
-    mainWindow?.show()
-    mainWindow?.focus()
-    // null means "surface only": pushing an id the manager refused would leave
-    // the renderer pointing at a session that no longer exists.
-    if (sessionId && mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(IpcChannels.hubEvent, {
-        type: "session.active",
-        sessionId,
-      })
-    }
-  })
+  commandBridge = new MonitorCommandBridge(sm, focusSession)
   commandBridge.start()
 
+  // Clicking the dock icon with nothing open is how the user asks for the
+  // windows back — closing them all only put the Hub away, it did not quit it.
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (windows.size === 0) openRememberedWindows()
+    else focusMainWindow()
   })
 }
 

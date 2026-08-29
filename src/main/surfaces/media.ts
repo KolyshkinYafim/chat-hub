@@ -9,13 +9,16 @@ import { isContainedIn } from "./paths"
 
 type MediaGrant = { root: string; absolutePath: string; mime: string }
 
+/** The window a token was minted for, so its close can take it back. */
+type HeldGrant = MediaGrant & { owner: number | null }
+
 const MAX_GRANTS = 64
 
-const grants = new Map<string, MediaGrant>()
+const grants = new Map<string, HeldGrant>()
 
-export function grantMediaUrl(grant: MediaGrant): string {
+export function grantMediaUrl(grant: MediaGrant, owner: number | null = null): string {
   const token = randomUUID()
-  grants.set(token, grant)
+  grants.set(token, { ...grant, owner })
   while (grants.size > MAX_GRANTS) {
     const oldest = grants.keys().next()
     if (oldest.done) break
@@ -24,8 +27,19 @@ export function grantMediaUrl(grant: MediaGrant): string {
   return `${MEDIA_SCHEME}://stream/${token}`
 }
 
-export function revokeMediaGrants(): void {
-  grants.clear()
+/**
+ * Called with a window id when that window closes, and bare on shutdown. Only
+ * that window's tokens go: they are capabilities into whatever project it had
+ * open, and the windows still on screen are pointed somewhere else entirely.
+ */
+export function revokeMediaGrants(owner?: number): void {
+  if (owner === undefined) {
+    grants.clear()
+    return
+  }
+  for (const [token, grant] of grants) {
+    if (grant.owner === owner) grants.delete(token)
+  }
 }
 
 export function registerMediaScheme(): void {

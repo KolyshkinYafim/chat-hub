@@ -1,7 +1,7 @@
 import type { ProviderId } from "./types"
 import type { PermissionMode } from "./permission"
 import type { ThemeDef } from "./theme"
-import type { WindowState } from "./window-bounds"
+import type { PersistedWindow, WindowState } from "./window-bounds"
 
 export type AuthState =
   | "connected"
@@ -143,8 +143,10 @@ export type HubSettings = {
    * Optional so older settings.json loads without a migration bump.
    */
   mcpEnv?: Record<string, Record<string, string>>
-  /** Main-window geometry from the last run; refitted to today's displays. */
+  /** Pre-multiwindow geometry; still read so an upgrade keeps its frame. */
   window?: WindowState
+  /** Every window as the last run left it, refitted to today's displays. */
+  windows?: PersistedWindow[]
   /** Shell zoom step (`1.2 ** level`); absent = 100%. */
   zoomLevel?: number
 }

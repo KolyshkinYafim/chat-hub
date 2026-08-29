@@ -42,6 +42,8 @@ export const IpcChannels = {
   gitRemoveWorktree: "git:remove-worktree",
   gitPruneWorktrees: "git:prune-worktrees",
   attentionCount: "attention:count",
+  windowSessions: "window:sessions",
+  windowOpen: "window:open",
   getSettings: "settings:get",
   setPermissionMode: "settings:permission",
   getProviderStatuses: "providers:status",
