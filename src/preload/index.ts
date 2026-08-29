@@ -63,8 +63,8 @@ import type { ProjectScript, ScriptsFile } from "@shared/scripts"
 import type { ContextDocId, ProjectContext } from "@shared/project-context"
 
 const api = {
-  getSnapshot: (): Promise<SessionSnapshot> =>
-    ipcRenderer.invoke(IpcChannels.getSnapshot),
+  getSnapshot: (sessionIds?: readonly string[]): Promise<SessionSnapshot> =>
+    ipcRenderer.invoke(IpcChannels.getSnapshot, sessionIds),
   listSessions: (): Promise<SessionMeta[]> =>
     ipcRenderer.invoke(IpcChannels.listSessions),
   getMessages: (sessionId: string): Promise<ChatMessage[]> =>

@@ -438,6 +438,92 @@ describe("queue surface", () => {
   })
 })
 
+describe("snapshot transcript filter", () => {
+  async function threeChats() {
+    const { sm, dir } = await makeManager()
+    const made = []
+    for (const text of ["alpha", "beta", "gamma"]) {
+      const session = await sm.createSession({ provider: "mock", cwd: dir })
+      await sm.sendMessage(session.id, text)
+      state.pending?.resolve()
+      await vi.waitFor(() =>
+        expect(sm.getSession(session.id)?.status).toBe("idle"),
+      )
+      made.push(session)
+    }
+    return { sm, dir, made }
+  }
+
+  it("ships transcripts only for the sessions asked for", async () => {
+    const { sm, made } = await threeChats()
+    const [first, second, third] = made
+
+    const snap = sm.getSnapshot([first!.id, third!.id])
+
+    expect(Object.keys(snap.messages).sort()).toEqual(
+      [first!.id, third!.id].sort(),
+    )
+    expect(snap.messages[first!.id]?.[0]?.content).toBe("alpha")
+    expect(snap.messages[second!.id]).toBeUndefined()
+    // Everything that is not a transcript still covers the whole store.
+    expect(snap.sessions).toHaveLength(3)
+    expect(snap.sessions.map((s) => s.id).sort()).toEqual(
+      made.map((s) => s.id).sort(),
+    )
+  })
+
+  it("reads an empty filter as no transcripts, not as no filter", async () => {
+    const { sm, made } = await threeChats()
+
+    const snap = sm.getSnapshot([])
+
+    expect(snap.messages).toEqual({})
+    expect(snap.sessions).toHaveLength(3)
+    expect(snap.activeSessionId).toBe(made.at(-1)!.id)
+  })
+
+  it("still ships everything when no filter is given", async () => {
+    const { sm, made } = await threeChats()
+
+    expect(Object.keys(sm.getSnapshot().messages).sort()).toEqual(
+      made.map((s) => s.id).sort(),
+    )
+  })
+
+  it("ignores ids that name no session", async () => {
+    const { sm, made } = await threeChats()
+
+    const snap = sm.getSnapshot([made[0]!.id, "not-a-session"])
+
+    expect(Object.keys(snap.messages)).toEqual([made[0]!.id])
+  })
+
+  it("searches the live window of a session the renderer holds nothing of", async () => {
+    const { sm, made } = await threeChats()
+    const [first, second] = made
+
+    // `loadedFrom` names only what the renderer has: the other windows are
+    // main's to scan, or a lazily loaded transcript would fall out of search.
+    const found = await sm.searchArchivedTranscripts("beta", {
+      [first!.id]: null,
+    })
+
+    expect(found.hits.map((hit) => hit.sessionId)).toEqual([second!.id])
+    expect(found.hits[0]?.snippet).toContain("beta")
+  })
+
+  it("leaves a held session to the renderer's own scan", async () => {
+    const { sm, made } = await threeChats()
+    const [, second] = made
+
+    const found = await sm.searchArchivedTranscripts("beta", {
+      [second!.id]: null,
+    })
+
+    expect(found.hits).toEqual([])
+  })
+})
+
 describe("watchdog", () => {
   it("never leaves a session running with no live process", async () => {
     const { sm, dir } = await makeManager()

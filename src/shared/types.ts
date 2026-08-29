@@ -500,6 +500,10 @@ export type CreateSessionInput = {
 
 export type SessionSnapshot = {
   sessions: SessionMeta[]
+  /**
+   * Transcripts for the sessions the caller asked for — an absent id means "not
+   * shipped", never "empty chat". Everything below covers the whole store.
+   */
   messages: Record<string, ChatMessage[]>
   /** Undelivered follow-ups per session — the queue survives a renderer reload. */
   queued: Record<string, QueuedMessage[]>

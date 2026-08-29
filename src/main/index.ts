@@ -259,6 +259,16 @@ function normalizeSendOpts(opts: unknown): SendOpts | undefined {
   return clean
 }
 
+/**
+ * An absent filter means every transcript; an empty array means none. Anything
+ * that is not an array of ids reads as absent rather than as an empty filter,
+ * so a malformed call still answers with a usable snapshot.
+ */
+function normalizeSessionIds(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  return value.filter((id): id is string => typeof id === "string" && id !== "")
+}
+
 function isExistingFile(path: string): boolean {
   try {
     return statSync(path).isFile()
@@ -378,13 +388,13 @@ export function registerIpc(
   providerStatuses: ProviderStatusRefresher,
   ready: Promise<void>,
 ): void {
-  ipcMain.handle(IpcChannels.getSnapshot, async () => {
+  ipcMain.handle(IpcChannels.getSnapshot, async (_e, sessionIds: unknown) => {
     await ready
     if (!snapshotServed) {
       snapshotServed = true
       bootMark("snapshot.served")
     }
-    return sm.getSnapshot()
+    return sm.getSnapshot(normalizeSessionIds(sessionIds))
   })
   ipcMain.handle(IpcChannels.usageSummary, async () => {
     await ready
@@ -532,7 +542,7 @@ export function registerIpc(
       throw new Error("Invalid sessionId")
     }
     sm.setActiveSession(sessionId)
-    return sm.getSnapshot()
+    return sm.getSnapshot(sessionId === null ? [] : [sessionId])
   })
   ipcMain.handle(IpcChannels.listProviders, () => listProviderInfo())
   ipcMain.handle(IpcChannels.getBridgePath, () => bridge.path)
@@ -1500,7 +1510,7 @@ export async function bootReadyChain(opts: {
   await opts.startBroker()
   await sm.init()
   await usageLedger.init(
-    seedFromSessions(sm.listSessions(), sm.getSnapshot().usage),
+    seedFromSessions(sm.listSessions(), sm.usageTotals()),
   )
   // Backfill: every existing session folder becomes a first-class project so it
   // stays pinned/manageable in the sidebar even after its sessions are gone.
