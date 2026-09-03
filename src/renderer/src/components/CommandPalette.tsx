@@ -10,6 +10,7 @@ import {
   type PaletteEntry,
 } from "../lib/palette"
 import { formatRelative, statusLabel } from "../lib/format"
+import { keyHint } from "../lib/key-hint"
 
 type Props = {
   sessions: SessionMeta[]
@@ -105,7 +106,7 @@ export function CommandPalette({
             <div className="palette-empty">
               {sessions.length === 0 ? (
                 <>
-                  No sessions yet. Close this and press <span className="kbd">⌘N</span>{" "}
+                  No sessions yet. Close this and press <span className="kbd">{keyHint("⌘N")}</span>{" "}
                   to start one.
                 </>
               ) : (
@@ -140,7 +141,7 @@ export function CommandPalette({
                         }${entry.session.id === activeId ? " · current" : ""}`}
                   </span>
                   <span className={`palette-time ${command ? "kbd" : ""}`}>
-                    {command ? entry.hint : formatRelative(entry.session.updatedAt)}
+                    {command ? keyHint(entry.hint) : formatRelative(entry.session.updatedAt)}
                   </span>
                 </button>
               )
@@ -150,7 +151,7 @@ export function CommandPalette({
         <div className="palette-foot">
           <span className="kbd">↑↓</span> move
           <span className="kbd">↩</span> open
-          <span className="kbd">⌘↩</span> new window
+          <span className="kbd">{keyHint("⌘↩")}</span> new window
           <span className="kbd">esc</span> close
         </div>
       </div>

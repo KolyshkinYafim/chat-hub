@@ -1831,6 +1831,7 @@ export function installDevMock(): void {
     voiceToggle: async () => true,
     voiceCancel: async () => true,
     windowIntent: parseWindowIntent(window.location.search),
+    platform: "darwin",
     reportWindowSessions: () => {},
     openWindow: async (sessionId?: string) => {
       window.open(

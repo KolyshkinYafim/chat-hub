@@ -8,6 +8,7 @@ import {
   type TranscriptHit,
 } from "@shared/search"
 import { formatRelative, statusLabel } from "../lib/format"
+import { keyHint } from "../lib/key-hint"
 import { sessionPhase } from "../lib/live-step"
 import { PROJECT_MIME, SESSION_MIME } from "../lib/pane-layout"
 import { needsAction } from "@shared/attention"
@@ -682,7 +683,7 @@ export function Sidebar({
               title="Switch session"
               onClick={onOpenSwitcher}
             >
-              ⌘K
+              {keyHint("⌘K")}
             </button>
           )}
         </div>
@@ -794,7 +795,7 @@ export function Sidebar({
                 No projects yet. Use <b>＋ Add project</b> to pin a folder, or
                 start a session.
                 <span className="empty-hint">
-                  <span className="kbd">⌘N</span> new session
+                  <span className="kbd">{keyHint("⌘N")}</span> new session
                 </span>
               </>
             )}
@@ -946,7 +947,7 @@ export function Sidebar({
             <i className="status-dot error" /> {statusLabel.error}
           </span>
           <button type="button" className="link-btn" onClick={onShowShortcuts}>
-            Keys <span className="kbd">⌘/</span>
+            Keys <span className="kbd">{keyHint("⌘/")}</span>
           </button>
         </div>
       </div>

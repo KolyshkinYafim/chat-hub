@@ -29,6 +29,7 @@ import { PERMISSION_LABELS } from "@shared/permission"
 import type { ProjectScript } from "@shared/scripts"
 import type { Mode, ModelInfo } from "@shared/settings-types"
 import { formatClock, formatRelative } from "../lib/format"
+import { keyHint } from "../lib/key-hint"
 import { useOutsideDismiss } from "../lib/use-outside-dismiss"
 import {
   loadStash,
@@ -1247,13 +1248,14 @@ export function ChatView({
             <h2>Open a project to start</h2>
             <p>
               Pick a real folder and agent (Claude Code, Grok Build, OpenCode…).
-              Set model and YOLO in the new-session dialog or Settings (⌘,).
+              Set model and YOLO in the new-session dialog or Settings (
+              {keyHint("⌘,")}).
             </p>
             <button type="button" className="tb-btn primary" onClick={onCreate}>
-              New session… <span className="kbd">⌘N</span>
+              New session… <span className="kbd">{keyHint("⌘N")}</span>
             </button>
             <button type="button" className="link-btn" onClick={onShowShortcuts}>
-              Keyboard shortcuts <span className="kbd">⌘/</span>
+              Keyboard shortcuts <span className="kbd">{keyHint("⌘/")}</span>
             </button>
           </div>
         </div>
@@ -1419,8 +1421,8 @@ export function ChatView({
             </span>
             <span className="empty-hint">
               <span className="kbd">↩</span> send
-              <span className="kbd">⇧↩</span> newline
-              <span className="kbd">⌘K</span> switch session
+              <span className="kbd">{keyHint("⇧↩")}</span> newline
+              <span className="kbd">{keyHint("⌘K")}</span> switch session
             </span>
           </div>
         ) : (
@@ -1814,7 +1816,7 @@ export function ChatView({
                       <div className="stash-empty">
                         No stashed drafts.
                         <span className="empty-hint">
-                          <span className="kbd">⌘S</span> stash the draft
+                          <span className="kbd">{keyHint("⌘S")}</span> stash the draft
                         </span>
                       </div>
                     ) : (
@@ -1911,7 +1913,7 @@ export function ChatView({
               title="Keyboard shortcuts"
               onClick={onShowShortcuts}
             >
-              <span className="kbd">⌘/</span>
+              <span className="kbd">{keyHint("⌘/")}</span>
             </button>
           </span>
         </div>

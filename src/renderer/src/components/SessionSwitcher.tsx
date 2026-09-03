@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { SessionMeta } from "@shared/types"
 import { formatRelative, statusLabel } from "../lib/format"
+import { keyHint } from "../lib/key-hint"
 import {
   commitTarget,
   cycleIndex,
@@ -142,8 +143,8 @@ export function SessionSwitcher({
           )}
         </div>
         <div className="palette-foot">
-          <span className="kbd">⇥</span> next
-          <span className="kbd">⇧⇥</span> previous
+          <span className="kbd">{keyHint("⇥")}</span> next
+          <span className="kbd">{keyHint("⇧⇥")}</span> previous
           <span className="kbd">release ctrl</span> switch
           <span className="kbd">esc</span> cancel
         </div>

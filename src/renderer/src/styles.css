@@ -522,6 +522,11 @@ select:focus-visible {
   -webkit-app-region: drag;
 }
 
+:root.platform-linux .sidebar-chrome,
+:root.platform-win32 .sidebar-chrome {
+  padding-top: 14px;
+}
+
 .sidebar-chrome > * {
   -webkit-app-region: no-drag;
 }
@@ -3395,6 +3400,11 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   display: flex;
   flex-direction: column;
   -webkit-app-region: drag;
+}
+
+:root.platform-linux .sidebar.rail-collapsed,
+:root.platform-win32 .sidebar.rail-collapsed {
+  padding-top: 16px;
 }
 
 .sidebar.rail-collapsed .icon-chip {

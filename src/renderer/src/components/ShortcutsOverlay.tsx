@@ -1,4 +1,5 @@
 import { useEffect } from "react"
+import { hostPlatform, keyHint } from "../lib/key-hint"
 
 type Props = {
   onClose: () => void
@@ -108,8 +109,9 @@ export function ShortcutsOverlay({ onClose }: Props) {
         </header>
         <div className="modal-body shortcuts-body">
           <p className="modal-lead">
-            Every binding the Hub owns. On Windows and Linux read ⌘ as Ctrl and
-            ⌥ as Alt.
+            {hostPlatform() === "darwin"
+              ? "Every binding the Hub owns. On Windows and Linux read ⌘ as Ctrl and ⌥ as Alt."
+              : "Every binding the Hub owns."}
           </p>
           {GROUPS.map((group) => (
             <section key={group.title} className="shortcut-group">
@@ -122,8 +124,8 @@ export function ShortcutsOverlay({ onClose }: Props) {
                   key={`${group.title}:${row.keys}`}
                   className="shortcut-row"
                 >
-                  <span className="kbd">{row.keys}</span>
-                  <span>{row.what}</span>
+                  <span className="kbd">{keyHint(row.keys)}</span>
+                  <span>{keyHint(row.what)}</span>
                 </div>
               ))}
             </section>

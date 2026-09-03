@@ -76,6 +76,7 @@ const cockpit =
 const api = {
   windowIntent,
   cockpit,
+  platform: process.platform,
   setCockpit: (enabled: boolean): Promise<{ enabled: boolean }> =>
     ipcRenderer.invoke(IpcChannels.setWindowCockpit, enabled),
   onCockpitChanged: (cb: (enabled: boolean) => void): (() => void) => {

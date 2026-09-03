@@ -122,7 +122,11 @@ describe("boot-theme.js", () => {
     "utf8",
   )
 
-  function run(stored: Record<string, string>, search = "") {
+  function run(
+    stored: Record<string, string>,
+    search = "",
+    platform?: string,
+  ) {
     const set = new Map<string, string>()
     const classes = new Set<string>()
     const documentStub = {
@@ -149,6 +153,9 @@ describe("boot-theme.js", () => {
       document: documentStub,
       localStorage: localStorageStub,
       location: { search },
+      ...(platform === undefined
+        ? {}
+        : { window: { chatHub: { platform } } }),
     })
     return { set, classes }
   }
@@ -208,6 +215,16 @@ describe("boot-theme.js", () => {
       "chat-hub.sidebar.width": "260",
     })
     expect(set.get("--sidebar-w")).toBe("260px")
+  })
+
+  it("stamps the platform class from the preload bridge", () => {
+    expect(run({}, "", "linux").classes.has("platform-linux")).toBe(true)
+    expect(run({}, "", "darwin").classes.has("platform-darwin")).toBe(true)
+  })
+
+  it("refuses a platform that does not look like one", () => {
+    const { classes } = run({}, "", "linux; drop")
+    expect(classes.size).toBe(0)
   })
 
   it("applies glass surface tokens in a cockpit window", () => {

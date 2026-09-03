@@ -14,6 +14,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "pack:mac": "./packaging/build-app.sh",
     "dist:mac": "./packaging/build-app.sh --dmg",
+    "pack:linux": "electron-vite build && electron-builder --linux dir",
+    "dist:linux": "electron-vite build && electron-builder --linux",
     "install:mac": "./packaging/install-app.sh",
     "uninstall:mac": "./packaging/uninstall-app.sh",
     "status:mac": "./packaging/app-status.sh",
