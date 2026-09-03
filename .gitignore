@@ -20,3 +20,4 @@ electron.vite.config.*.mjs
 /.codex/
 /.grok/
 /opencode.json
+test-results/

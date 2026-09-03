@@ -20,7 +20,8 @@
     "generate:codex-protocol": "codex app-server generate-ts --out src/main/codex-protocol/generated",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",
@@ -35,6 +36,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^26.1.1",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",

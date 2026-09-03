@@ -1066,14 +1066,17 @@ export default function App() {
   )
 
   function setSessionArchived(id: string, archive: boolean) {
+    const wasSettled =
+      sessionsRef.current.find((s) => s.id === id)?.settledAt !== undefined
     void window.chatHub
       .setSessionArchived(id, archive)
       .then((next) => {
         setSessions((curr) => curr.map((s) => (s.id === next.id ? next : s)))
         if (archive) {
-          showToast(`Archived "${next.title}"`, "Undo", () =>
-            setSessionArchived(id, false),
-          )
+          showToast(`Archived "${next.title}"`, "Undo", () => {
+            setSessionArchived(id, false)
+            if (!wasSettled) setSessionSettled(id, false)
+          })
         }
       })
       .catch((err) => {

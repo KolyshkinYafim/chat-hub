@@ -1834,6 +1834,10 @@ if (process.env.ELECTRON_RENDERER_URL) {
   app.setPath("userData", `${app.getPath("userData")}-dev`)
 }
 
+if (process.env.CHAT_HUB_USER_DATA) {
+  app.setPath("userData", process.env.CHAT_HUB_USER_DATA)
+}
+
 function focusHubWindow(): void {
   const hub = focusedHubWindow()
   if (hub) {
