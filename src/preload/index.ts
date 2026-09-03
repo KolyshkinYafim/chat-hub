@@ -69,8 +69,8 @@ const windowIntent = parseWindowIntent(
 
 const api = {
   windowIntent,
-  getSnapshot: (): Promise<SessionSnapshot> =>
-    ipcRenderer.invoke(IpcChannels.getSnapshot),
+  getSnapshot: (sessionIds?: readonly string[]): Promise<SessionSnapshot> =>
+    ipcRenderer.invoke(IpcChannels.getSnapshot, sessionIds),
   listSessions: (): Promise<SessionMeta[]> =>
     ipcRenderer.invoke(IpcChannels.listSessions),
   getMessages: (sessionId: string): Promise<ChatMessage[]> =>

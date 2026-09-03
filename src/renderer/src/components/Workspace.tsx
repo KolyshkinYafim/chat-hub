@@ -69,6 +69,8 @@ type Props = {
   scriptsByCwd: Record<string, ProjectScript[]>
   overflowHasMore: Record<string, boolean>
   loadingOlderFor: string | null
+  /** Sessions whose transcript is on its way in from main. */
+  loadingTranscripts: ReadonlySet<string>
   sendingIds: ReadonlySet<string>
   highlight: { sessionId: string; messageId: string } | null
   providers: ProviderInfo[]
@@ -138,6 +140,7 @@ export function Workspace({
   scriptsByCwd,
   overflowHasMore,
   loadingOlderFor,
+  loadingTranscripts,
   sendingIds,
   highlight,
   providers,
@@ -318,6 +321,7 @@ export function Workspace({
           sessionId ? overflowHasMore[sessionId] === true : false
         }
         loadingOlder={loadingOlderFor !== null && loadingOlderFor === sessionId}
+        transcriptPending={sessionId !== null && loadingTranscripts.has(sessionId)}
         highlightMessageId={
           highlight && highlight.sessionId === sessionId
             ? highlight.messageId

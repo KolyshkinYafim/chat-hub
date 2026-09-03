@@ -1487,7 +1487,16 @@ function seedWorkspace(): void {
 export function installDevMock(): void {
   seedWorkspace()
   const api = {
-    getSnapshot: async () => snapshot,
+    getSnapshot: async (sessionIds?: readonly string[]) => {
+      if (!sessionIds) return snapshot
+      const wanted = new Set(sessionIds)
+      return {
+        ...snapshot,
+        messages: Object.fromEntries(
+          Object.entries(snapshot.messages).filter(([id]) => wanted.has(id)),
+        ),
+      }
+    },
     listSessions: async () => sessions,
     getMessages: async (id: string) => messages[id] ?? [],
     loadArchivedMessages: async (sessionId, beforeMessageId, limit = 50) => {
