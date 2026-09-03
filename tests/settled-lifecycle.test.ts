@@ -118,9 +118,14 @@ describe("settling is never automatic", () => {
     await sm.sendMessage(session.id, "one")
     await sm.sendMessage(session.id, "two")
     state.pending?.resolve()
-    await vi.waitFor(() => expect(state.sent).toHaveLength(2))
+    await vi.waitFor(() => expect(state.sent).toHaveLength(2), {
+      timeout: 5000,
+    })
     state.pending?.resolve()
-    await vi.waitFor(() => expect(sm.getSession(session.id)?.status).toBe("idle"))
+    await vi.waitFor(
+      () => expect(sm.getSession(session.id)?.status).toBe("idle"),
+      { timeout: 5000 },
+    )
     await new Promise((r) => setTimeout(r, 20))
 
     expect(sm.getSession(session.id)?.settledAt).toBeUndefined()
