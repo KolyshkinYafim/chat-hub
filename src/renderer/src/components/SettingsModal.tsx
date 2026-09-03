@@ -39,6 +39,7 @@ import {
 import type { ThemeDef, ThemeToken } from "@shared/theme"
 import { applyTheme } from "../lib/theme-apply"
 import { formatCheckedAgo } from "../lib/provider-status"
+import { useOverlay } from "../lib/use-overlay"
 import type {
   McpServerDef,
   McpServerStatus,
@@ -463,14 +464,7 @@ export function SettingsModal({
     return () => clearInterval(timer)
   }, [open, tab])
 
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [open, onClose])
+  useOverlay({ onClose, enabled: open })
 
   // Keep the editable copy in sync with what's persisted; fall back to the
   // seeded defaults until the user has saved any of their own. (Lives above

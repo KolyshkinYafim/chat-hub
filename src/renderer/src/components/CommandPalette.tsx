@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent } from "react"
+import { useMemo, useState } from "react"
 import type { SessionMeta } from "@shared/types"
 import {
   AGENT_INBOX_KEY,
@@ -10,6 +10,7 @@ import {
   type PaletteEntry,
 } from "../lib/palette"
 import { formatRelative, statusLabel } from "../lib/format"
+import { useOverlay } from "../lib/use-overlay"
 
 type Props = {
   sessions: SessionMeta[]
@@ -62,22 +63,20 @@ export function CommandPalette({
     onClose()
   }
 
-  function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "ArrowDown") {
-      e.preventDefault()
-      moveTo(Math.min(active + 1, entries.length - 1))
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault()
-      moveTo(Math.max(active - 1, 0))
-    } else if (e.key === "Enter") {
-      e.preventDefault()
-      const hit = entries[active]
-      if (hit) pick(hit, e.metaKey || e.ctrlKey)
-    } else if (e.key === "Escape") {
-      e.preventDefault()
-      onClose()
-    }
-  }
+  useOverlay({
+    onClose,
+    cursor: {
+      count: entries.length,
+      active,
+      onMove: moveTo,
+      onCommit: (e) => {
+        if (e.target instanceof HTMLButtonElement) return
+        e.preventDefault()
+        const hit = entries[active]
+        if (hit) pick(hit, e.metaKey || e.ctrlKey)
+      },
+    },
+  })
 
   return (
     <div className="modal-backdrop" onClick={onClose} role="presentation">
@@ -98,7 +97,6 @@ export function CommandPalette({
             setQuery(e.target.value)
             setCursor({ key: null, index: 0 })
           }}
-          onKeyDown={onKeyDown}
         />
         <div className="palette-list" role="listbox">
           {entries.length === 0 ? (

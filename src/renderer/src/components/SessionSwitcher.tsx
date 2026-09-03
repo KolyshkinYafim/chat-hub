@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { SessionMeta } from "@shared/types"
 import { formatRelative, statusLabel } from "../lib/format"
 import {
   commitTarget,
-  cycleIndex,
   filterByQuery,
   initialCursor,
 } from "../lib/session-switcher"
+import { useOverlay } from "../lib/use-overlay"
 
 type Props = {
   sessions: SessionMeta[]
@@ -43,29 +43,29 @@ export function SessionSwitcher({
       ?.scrollIntoView({ block: "nearest" })
   }, [clamped, visible])
 
+  const commit = useCallback(() => {
+    const hit = commitTarget(visibleRef.current, clampedRef.current)
+    if (hit) onCommit(hit.id)
+    else onCancel()
+  }, [onCancel, onCommit])
+
+  useOverlay({
+    onClose: onCancel,
+    cursor: {
+      count: visible.length,
+      active: clamped,
+      onMove: setCursor,
+      keys: "tab",
+      onCommit: (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        commit()
+      },
+    },
+  })
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Tab") {
-        e.preventDefault()
-        e.stopPropagation()
-        const length = visibleRef.current.length
-        setCursor((curr) => cycleIndex(curr, e.shiftKey ? -1 : 1, length))
-        return
-      }
-      if (e.key === "Escape") {
-        e.preventDefault()
-        e.stopPropagation()
-        onCancel()
-        return
-      }
-      if (e.key === "Enter") {
-        e.preventDefault()
-        e.stopPropagation()
-        const hit = commitTarget(visibleRef.current, clampedRef.current)
-        if (hit) onCommit(hit.id)
-        else onCancel()
-        return
-      }
       if (e.key === "Backspace") {
         e.stopPropagation()
         setQuery((curr) => curr.slice(0, -1))
@@ -82,9 +82,7 @@ export function SessionSwitcher({
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key !== "Control") return
       e.preventDefault()
-      const hit = commitTarget(visibleRef.current, clampedRef.current)
-      if (hit) onCommit(hit.id)
-      else onCancel()
+      commit()
     }
     window.addEventListener("keydown", onKeyDown, true)
     window.addEventListener("keyup", onKeyUp, true)
@@ -94,7 +92,7 @@ export function SessionSwitcher({
       window.removeEventListener("keyup", onKeyUp, true)
       window.removeEventListener("blur", onCancel)
     }
-  }, [onCancel, onCommit])
+  }, [commit, onCancel])
 
   return (
     <div className="modal-backdrop" onClick={onCancel} role="presentation">

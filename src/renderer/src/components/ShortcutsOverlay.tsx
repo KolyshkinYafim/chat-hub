@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useOverlay } from "../lib/use-overlay"
 
 type Props = {
   onClose: () => void
@@ -83,13 +83,7 @@ const GROUPS: Group[] = [
 
 /** Discoverability for the keymap — the bindings are useless if unlisted. */
 export function ShortcutsOverlay({ onClose }: Props) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
+  useOverlay({ onClose })
 
   return (
     <div className="modal-backdrop" onClick={onClose} role="presentation">
