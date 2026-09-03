@@ -103,6 +103,7 @@ export const IpcChannels = {
   browserOpen: "surface:browser-open",
   surfaceOpen: "surface:agent-open",
   surfaceState: "surface:state",
+  hubLayout: "hub:apply-layout",
   mcpList: "mcp:list",
   mcpUpsert: "mcp:upsert",
   mcpRemove: "mcp:remove",

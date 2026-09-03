@@ -60,6 +60,7 @@ import type {
   SurfaceOpenRequest,
   SurfaceStateReport,
 } from "@shared/surface-control"
+import type { HubLayoutCommand } from "@shared/hub-control"
 import type { ProjectScript, ScriptsFile } from "@shared/scripts"
 import type { ContextDocId, ProjectContext } from "@shared/project-context"
 
@@ -478,6 +479,14 @@ const api = {
     ipcRenderer.on(IpcChannels.surfaceOpen, handler)
     return () => {
       ipcRenderer.removeListener(IpcChannels.surfaceOpen, handler)
+    }
+  },
+  onHubLayout: (cb: (command: HubLayoutCommand) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, command: HubLayoutCommand) =>
+      cb(command)
+    ipcRenderer.on(IpcChannels.hubLayout, handler)
+    return () => {
+      ipcRenderer.removeListener(IpcChannels.hubLayout, handler)
     }
   },
   /** Mirror the dock's visible state into main, so a tool can report it. */

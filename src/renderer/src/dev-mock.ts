@@ -1394,6 +1394,7 @@ function makeSurfaceBridge(): SurfaceBridge &
     onBrowserActivity: () => () => {},
     onBrowserOpen: () => () => {},
     onSurfaceOpen: () => () => {},
+    onHubLayout: () => () => {},
     reportSurfaceState: () => {},
     grokTrustStatus: async () => ({
       trusted: mockGrokTrusted,

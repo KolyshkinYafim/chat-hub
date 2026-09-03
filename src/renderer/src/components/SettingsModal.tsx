@@ -1134,6 +1134,34 @@ export function SettingsModal({
                 </div>
               </div>
 
+              <h2 className="section-label">Agents</h2>
+              <div className="settings-group">
+                <div className="settings-row">
+                  <div>
+                    <div className="row-title">
+                      Allow agents to control the Hub UI
+                    </div>
+                    <div className="row-desc">
+                      Let agent hub tools open windows, focus sessions, change
+                      pane layouts and open panels. UI only — these tools never
+                      touch files or run commands.
+                    </div>
+                  </div>
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={general.allowAgentHubControl !== false}
+                      onChange={(e) =>
+                        void patchGeneral({
+                          allowAgentHubControl: e.target.checked,
+                        })
+                      }
+                    />
+                    <span className="switch-track" />
+                  </label>
+                </div>
+              </div>
+
               <h2 className="section-label">Modes</h2>
               <p className="modal-lead">
                 Presets you can attach to a session from the composer. The system
