@@ -32,6 +32,15 @@ export type ArchiveSessionHit = {
 /** Archived turns kept above the hit, so it lands with something to read. */
 const JUMP_CONTEXT = 10
 
+export function sessionDirUnder(rootDir: string, sessionId: string): string {
+  const base = resolve(rootDir)
+  const dir = resolve(join(base, sessionId))
+  if (dir === base || !dir.startsWith(base + sep)) {
+    throw new Error(`Invalid session id: ${sessionId}`)
+  }
+  return dir
+}
+
 /**
  * A query of only these characters reaches disk byte for byte: nothing in the
  * class is escaped by `JSON.stringify` and non-ASCII is left alone, so a miss
@@ -56,12 +65,7 @@ export class MessageArchive {
 
   /** Session ids come from the app, but this path is what `remove` deletes. */
   dirFor(sessionId: string): string {
-    const base = resolve(this.rootDir)
-    const dir = resolve(join(base, sessionId))
-    if (dir === base || !dir.startsWith(base + sep)) {
-      throw new Error(`Invalid session id: ${sessionId}`)
-    }
-    return dir
+    return sessionDirUnder(this.rootDir, sessionId)
   }
 
   fileFor(sessionId: string): string {

@@ -211,7 +211,7 @@ describe("archive", () => {
 })
 
 describe("persistence", () => {
-  it("round-trips settledAt, settledBy and archived through state.json", async () => {
+  it("round-trips settledAt, settledBy and archived through the index", async () => {
     const { sm, dir, persistence } = await makeManager()
     const session = await sm.createSession({ provider: "mock", cwd: dir })
     await runTurn(sm, session.id, "work")
@@ -219,7 +219,7 @@ describe("persistence", () => {
     sm.setSessionArchived(session.id, true)
     await sm.flush()
 
-    const saved = (await persistence.load()).sessions.find(
+    const saved = (await persistence.loadIndex()).sessions.find(
       (s) => s.id === session.id,
     )
     expect(saved?.settledAt).toBeDefined()
@@ -257,13 +257,13 @@ describe("favorites", () => {
     expect(sm.getSession(session.id)?.favorite).toBe(true)
   })
 
-  it("round-trips through state.json", async () => {
+  it("round-trips through the index", async () => {
     const { sm, dir, persistence } = await makeManager()
     const session = await sm.createSession({ provider: "mock", cwd: dir })
     sm.setSessionFavorite(session.id, true)
     await sm.flush()
 
-    const saved = (await persistence.load()).sessions.find(
+    const saved = (await persistence.loadIndex()).sessions.find(
       (s) => s.id === session.id,
     )
     expect(saved?.favorite).toBe(true)
@@ -318,13 +318,13 @@ describe("migration off the removed auto-settle", () => {
     sm.setSessionSettled(theirs.id, true)
     await sm.flush()
 
-    const saved = await persistence.load()
+    const saved = await persistence.loadIndex()
     const stamped = saved.sessions.map((s) =>
       s.id === mine.id
         ? { ...s, settledAt: Date.now(), settledBy: "auto" as const }
         : s,
     )
-    await persistence.save({ ...saved, sessions: stamped })
+    await persistence.saveIndex({ ...saved, sessions: stamped })
 
     const { sm: reborn } = await makeManager(dir)
 

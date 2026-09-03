@@ -193,7 +193,7 @@ describe("cost & tokens", () => {
     await vi.waitFor(() => expect(sm.getUsage(session.id)?.turns).toBe(1))
 
     await sm.flush()
-    expect((await persistence.load()).usage?.[session.id]).toEqual({
+    expect((await persistence.loadIndex()).usage?.[session.id]).toEqual({
       turns: 1,
       costUsd: 1.5,
       lastTurn: { costUsd: 1.5 },
@@ -306,9 +306,9 @@ describe("message attachments", () => {
     })
 
     await sm.flush()
-    const saved = await persistence.load()
-    expect(saved.messages[session.id]?.[0]?.attachments).toEqual(message?.attachments)
-    const serialized = JSON.stringify(saved)
+    const savedMessages = await persistence.loadHotMessages(session.id)
+    expect(savedMessages[0]?.attachments).toEqual(message?.attachments)
+    const serialized = await readFile(persistence.hotPathFor(session.id), "utf8")
     expect(serialized).not.toContain("data:image")
     expect(serialized).not.toContain(Buffer.alloc(24, 7).toString("base64"))
   })
@@ -582,7 +582,7 @@ describe("shutdown", () => {
     await sm.shutdown()
 
     expect(state.aborted).toContain(session.id)
-    const persisted = await persistence.load()
+    const persisted = await persistence.loadIndex()
     expect(persisted.sessions.find((s) => s.id === session.id)?.status).toBe(
       "idle",
     )
@@ -647,7 +647,7 @@ describe("per-session permission mode", () => {
     sm.setSessionPermissionMode(session.id, "acceptEdits")
     await sm.flush()
 
-    const saved = (await persistence.load()).sessions.find((s) => s.id === session.id)
+    const saved = (await persistence.loadIndex()).sessions.find((s) => s.id === session.id)
     expect(saved?.permissionMode).toBe("acceptEdits")
   })
 })
@@ -851,13 +851,13 @@ describe("activity stamps", () => {
     const legacy = await sm.createSession({ provider: "mock", cwd: dir })
     await sm.flush()
 
-    const saved = await persistence.load()
+    const saved = await persistence.loadIndex()
     saved.sessions = saved.sessions.map((s) => {
       if (s.id === done.id) return { ...s, status: "done" }
       const { activityAt: _activityAt, ...rest } = s
       return { ...rest, status: "done", updatedAt: 4321 }
     })
-    await persistence.save(saved)
+    await persistence.saveIndex(saved)
 
     const restarted = new SessionManager(
       new EventBus(),
@@ -1240,5 +1240,131 @@ describe("workspace configs the CLI needs", () => {
     expect(
       sm.getMessages(session.id).filter((m) => m.role === "system"),
     ).toHaveLength(0)
+  })
+})
+
+describe("split persistence", () => {
+  function restarted(dir: string, persistence: InstanceType<typeof Persistence>) {
+    return new SessionManager(
+      new EventBus(),
+      persistence,
+      new SessionMonitorBridge(join(dir, "events.jsonl")),
+      { handle: () => {} } as unknown as NotificationService,
+      new SettingsStore(join(dir, "settings.json")),
+      { intervalMs: 60_000, silenceMs: 60_000 },
+      { titleGenerator: async () => null },
+    )
+  }
+
+  async function runTurn(
+    sm: InstanceType<typeof SessionManager>,
+    sessionId: string,
+    text: string,
+  ) {
+    await sm.sendMessage(sessionId, text)
+    state.pending?.resolve()
+    await vi.waitFor(() => expect(sm.getSession(sessionId)?.status).toBe("idle"))
+  }
+
+  it("rewrites only the sending session's hot file", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const a = await sm.createSession({ provider: "mock", cwd: dir })
+    const b = await sm.createSession({ provider: "mock", cwd: dir })
+    await runTurn(sm, a.id, "seed a")
+    await sm.flush()
+    const before = await readFile(persistence.hotPathFor(a.id), "utf8")
+
+    await runTurn(sm, b.id, "only b")
+    await sm.flush()
+
+    expect(await readFile(persistence.hotPathFor(a.id), "utf8")).toBe(before)
+    expect(await readFile(persistence.hotPathFor(b.id), "utf8")).toContain(
+      "only b",
+    )
+    const index = await readFile(persistence.indexPath, "utf8")
+    expect(index).not.toContain("seed a")
+    expect(index).not.toContain("only b")
+  })
+
+  it("serves a restored transcript lazily from its hot file", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await runTurn(sm, session.id, "remember me")
+    await sm.flush()
+
+    const reborn = restarted(dir, persistence)
+    await reborn.init()
+    expect(reborn.getMessages(session.id)).toEqual([])
+    expect(reborn.getSnapshot([session.id]).messages[session.id]).toBeUndefined()
+
+    await reborn.ensureMessagesLoaded([session.id])
+    const contents = reborn.getMessages(session.id).map((m) => m.content)
+    expect(contents).toContain("remember me")
+    expect(
+      reborn.getSnapshot([session.id]).messages[session.id]?.length,
+    ).toBeGreaterThan(0)
+  })
+
+  it("removes the session's data directory on delete", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await runTurn(sm, session.id, "bye")
+    await sm.flush()
+    expect(existsSync(persistence.hotPathFor(session.id))).toBe(true)
+
+    await sm.deleteSession(session.id)
+    await sm.flush()
+
+    expect(existsSync(join(dir, "sessions", session.id))).toBe(false)
+    expect((await persistence.loadIndex()).sessions).not.toContainEqual(
+      expect.objectContaining({ id: session.id }),
+    )
+  })
+
+  it("boots from a legacy state.json and keeps serving its transcript", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "chat-hub-sm-"))
+    await writeFile(
+      join(dir, "state.json"),
+      JSON.stringify({
+        version: 1,
+        sessions: [
+          {
+            id: "legacy-1",
+            title: "Old",
+            project: "p",
+            provider: "mock",
+            cwd: dir,
+            status: "idle",
+            createdAt: 1,
+            updatedAt: 2,
+          },
+        ],
+        messages: {
+          "legacy-1": [
+            {
+              id: "m1",
+              sessionId: "legacy-1",
+              role: "user",
+              content: "from the old world",
+              createdAt: 3,
+            },
+          ],
+        },
+        activeSessionId: "legacy-1",
+      }),
+      "utf8",
+    )
+
+    const persistence = new Persistence(join(dir, "state.json"))
+    const sm = restarted(dir, persistence)
+    await sm.init()
+
+    expect(sm.getSession("legacy-1")?.title).toBe("Old")
+    expect(sm.getMessages("legacy-1")).toEqual([])
+    await sm.ensureMessagesLoaded(["legacy-1"])
+    expect(sm.getMessages("legacy-1").map((m) => m.content)).toEqual([
+      "from the old world",
+    ])
+    expect(existsSync(join(dir, "state.json"))).toBe(false)
   })
 })

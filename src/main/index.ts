@@ -721,7 +721,9 @@ export function registerIpc(
       snapshotServed = true
       bootMark("snapshot.served")
     }
-    return sm.getSnapshot(normalizeSessionIds(sessionIds))
+    const ids = normalizeSessionIds(sessionIds)
+    await sm.ensureMessagesLoaded(ids)
+    return sm.getSnapshot(ids)
   })
   ipcMain.handle(IpcChannels.usageSummary, async () => {
     await ready
@@ -736,6 +738,7 @@ export function registerIpc(
       throw new Error("Invalid sessionId")
     }
     await ready
+    await sm.ensureMessagesLoaded([sessionId])
     return sm.getMessages(sessionId)
   })
   ipcMain.handle(
@@ -869,6 +872,7 @@ export function registerIpc(
     if (sessionId !== null && typeof sessionId !== "string") {
       throw new Error("Invalid sessionId")
     }
+    if (sessionId !== null) await sm.ensureMessagesLoaded([sessionId])
     sm.setActiveSession(sessionId)
     return sm.getSnapshot(sessionId === null ? [] : [sessionId])
   })
@@ -1194,7 +1198,7 @@ export function registerIpc(
     return {
       dataDir,
       settingsPath: SettingsStore.defaultPath(userData),
-      statePath: Persistence.defaultPath(userData),
+      statePath: Persistence.defaultIndexPath(userData),
       projectsPath: ProjectStore.defaultPath(userData),
       bridgePath: bridge.path,
       bridgeExists,
@@ -1220,6 +1224,7 @@ export function registerIpc(
     IpcChannels.getStorageStats,
     async (): Promise<StorageStats> => {
       const sessions = sm.listSessions()
+      await sm.ensureMessagesLoaded()
       let messageCount = 0
       for (const session of sessions) {
         messageCount += sm.getMessages(session.id).length
