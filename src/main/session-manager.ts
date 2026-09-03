@@ -22,7 +22,7 @@ import type {
 import type { EventBus } from "./event-bus"
 import type { SessionMonitorBridge } from "./bridge"
 import type { NotificationService } from "./notifications"
-import type { Persistence, PersistedState } from "./persistence"
+import type { Persistence, PersistedIndex } from "./persistence"
 import { buildDemoState } from "./demo-seed"
 import { addUsage } from "./adapters/usage"
 import type { PermissionBroker } from "./permission-broker"
@@ -118,6 +118,11 @@ export class SessionManager {
   /** Debounce TodoWrite → board.json so a streaming checklist doesn't hammer disk. */
   private planBoardTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private messages = new Map<string, ChatMessage[]>()
+  private hotLoaded = new Set<string>()
+  private hotLoads = new Map<string, Promise<void>>()
+  private hotWrites = new Map<string, Promise<void>>()
+  private dirtyIndex = false
+  private dirtySessions = new Set<string>()
   private activeSessionId: string | null = null
   private saveTimer: ReturnType<typeof setTimeout> | null = null
   private started = false
@@ -297,6 +302,7 @@ export class SessionManager {
     const q = query.trim()
     if (q.length < MIN_TRANSCRIPT_QUERY) return { hits: [], truncated: false }
 
+    await this.ensureMessagesLoaded().catch(() => undefined)
     const unheld: Record<string, ChatMessage[]> = {}
     for (const sessionId of this.sessions.keys()) {
       if (Object.hasOwn(loadedFrom, sessionId)) continue
@@ -549,6 +555,7 @@ export class SessionManager {
   async regenerateTitle(sessionId: string): Promise<SessionMeta> {
     const session = this.sessions.get(sessionId)
     if (!session) throw new Error("Session not found")
+    await this.loadHot(sessionId).catch(() => undefined)
     const exchange = this.firstExchange(sessionId)
     if (!exchange) return session
     this.markTitleRefined(sessionId)
@@ -646,20 +653,23 @@ export class SessionManager {
     if (this.started) return
     this.started = true
 
-    let state = await this.persistence.load()
+    let index = await this.persistence.loadIndex()
     // Demo seed only when explicitly requested (not for daily driver).
-    if (state.sessions.length === 0 && process.env.CHAT_HUB_DEMO === "1") {
+    if (index.sessions.length === 0 && process.env.CHAT_HUB_DEMO === "1") {
       const demo = buildDemoState()
-      state = {
+      index = {
         version: 1,
         sessions: demo.sessions,
-        messages: demo.messages,
+        usage: {},
         activeSessionId: demo.activeSessionId,
       }
-      await this.persistence.save(state)
+      for (const [id, msgs] of Object.entries(demo.messages)) {
+        await this.persistence.saveHotMessages(id, msgs)
+      }
+      await this.persistence.saveIndex(index)
     }
 
-    for (const session of state.sessions) {
+    for (const session of index.sessions) {
       // Drop demo / missing project paths — only real folders survive restart.
       const cwd = session.cwd || ""
       if (!cwdLooksReal(cwd)) {
@@ -687,17 +697,10 @@ export class SessionManager {
       }
       this.sessions.set(session.id, restored)
     }
-    for (const [id, msgs] of Object.entries(state.messages)) {
-      if (!this.sessions.has(id)) continue
-      this.messages.set(
-        id,
-        msgs.map((m) => ({ ...m, streaming: false })),
-      )
-    }
-    for (const [id, total] of Object.entries(state.usage ?? {})) {
+    for (const [id, total] of Object.entries(index.usage ?? {})) {
       if (this.sessions.has(id)) this.usage.set(id, total)
     }
-    this.activeSessionId = state.activeSessionId
+    this.activeSessionId = index.activeSessionId
     if (
       this.activeSessionId &&
       !this.sessions.has(this.activeSessionId)
@@ -821,6 +824,38 @@ export class SessionManager {
     return this.messages.get(sessionId) ?? []
   }
 
+  async ensureMessagesLoaded(sessionIds?: readonly string[]): Promise<void> {
+    const ids = sessionIds ?? [...this.sessions.keys()]
+    await Promise.all(ids.map((id) => this.loadHot(id)))
+  }
+
+  private loadHot(sessionId: string): Promise<void> {
+    if (this.hotLoaded.has(sessionId) || !this.sessions.has(sessionId)) {
+      return Promise.resolve()
+    }
+    const running = this.hotLoads.get(sessionId)
+    if (running) return running
+    const load = this.persistence
+      .loadHotMessages(sessionId)
+      .then((stored) => {
+        if (!this.sessions.has(sessionId) || this.hotLoaded.has(sessionId)) {
+          return
+        }
+        this.hotLoaded.add(sessionId)
+        const pending = this.messages.get(sessionId) ?? []
+        const restored = stored.map((m) => ({ ...m, streaming: false }))
+        this.messages.set(sessionId, [...restored, ...pending])
+        if (pending.length > 0) this.scheduleSessionSave(sessionId)
+      })
+      .finally(() => {
+        if (this.hotLoads.get(sessionId) === load) {
+          this.hotLoads.delete(sessionId)
+        }
+      })
+    this.hotLoads.set(sessionId, load)
+    return load
+  }
+
   setActiveSession(id: string | null): boolean {
     if (id && !this.sessions.has(id)) return false
     this.activeSessionId = id
@@ -891,6 +926,7 @@ export class SessionManager {
     const previousActive = this.activeSessionId
     this.sessions.set(id, session)
     this.messages.set(id, [])
+    this.hotLoaded.add(id)
     this.activeSessionId = id
 
     const cb = this.callbacks()
@@ -911,6 +947,8 @@ export class SessionManager {
       // not survive in the map and reappear from state.json after a restart.
       this.sessions.delete(id)
       this.messages.delete(id)
+      this.hotLoaded.delete(id)
+      this.dirtySessions.delete(id)
       this.activeSessionId = previousActive
       if (worktree) {
         await removeSessionWorktree(baseCwd, worktree.path).catch((cleanupErr) =>
@@ -975,6 +1013,8 @@ export class SessionManager {
 
     const content = text.trim()
     if (!content && !opts?.attachments?.length) return
+
+    await this.loadHot(sessionId).catch(() => undefined)
 
     const attachments = inspectAttachmentPaths(opts?.attachments ?? [])
     const userContent = content || "(attachments)"
@@ -1188,7 +1228,7 @@ export class SessionManager {
           sessionId: session.id,
           messages: [...list],
         })
-        this.scheduleSave()
+        this.scheduleSessionSave(session.id)
       }
     }
     void pruneCheckpoints(
@@ -1212,6 +1252,7 @@ export class SessionManager {
     if (this.turns.has(sessionId) || session.status === "running") {
       throw new Error("Stop the running turn before reverting")
     }
+    await this.loadHot(sessionId).catch(() => undefined)
     await revertToCheckpoint(session.cwd, sessionId, ref)
 
     const list = this.messages.get(sessionId) ?? []
@@ -1230,6 +1271,7 @@ export class SessionManager {
         kept = page.messages
       }
       this.messages.set(sessionId, kept)
+      this.scheduleSessionSave(sessionId)
       this.bus.emit({
         type: "messages.replaced",
         sessionId,
@@ -1438,7 +1480,6 @@ export class SessionManager {
       content,
       createdAt: Date.now(),
     })
-    this.scheduleSave()
   }
 
   async deleteSession(sessionId: string): Promise<void> {
@@ -1468,6 +1509,7 @@ export class SessionManager {
     this.configNoted.delete(sessionId)
     this.browserToolsReady.delete(sessionId)
     this.adapterRestores.delete(sessionId)
+    await this.discardHot(sessionId)
     await this.discardArchive(sessionId)
     this.hooks.clearSession(sessionId)
     // The CLI is dead, so nothing is left to answer its permission any more.
@@ -1517,6 +1559,7 @@ export class SessionManager {
     this.configNoted.clear()
     this.browserToolsReady.clear()
     this.adapterRestores.clear()
+    for (const id of ids) await this.discardHot(id)
     for (const id of ids) await this.discardArchive(id)
     for (const id of ids) this.hooks.clearSession(id)
     this.activeSessionId = null
@@ -1530,7 +1573,8 @@ export class SessionManager {
       clearTimeout(this.saveTimer)
       this.saveTimer = null
     }
-    await this.persistence.save(this.toPersisted())
+    this.dirtyIndex = true
+    await this.flushDirty()
   }
 
   private callbacks(): AdapterCallbacks {
@@ -1589,7 +1633,7 @@ export class SessionManager {
           }
         }
         this.bus.emit({ type: "chat.done", sessionId, messageId })
-        this.scheduleSave()
+        this.scheduleSessionSave(sessionId)
         // turn_done after the stream has actually finished; never blocks the turn.
         void this.hooks
           .run(sessionId, "turn_done")
@@ -1615,6 +1659,7 @@ export class SessionManager {
         })
         this.touch(sessionId)
         this.scheduleSave()
+        this.scheduleSessionSave(sessionId)
         if (item.kind === "plan" && item.steps && item.steps.length > 0) {
           const cwd = this.sessions.get(sessionId)?.cwd
           if (cwd) this.queuePlanBoard(cwd, item.steps)
@@ -1668,6 +1713,7 @@ export class SessionManager {
     const idx = messageId ? (list?.findIndex((m) => m.id === messageId) ?? -1) : -1
     if (list && idx !== -1) {
       list[idx] = { ...list[idx], usage: turn }
+      this.scheduleSessionSave(sessionId)
     }
     this.bus.emit({
       type: "usage.changed",
@@ -1731,6 +1777,9 @@ export class SessionManager {
   }
 
   private appendMessage(message: ChatMessage): void {
+    if (!this.hotLoaded.has(message.sessionId)) {
+      void this.loadHot(message.sessionId).catch(() => undefined)
+    }
     const list = this.messages.get(message.sessionId) ?? []
     list.push(message)
     const overflow: ChatMessage[] = []
@@ -1739,11 +1788,21 @@ export class SessionManager {
       if (old) overflow.push(old)
     }
     this.messages.set(message.sessionId, list)
+    this.scheduleSessionSave(message.sessionId)
     this.bus.emit({ type: "chat.message", message })
     if (overflow.length > 0) {
       this.archivedSessions.add(message.sessionId)
       this.queueArchiveAppend(message.sessionId, overflow)
     }
+  }
+
+  private async discardHot(sessionId: string): Promise<void> {
+    this.dirtySessions.delete(sessionId)
+    this.hotLoaded.delete(sessionId)
+    await this.hotLoads.get(sessionId)?.catch(() => undefined)
+    this.hotLoads.delete(sessionId)
+    await this.hotWrites.get(sessionId)?.catch(() => undefined)
+    this.hotWrites.delete(sessionId)
   }
 
   private async discardArchive(sessionId: string): Promise<void> {
@@ -1798,15 +1857,7 @@ export class SessionManager {
     this.notifications.handle(event)
   }
 
-  private toPersisted(): PersistedState {
-    const messages: Record<string, ChatMessage[]> = {}
-    for (const [id, msgs] of this.messages) {
-      messages[id] = msgs.map((m) => {
-        const { streaming: _streaming, ...rest } = m
-        void _streaming
-        return rest
-      })
-    }
+  private toIndex(): PersistedIndex {
     const usage: Record<string, SessionUsage> = {}
     for (const [id, total] of this.usage) {
       usage[id] = total
@@ -1814,10 +1865,17 @@ export class SessionManager {
     return {
       version: 1,
       sessions: this.listSessions(),
-      messages,
       usage,
       activeSessionId: this.activeSessionId,
     }
+  }
+
+  private hotOf(sessionId: string): ChatMessage[] {
+    return (this.messages.get(sessionId) ?? []).map((m) => {
+      const { streaming: _streaming, ...rest } = m
+      void _streaming
+      return rest
+    })
   }
 
   private queuePlanBoard(
@@ -1838,13 +1896,48 @@ export class SessionManager {
   }
 
   private scheduleSave(): void {
+    this.dirtyIndex = true
+    this.armSaveTimer()
+  }
+
+  private scheduleSessionSave(sessionId: string): void {
+    this.dirtySessions.add(sessionId)
+    this.armSaveTimer()
+  }
+
+  private armSaveTimer(): void {
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null
-      void this.persistence.save(this.toPersisted()).catch((err) => {
+      void this.flushDirty().catch((err) => {
         console.error("[persistence] save failed", err)
       })
     }, 250)
+  }
+
+  private flushDirty(): Promise<void> {
+    const writes: Promise<void>[] = []
+    if (this.dirtyIndex) {
+      this.dirtyIndex = false
+      writes.push(this.persistence.saveIndex(this.toIndex()))
+    }
+    const ids = [...this.dirtySessions]
+    this.dirtySessions.clear()
+    for (const id of ids) {
+      if (!this.sessions.has(id) || !this.hotLoaded.has(id)) continue
+      const previous = this.hotWrites.get(id) ?? Promise.resolve()
+      const write = previous
+        .catch(() => undefined)
+        .then(() => this.persistence.saveHotMessages(id, this.hotOf(id)))
+      this.hotWrites.set(id, write)
+      void write.finally(() => {
+        if (this.hotWrites.get(id) === write) {
+          this.hotWrites.delete(id)
+        }
+      })
+      writes.push(write)
+    }
+    return Promise.all(writes).then(() => undefined)
   }
 }
 
