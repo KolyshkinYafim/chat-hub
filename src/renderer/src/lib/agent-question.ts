@@ -1,6 +1,6 @@
 import { oneLine } from "@shared/text"
 import type { AgentInputRequestInfo, ChatMessage } from "@shared/types"
-import { describeItem } from "./live-step"
+import { describeItem } from "@shared/live"
 
 /**
  * A CLI question, resolved into everything the card has to draw: the topic, the

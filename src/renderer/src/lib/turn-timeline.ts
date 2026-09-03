@@ -1,5 +1,6 @@
 import type { AgentTurnItem, TurnItemStatus } from "@shared/types"
-import { describeItem, formatElapsed } from "./live-step"
+import { describeItem } from "@shared/live"
+import { formatElapsed } from "./live-step"
 import { looksLikePath, shortenPath } from "./short-path"
 
 export type TimelineRow = {

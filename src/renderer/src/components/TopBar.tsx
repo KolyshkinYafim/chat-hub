@@ -10,7 +10,8 @@ import { StatusDot } from "./StatusDot"
 import { ScriptsMenu } from "./ScriptsMenu"
 import { shortCwd, statusLabel } from "../lib/format"
 import { formatQuotaChip, quotaChipTitle } from "../lib/allowance"
-import { phaseLabel, type LivePhase } from "../lib/live-step"
+import { phaseLabel } from "@shared/live"
+import type { LivePhase } from "@shared/types"
 import { PanelIcon } from "./surfaces/SurfaceIcon"
 
 type Props = {

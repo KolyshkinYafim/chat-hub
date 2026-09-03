@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises"
+import { mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import {
@@ -6,6 +6,7 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test"
+import { sessionMetas, writeSeedData } from "./seed.mjs"
 
 export type SeedSession = {
   id: string
@@ -29,46 +30,9 @@ export async function launchApp(
 ): Promise<LaunchedApp> {
   const userData = await mkdtemp(join(tmpdir(), "chat-hub-e2e-"))
   const workDir = await mkdtemp(join(tmpdir(), "chat-hub-work-"))
-  const dataDir = join(userData, "data")
-  await mkdir(dataDir, { recursive: true })
-
   const now = Date.now()
-  const metas = sessions.map((s, i) => ({
-    id: s.id,
-    title: s.title,
-    project: s.project ?? "e2e",
-    provider: "mock",
-    cwd: workDir,
-    status: s.status ?? "idle",
-    archived: s.archived === true,
-    createdAt: now - (sessions.length - i) * 60_000,
-    updatedAt: now - (sessions.length - i) * 30_000,
-  }))
-  await writeFile(
-    join(dataDir, "index.json"),
-    JSON.stringify(
-      {
-        version: 1,
-        sessions: metas,
-        usage: {},
-        activeSessionId: metas[0]?.id ?? null,
-      },
-      null,
-      2,
-    ),
-  )
-  for (const meta of metas) {
-    const dir = join(dataDir, "sessions", meta.id)
-    await mkdir(dir, { recursive: true })
-    await writeFile(join(dir, "hot.json"), "[]")
-  }
-  await writeFile(
-    join(dataDir, "projects.json"),
-    JSON.stringify({
-      version: 1,
-      projects: [{ id: "p1", name: "e2e", cwd: workDir, createdAt: now }],
-    }),
-  )
+  const metas = sessionMetas(sessions, workDir, now)
+  await writeSeedData(userData, metas, workDir, now)
 
   const slowMo = Number(process.env.E2E_SLOWMO ?? "0")
   const app = await electron.launch({

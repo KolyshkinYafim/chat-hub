@@ -1,6 +1,6 @@
 import { oneLine } from "@shared/text"
 import { splitToolName, type PlanStep } from "@shared/tool-card"
-import { describeItem, phaseLabel } from "@shared/live"
+import { describeItem } from "@shared/live"
 import type {
   AgentTurnItem,
   ChatMessage,
@@ -15,7 +15,6 @@ import {
   type TranscriptBlock,
 } from "./tool-runs"
 
-export { describeItem, phaseLabel }
 export type { LivePhase }
 
 export type LiveStep = {

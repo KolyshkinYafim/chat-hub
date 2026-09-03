@@ -118,6 +118,7 @@ export type WorktreeSetupRunner = (
 
 export class SessionManager {
   private sessions = new Map<string, SessionMeta>()
+  private settledByArchive = new Set<string>()
   /** Debounce TodoWrite → board.json so a streaming checklist doesn't hammer disk. */
   private planBoardTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private messages = new Map<string, ChatMessage[]>()
@@ -447,6 +448,7 @@ export class SessionManager {
   setSessionSettled(sessionId: string, settled: boolean): SessionMeta {
     const session = this.sessions.get(sessionId)
     if (!session) throw new Error("Session not found")
+    this.settledByArchive.delete(sessionId)
     const next: SessionMeta = { ...session, updatedAt: Date.now() }
     if (settled) {
       next.settledAt = Date.now()
@@ -493,9 +495,14 @@ export class SessionManager {
       if (next.settledAt === undefined) {
         next.settledAt = Date.now()
         next.settledBy = "user"
+        this.settledByArchive.add(sessionId)
       }
     } else {
       delete next.archived
+      if (this.settledByArchive.delete(sessionId)) {
+        delete next.settledAt
+        delete next.settledBy
+      }
     }
     this.sessions.set(sessionId, next)
     this.publishSessionEvent({ type: "session.upsert", session: next })
@@ -1377,11 +1384,7 @@ export class SessionManager {
       : -1
     if (list && idx !== -1) {
       list[idx] = { ...list[idx], content }
-      this.bus.emit({
-        type: "messages.replaced",
-        sessionId,
-        messages: [...list],
-      })
+      this.bus.emit({ type: "chat.message", message: list[idx] })
       this.scheduleSessionSave(sessionId)
     }
     this.emitQueue(sessionId)
@@ -1620,12 +1623,25 @@ export class SessionManager {
     await this.flush()
   }
 
+  async countMessages(): Promise<number> {
+    let count = 0
+    for (const id of this.sessions.keys()) {
+      if (this.hotLoaded.has(id)) {
+        count += (this.messages.get(id) ?? []).length
+      } else {
+        count += (await this.persistence.loadHotMessages(id)).length
+      }
+    }
+    return count
+  }
+
   async flush(): Promise<void> {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer)
       this.saveTimer = null
     }
     this.dirtyIndex = true
+    await Promise.allSettled(this.hotLoads.values())
     await this.flushDirty()
   }
 
@@ -1930,7 +1946,7 @@ export class SessionManager {
     // upsert site can forget it.
     this.bridge.publish(
       event.type === "session.upsert"
-        ? { ...event, session: { ...event.session, source: "hub" } }
+        ? { ...event, session: withoutLive({ ...event.session, source: "hub" }) }
         : event,
     )
     this.notifications.handle(event)
@@ -2007,7 +2023,11 @@ export class SessionManager {
     const ids = [...this.dirtySessions]
     this.dirtySessions.clear()
     for (const id of ids) {
-      if (!this.sessions.has(id) || !this.hotLoaded.has(id)) continue
+      if (!this.sessions.has(id)) continue
+      if (!this.hotLoaded.has(id)) {
+        this.dirtySessions.add(id)
+        continue
+      }
       const previous = this.hotWrites.get(id) ?? Promise.resolve()
       const write = previous
         .catch(() => undefined)
@@ -2020,8 +2040,15 @@ export class SessionManager {
       })
       writes.push(write)
     }
+    if (this.dirtySessions.size > 0) this.armSaveTimer()
     return Promise.all(writes).then(() => undefined)
   }
+}
+
+function withoutLive<T extends { live?: unknown }>(session: T): T {
+  const { live: _live, ...rest } = session
+  void _live
+  return rest as T
 }
 
 function defaultTitle(

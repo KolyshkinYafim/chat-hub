@@ -1,6 +1,6 @@
 import { splitToolName } from "@shared/tool-card"
 import type { AgentTurnItem, TurnItemStatus } from "@shared/types"
-import { describeItem } from "./live-step"
+import { describeItem } from "@shared/live"
 import { looksLikePath } from "./short-path"
 import { isFailed, type ToolCall } from "./tool-runs"
 

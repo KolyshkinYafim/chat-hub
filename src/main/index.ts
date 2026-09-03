@@ -1254,11 +1254,7 @@ export function registerIpc(
     IpcChannels.getStorageStats,
     async (): Promise<StorageStats> => {
       const sessions = sm.listSessions()
-      await sm.ensureMessagesLoaded()
-      let messageCount = 0
-      for (const session of sessions) {
-        messageCount += sm.getMessages(session.id).length
-      }
+      const messageCount = await sm.countMessages()
       const { bytes, files } = await dirStats(join(userData, "data"))
       return {
         dataDirBytes: bytes,

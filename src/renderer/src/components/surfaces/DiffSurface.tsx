@@ -3,6 +3,7 @@ import type { AgentAction } from "../../lib/agent-actions"
 import {
   buildReviewMessage,
   clearComments,
+  removeComment,
   listComments,
   onDiffCommentsChanged,
 } from "../../lib/diff-comments"
@@ -37,7 +38,8 @@ export function DiffSurface({
   const comments = listComments(sessionId)
 
   async function sendToAgent() {
-    const message = buildReviewMessage(listComments(sessionId))
+    const batch = listComments(sessionId)
+    const message = buildReviewMessage(batch)
     if (message === null) return
     setSending(true)
     try {
@@ -45,7 +47,9 @@ export function DiffSurface({
         () => true,
         () => false,
       )
-      if (ok) clearComments(sessionId)
+      if (ok) {
+        for (const comment of batch) removeComment(sessionId, comment.id)
+      }
     } finally {
       setSending(false)
     }

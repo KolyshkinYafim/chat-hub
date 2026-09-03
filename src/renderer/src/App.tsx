@@ -46,6 +46,7 @@ import {
   mergeReplacedMessages,
   reconcileFetchedMessages,
 } from "./lib/transcript-window"
+import { dropViewedSessions } from "./lib/diff-viewed"
 import {
   evictableTranscripts,
   retainedTranscripts,
@@ -384,6 +385,7 @@ export default function App() {
           const next = curr.filter((id) => live.has(id))
           return next.length === curr.length ? curr : next
         })
+        dropViewedSessions(live)
         break
       }
       case "queue.changed":
@@ -1066,17 +1068,14 @@ export default function App() {
   )
 
   function setSessionArchived(id: string, archive: boolean) {
-    const wasSettled =
-      sessionsRef.current.find((s) => s.id === id)?.settledAt !== undefined
     void window.chatHub
       .setSessionArchived(id, archive)
       .then((next) => {
         setSessions((curr) => curr.map((s) => (s.id === next.id ? next : s)))
         if (archive) {
-          showToast(`Archived "${next.title}"`, "Undo", () => {
-            setSessionArchived(id, false)
-            if (!wasSettled) setSessionSettled(id, false)
-          })
+          showToast(`Archived "${next.title}"`, "Undo", () =>
+            setSessionArchived(id, false),
+          )
         }
       })
       .catch((err) => {

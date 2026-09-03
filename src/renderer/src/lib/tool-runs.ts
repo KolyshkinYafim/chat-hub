@@ -4,7 +4,6 @@ import type { ToolCardMeta } from "@shared/tool-card"
 import { splitBlocks, type Block } from "./markdown"
 import { shortenIfPath } from "./short-path"
 
-export { unwrapShell }
 
 export type ToolResult = {
   text: string

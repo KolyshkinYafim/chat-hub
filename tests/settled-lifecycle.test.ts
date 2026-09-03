@@ -187,7 +187,7 @@ describe("manual settle / unsettle", () => {
 })
 
 describe("archive", () => {
-  it("archiving implies settled; unarchiving keeps the thread settled", async () => {
+  it("archiving implies settled; unarchiving lifts only that auto-settle", async () => {
     const { sm, dir } = await makeManager()
     const session = await sm.createSession({ provider: "mock", cwd: dir })
 
@@ -198,7 +198,18 @@ describe("archive", () => {
 
     const unarchived = sm.setSessionArchived(session.id, false)
     expect(unarchived.archived).toBeUndefined()
+    expect(unarchived.settledAt).toBeUndefined()
+  })
+
+  it("unarchiving keeps a settle the user made before archiving", async () => {
+    const { sm, dir } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+
+    sm.setSessionSettled(session.id, true)
+    sm.setSessionArchived(session.id, true)
+    const unarchived = sm.setSessionArchived(session.id, false)
     expect(unarchived.settledAt).toBeDefined()
+    expect(unarchived.settledBy).toBe("user")
   })
 
   it("migrates known legacy ids and drops unknown ones silently", async () => {

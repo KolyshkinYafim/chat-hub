@@ -1,8 +1,9 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises"
+import { mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { _electron } from "@playwright/test"
+import { sessionMetas, writeSeedData } from "./seed.mjs"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const HOLD = 3200
@@ -46,30 +47,17 @@ async function spotlight(page, locator) {
 
 const userData = await mkdtemp(join(tmpdir(), "chat-hub-demo-"))
 const workDir = await mkdtemp(join(tmpdir(), "chat-hub-demo-work-"))
-const dataDir = join(userData, "data")
-await mkdir(dataDir, { recursive: true })
 const now = Date.now()
-const sessions = [
-  { id: "s1", title: "Fix webhook retries" },
-  { id: "s2", title: "Tune reward curve" },
-  { id: "s3", title: "Ship the boot skeleton" },
-].map((s, i) => ({
-  ...s,
-  project: "demo",
-  provider: "mock",
-  cwd: workDir,
-  status: "idle",
-  createdAt: now - (3 - i) * 60_000,
-  updatedAt: now - (3 - i) * 30_000,
-}))
-await writeFile(
-  join(dataDir, "index.json"),
-  JSON.stringify({ version: 1, sessions, usage: {}, activeSessionId: "s1" }),
+const metas = sessionMetas(
+  [
+    { id: "s1", title: "Fix webhook retries", project: "demo" },
+    { id: "s2", title: "Tune reward curve", project: "demo" },
+    { id: "s3", title: "Ship the boot skeleton", project: "demo" },
+  ],
+  workDir,
+  now,
 )
-for (const s of sessions) {
-  await mkdir(join(dataDir, "sessions", s.id), { recursive: true })
-  await writeFile(join(dataDir, "sessions", s.id, "hot.json"), "[]")
-}
+await writeSeedData(userData, metas, workDir, now)
 
 console.log("Запускаю Chat Hub (демо-профиль, твои данные не трогаю)…")
 const app = await _electron.launch({

@@ -40,30 +40,56 @@ export function reconcileViewed(
   return Object.fromEntries(kept)
 }
 
-const viewedKey = (sessionId: string): string =>
-  `chat-hub.diffViewed.${sessionId}`
+const STORE_KEY = "chat-hub.diffViewed"
 
-export function loadViewed(sessionId: string): ViewedMap {
-  const raw = localStorage.getItem(viewedKey(sessionId))
+function readStore(): Record<string, ViewedMap> {
+  const raw = localStorage.getItem(STORE_KEY)
   if (!raw) return {}
   try {
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       return {}
     }
-    return Object.fromEntries(
-      Object.entries(parsed).filter(
-        (entry): entry is [string, string] => typeof entry[1] === "string",
-      ),
-    )
+    const out: Record<string, ViewedMap> = {}
+    for (const [sessionId, maps] of Object.entries(parsed)) {
+      if (typeof maps !== "object" || maps === null || Array.isArray(maps)) {
+        continue
+      }
+      out[sessionId] = Object.fromEntries(
+        Object.entries(maps as Record<string, unknown>).filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string",
+        ),
+      )
+    }
+    return out
   } catch {
     return {}
   }
 }
 
+function writeStore(store: Record<string, ViewedMap>): void {
+  const kept = Object.fromEntries(
+    Object.entries(store).filter(([, map]) => Object.keys(map).length > 0),
+  )
+  if (Object.keys(kept).length === 0) localStorage.removeItem(STORE_KEY)
+  else localStorage.setItem(STORE_KEY, JSON.stringify(kept))
+}
+
+export function loadViewed(sessionId: string): ViewedMap {
+  return readStore()[sessionId] ?? {}
+}
+
 export function saveViewed(sessionId: string, map: ViewedMap): ViewedMap {
-  const key = viewedKey(sessionId)
-  if (Object.keys(map).length === 0) localStorage.removeItem(key)
-  else localStorage.setItem(key, JSON.stringify(map))
+  const store = readStore()
+  store[sessionId] = map
+  writeStore(store)
   return map
+}
+
+export function dropViewedSessions(liveIds: ReadonlySet<string>): void {
+  const store = readStore()
+  const kept = Object.fromEntries(
+    Object.entries(store).filter(([sessionId]) => liveIds.has(sessionId)),
+  )
+  if (Object.keys(kept).length !== Object.keys(store).length) writeStore(kept)
 }

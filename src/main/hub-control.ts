@@ -1,3 +1,4 @@
+import { quote } from "./surfaces/surface-control"
 import {
   HUB_CONTROL_DISABLED_MESSAGE,
   HUB_OPS,
@@ -41,10 +42,6 @@ const NO_WINDOWS_MESSAGE =
 
 const NO_ARRANGE_SESSION_MESSAGE =
   "No session is on screen to arrange around. Use hub_focus_session or hub_open_window with a sessionId first."
-
-function quote(value: string): string {
-  return JSON.stringify(value)
-}
 
 export class HubControl {
   constructor(private readonly deps: HubControlDeps) {}

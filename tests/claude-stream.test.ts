@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { ClaudeActivityStream, mergeClaudeUsage } from "../src/main/adapters/claude"
 import { safeJson, structuredPatchToDiff } from "../src/main/adapters/stream-parse"
 import { readUsage } from "../src/main/adapters/usage"
-import { describeItem } from "@renderer/lib/live-step"
+import { describeItem } from "@shared/live"
 import type { AgentTurnItem } from "../src/shared/types"
 
 /**

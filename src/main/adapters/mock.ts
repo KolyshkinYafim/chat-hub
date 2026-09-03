@@ -113,6 +113,13 @@ export class MockAdapter implements AgentAdapter {
         await sleep(24)
       }
     }
+    const pause = async (ms: number) => {
+      await sleep(ms)
+      return !signal.aborted
+    }
+    const bail = () => {
+      cb.onStreamDone(sessionId, messageId)
+    }
     const steps: TurnPlanStep[] = [
       { text: "Scan webhook retry paths", status: "pending" },
       { text: "Patch the backoff curve", status: "pending" },
@@ -137,7 +144,7 @@ export class MockAdapter implements AgentAdapter {
 
     await stream("## Working the task\n\nLaying out a plan first.\n\n")
     plan("running", { 0: "running" })
-    await sleep(1600)
+    if (!(await pause(1600))) return bail()
 
     cb.onTurnItem(sessionId, messageId, {
       id: "cmd-1",
@@ -145,7 +152,7 @@ export class MockAdapter implements AgentAdapter {
       status: "running",
       command: 'rg "retry" src/webhooks -n',
     })
-    await sleep(1900)
+    if (!(await pause(1900))) return bail()
     cb.onTurnItem(sessionId, messageId, {
       id: "cmd-1",
       kind: "command",
@@ -157,7 +164,7 @@ export class MockAdapter implements AgentAdapter {
     })
     plan("running", { 0: "completed", 1: "running" })
     await stream("Retry math lives in `backoff.ts`. Switching it to exponential with jitter.\n\n")
-    await sleep(1200)
+    if (!(await pause(1200))) return bail()
 
     cb.onTurnItem(sessionId, messageId, {
       id: "edit-1",
@@ -171,7 +178,7 @@ export class MockAdapter implements AgentAdapter {
       ],
     })
     plan("running", { 1: "completed", 2: "running" })
-    await sleep(1400)
+    if (!(await pause(1400))) return bail()
 
     let allowed = true
     if (cb.onPermissionRequest) {
@@ -185,10 +192,7 @@ export class MockAdapter implements AgentAdapter {
       })
       allowed = decision === "allow"
     }
-    if (signal.aborted) {
-      cb.onStreamDone(sessionId, messageId)
-      return
-    }
+    if (signal.aborted) return bail()
     if (allowed) {
       cb.onTurnItem(sessionId, messageId, {
         id: "cmd-2",
@@ -196,7 +200,7 @@ export class MockAdapter implements AgentAdapter {
         status: "running",
         command: "pnpm test",
       })
-      await sleep(2600)
+      if (!(await pause(2600))) return bail()
       cb.onTurnItem(sessionId, messageId, {
         id: "cmd-2",
         kind: "command",
@@ -211,9 +215,10 @@ export class MockAdapter implements AgentAdapter {
       await stream("Skipping the test run — you denied it. The patch stays staged for review.\n\n")
     }
     plan("running", { 2: "completed", 3: "running" })
-    await sleep(900)
+    if (!(await pause(900))) return bail()
     await stream("### Summary\n\n- Exponential backoff with jitter in `backoff.ts`\n- Delivery drop threshold untouched\n- Ready to commit\n")
     plan("completed", { 3: "completed" })
+    if (signal.aborted) return bail()
 
     cb.onUsage?.(
       sessionId,
@@ -247,7 +252,7 @@ export class MockAdapter implements AgentAdapter {
     const controller = new AbortController()
     this.aborts.set(sessionId, controller)
 
-    if (/showcase/i.test(message)) {
+    if (/^showcase\b/i.test(message.trim())) {
       cb.onSessionEvent({
         type: "session.status",
         id: sessionId,

@@ -1,6 +1,7 @@
 import type { SessionStatus } from "@shared/types"
 import { statusLabel } from "../lib/format"
-import { phaseLabel, type LivePhase } from "../lib/live-step"
+import { phaseLabel } from "@shared/live"
+import type { LivePhase } from "@shared/types"
 
 export function StatusDot({
   status,

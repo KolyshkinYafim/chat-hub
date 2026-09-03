@@ -101,7 +101,7 @@ function str(value: unknown): string {
   return typeof value === "string" ? value : ""
 }
 
-function quote(value: string): string {
+export function quote(value: string): string {
   return JSON.stringify(value)
 }
 
