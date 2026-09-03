@@ -1,4 +1,12 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react"
 import type { GitFileChange, GitHunkSummary, GitRepository, GitWorkingCopy, GitWorktreeInfo } from "@shared/types"
 import {
   actionForPath,
@@ -12,6 +20,16 @@ import {
   updateComment,
   type DiffLineKind,
 } from "../lib/diff-comments"
+import {
+  hashDiff,
+  loadViewed,
+  reconcileViewed,
+  saveViewed,
+  withoutViewed,
+  withViewed,
+  type ViewedMap,
+} from "../lib/diff-viewed"
+import { isEditableTarget } from "../lib/editable-target"
 import { matchPath } from "../lib/path-match"
 import { leftBehindWarning } from "../lib/publish-gate"
 
@@ -309,7 +327,13 @@ export function SourceControl({
   const [worktrees, setWorktrees] = useState<GitWorktreeInfo[]>([])
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [viewed, setViewed] = useState<ViewedMap>(() => loadViewed(sessionId))
   const liveRef = useRef(true)
+  const viewedRef = useRef(viewed)
+
+  useEffect(() => {
+    viewedRef.current = viewed
+  }, [viewed])
 
   useEffect(() => {
     liveRef.current = true
@@ -347,6 +371,10 @@ export function SourceControl({
 
   const staged = useMemo(() => stagedRows(copy.files), [copy.files])
   const unstaged = useMemo(() => unstagedRows(copy.files), [copy.files])
+  const allRows = useMemo(() => [...staged, ...unstaged], [staged, unstaged])
+  const selectedIndex = selected
+    ? allRows.findIndex((row) => rowKey(row) === rowKey(selected))
+    : -1
 
   // What the publish gate must own up to: whatever a push would leave behind.
   const gateWarning = useMemo(
@@ -378,17 +406,22 @@ export function SourceControl({
     }
   }, [staged, unstaged, selected])
 
+  const fetchRowDiff = useCallback(
+    (row: Row) =>
+      window.chatHub.gitDiff(
+        cwd,
+        row.file.path,
+        row.staged,
+        !row.staged && row.code === "?",
+      ),
+    [cwd],
+  )
+
   useEffect(() => {
     if (!selected) return
     let cancelled = false
     setDiff(null)
-    void window.chatHub
-      .gitDiff(
-        cwd,
-        selected.file.path,
-        selected.staged,
-        !selected.staged && selected.code === "?",
-      )
+    void fetchRowDiff(selected)
       .then((text) => {
         if (!cancelled) setDiff(text)
       })
@@ -398,7 +431,73 @@ export function SourceControl({
     return () => {
       cancelled = true
     }
-  }, [cwd, selected, diffEpoch])
+  }, [fetchRowDiff, selected, diffEpoch])
+
+  useEffect(() => {
+    if (Object.keys(viewedRef.current).length === 0) return
+    let cancelled = false
+    const rows = [...staged, ...unstaged].filter(
+      (row) => rowKey(row) in viewedRef.current,
+    )
+    void Promise.all(
+      rows.map(async (row) => {
+        const text = await fetchRowDiff(row).catch(() => null)
+        return [rowKey(row), text === null ? "" : hashDiff(text)] as const
+      }),
+    ).then((pairs) => {
+      if (cancelled || !liveRef.current) return
+      const next = reconcileViewed(
+        viewedRef.current,
+        Object.fromEntries(pairs),
+      )
+      if (next !== viewedRef.current) setViewed(saveViewed(sessionId, next))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [staged, unstaged, fetchRowDiff, sessionId, diffEpoch])
+
+  async function toggleViewed(row: Row, on: boolean) {
+    const key = rowKey(row)
+    if (!on) {
+      setViewed((curr) => saveViewed(sessionId, withoutViewed(curr, key)))
+      return
+    }
+    const text = await fetchRowDiff(row).catch(() => null)
+    if (!liveRef.current || text === null) return
+    setViewed((curr) =>
+      saveViewed(sessionId, withViewed(curr, key, hashDiff(text))),
+    )
+    if (selected && rowKey(selected) === key) {
+      setSelected(null)
+      setDiff(null)
+    }
+  }
+
+  function stepFile(delta: number) {
+    if (allRows.length === 0) return
+    const next =
+      selectedIndex === -1
+        ? delta > 0
+          ? 0
+          : allRows.length - 1
+        : Math.min(allRows.length - 1, Math.max(0, selectedIndex + delta))
+    setSelected(allRows[next])
+  }
+
+  function handleNavKey(event: ReactKeyboardEvent<HTMLElement>) {
+    if (event.metaKey || event.ctrlKey || event.altKey) return
+    if (isEditableTarget(event.target)) return
+    const delta =
+      event.key === "j" || event.key === "ArrowDown"
+        ? 1
+        : event.key === "k" || event.key === "ArrowUp"
+          ? -1
+          : 0
+    if (delta === 0) return
+    event.preventDefault()
+    stepFile(delta)
+  }
 
   async function run(
     op: () => Promise<GitWorkingCopy | { ok: boolean; output: string }>,
@@ -521,12 +620,16 @@ export function SourceControl({
   function fileRow(row: Row) {
     const key = rowKey(row)
     const active = selected ? rowKey(selected) === key : false
+    const rowViewed = key in viewed
     // Only show when the trail already links this path to a tool call.
     const why = actionForPath(actions, row.file.path)
     const counts = hunkSummary?.[row.file.path]
     const hunkCount = (row.staged ? counts?.staged : counts?.unstaged) ?? 0
     return (
-      <li key={key} className={`scm-row ${active ? "active" : ""}`}>
+      <li
+        key={key}
+        className={`scm-row ${active ? "active" : ""}${rowViewed ? " viewed" : ""}`}
+      >
         <button
           type="button"
           className="scm-row-main"
@@ -566,6 +669,21 @@ export function SourceControl({
             {row.staged ? "−" : "+"}
           </button>
         </span>
+        <label
+          className={`scm-viewed${rowViewed ? " on" : ""}`}
+          title={
+            rowViewed
+              ? "Viewed — unchecks by itself when this diff changes"
+              : "Mark as viewed"
+          }
+        >
+          <input
+            type="checkbox"
+            checked={rowViewed}
+            aria-label={`Viewed: ${row.file.path}`}
+            onChange={(e) => void toggleViewed(row, e.currentTarget.checked)}
+          />
+        </label>
       </li>
     )
   }
@@ -573,9 +691,23 @@ export function SourceControl({
   const noRepo = copy.root === null
 
   return (
-    <aside className="scm" aria-label="Source control">
+    <aside
+      className="scm"
+      aria-label="Source control"
+      tabIndex={-1}
+      onKeyDown={handleNavKey}
+    >
       <header className="scm-head">
         <div className="scm-title">Source control</div>
+        {allRows.length > 0 ? (
+          <span
+            className="scm-pos"
+            title="j / k or arrow keys step between files"
+          >
+            {selectedIndex >= 0 ? `${selectedIndex + 1}/` : ""}
+            {allRows.length} file{allRows.length === 1 ? "" : "s"}
+          </span>
+        ) : null}
         <button type="button" className="icon-chip ghost scm-close" title="Close" onClick={onClose}>
           ×
         </button>
@@ -770,7 +902,10 @@ export function SourceControl({
                 />
               )
             ) : (
-              <p className="scm-hint">Select a file to see its diff.</p>
+              <p className="scm-hint">
+                Select a file to see its diff — <span className="kbd">j</span>{" "}
+                <span className="kbd">k</span> step between files.
+              </p>
             )}
           </div>
 

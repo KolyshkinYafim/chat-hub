@@ -55,6 +55,7 @@ type Props = {
   browserHeldBy?: string | null
   onTakeBrowser?: () => void
   onSelectSession: (id: string) => void
+  onSend: (text: string) => Promise<void>
   onGitChanged: () => void
   onSelectKind: (kind: SurfaceKind | null) => void
   onWidthChange: (width: number) => void
@@ -80,6 +81,7 @@ export function SurfaceDock({
   browserHeldBy = null,
   onTakeBrowser,
   onSelectSession,
+  onSend,
   onGitChanged,
   onSelectKind,
   onWidthChange,
@@ -220,6 +222,7 @@ export function SurfaceDock({
             refreshKey={gitRefreshKey}
             focus={diffFocus}
             actions={agentActions}
+            onSend={onSend}
             onClose={onClose}
             onChanged={onGitChanged}
           />

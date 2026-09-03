@@ -359,6 +359,7 @@ function PaneView({
         browserHeldBy={ownsBrowser ? null : browserHeldBy}
         onTakeBrowser={() => actions.onClaimBrowser(paneId)}
         onSelectSession={actions.onSelectSession}
+        onSend={send}
         onGitChanged={actions.onGitChanged}
         onSelectKind={selectSurface}
         onWidthChange={actions.onDockWidthChange}

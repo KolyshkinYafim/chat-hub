@@ -6,7 +6,6 @@ import {
   listComments,
   onDiffCommentsChanged,
 } from "../../lib/diff-comments"
-import { stashComposerInsert } from "../../lib/pending-prompt"
 import { SourceControl } from "../SourceControl"
 import { AgentAuditTrail } from "./AgentAuditTrail"
 
@@ -17,6 +16,7 @@ type Props = {
   focus: { path: string; at: number } | null
   /** Tool calls from the active session transcript (read-only audit trail). */
   actions?: AgentAction[]
+  onSend: (text: string) => Promise<void>
   onClose: () => void
   onChanged: () => void
 }
@@ -27,18 +27,28 @@ export function DiffSurface({
   refreshKey,
   focus,
   actions = [],
+  onSend,
   onClose,
   onChanged,
 }: Props) {
   const [, bump] = useState(0)
+  const [sending, setSending] = useState(false)
   useEffect(() => onDiffCommentsChanged(() => bump((v) => v + 1)), [])
   const comments = listComments(sessionId)
 
-  function sendToComposer() {
+  async function sendToAgent() {
     const message = buildReviewMessage(listComments(sessionId))
     if (message === null) return
-    stashComposerInsert(sessionId, message)
-    clearComments(sessionId)
+    setSending(true)
+    try {
+      const ok = await onSend(message).then(
+        () => true,
+        () => false,
+      )
+      if (ok) clearComments(sessionId)
+    } finally {
+      setSending(false)
+    }
   }
 
   return (
@@ -62,14 +72,16 @@ export function DiffSurface({
             <button
               type="button"
               className="tb-btn primary dcm-footer-send"
-              title="Put the batch in the composer for review — nothing sends until you do"
-              onClick={sendToComposer}
+              disabled={sending}
+              title="Send the batch to the agent as one message"
+              onClick={() => void sendToAgent()}
             >
-              Send to agent
+              {sending ? "Sending…" : "Send to agent"}
             </button>
             <button
               type="button"
               className="tb-btn"
+              disabled={sending}
               title="Drop all pending comments"
               onClick={() => clearComments(sessionId)}
             >
