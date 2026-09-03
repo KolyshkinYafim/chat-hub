@@ -98,7 +98,6 @@ type Props = {
   messages: ChatMessage[]
   hasOlderMessages: boolean
   loadingOlder: boolean
-  /** The transcript has not arrived yet — an empty list means nothing here. */
   transcriptPending: boolean
   highlightMessageId: string | null
   usage: SessionUsage | null

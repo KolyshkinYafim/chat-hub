@@ -117,7 +117,6 @@ type Props = {
   /** True when the session has older turns in the on-disk overflow archive. */
   hasOlderMessages?: boolean
   loadingOlder?: boolean
-  /** The window itself is still in flight, so an empty list says nothing yet. */
   transcriptPending?: boolean
   onLoadOlder?: () => void
   providers: ProviderInfo[]

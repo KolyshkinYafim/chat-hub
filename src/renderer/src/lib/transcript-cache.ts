@@ -1,7 +1,6 @@
 
 export const TRANSCRIPT_LRU = 8
 
-/** Newest first, capped. Returns the same array when nothing moved. */
 export function touchRecent(
   recent: readonly string[],
   id: string,

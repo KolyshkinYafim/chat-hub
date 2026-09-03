@@ -69,7 +69,6 @@ type Props = {
   scriptsByCwd: Record<string, ProjectScript[]>
   overflowHasMore: Record<string, boolean>
   loadingOlderFor: string | null
-  /** Sessions whose transcript is on its way in from main. */
   loadingTranscripts: ReadonlySet<string>
   sendingIds: ReadonlySet<string>
   highlight: { sessionId: string; messageId: string } | null

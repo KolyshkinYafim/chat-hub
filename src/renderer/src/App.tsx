@@ -563,9 +563,7 @@ export default function App() {
         setLayout(restored)
         activeIdRef.current = focusedPane(restored).sessionId
         // A session restored into a pane never goes through selectSession, and
-        // would show no scroll-back without this. `ensureTranscript` covers the
-        // pane the snapshot filled in for us, whose id the filter above could
-        // not know about.
+        // would show no scroll-back without this.
         for (const restoredPane of restored.panes) {
           if (restoredPane.sessionId) {
             void seedOverflowFlag(restoredPane.sessionId)

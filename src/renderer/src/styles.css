@@ -1196,8 +1196,6 @@ select:focus-visible {
   font-size: 12px;
 }
 
-/* Stands in for the turns while a cold session's window is fetched, so opening
-   one never flashes "Empty transcript" at a chat that has plenty to say. */
 .transcript-loading {
   display: flex;
   flex-direction: column;
