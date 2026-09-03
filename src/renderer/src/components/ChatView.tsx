@@ -63,7 +63,14 @@ import {
   itemPlanProgress,
   itemStep,
   planProgress,
+  stepPhase,
 } from "../lib/live-step"
+import {
+  allowanceTitle,
+  allowanceWindows,
+  reachedLabel,
+  windowLabel,
+} from "../lib/allowance"
 import {
   answerPayload,
   answersReady,
@@ -237,45 +244,6 @@ function AllowanceMeter({ limits }: { limits: ProviderRateLimits | null }) {
       ))}
     </div>
   )
-}
-
-type AllowanceWindow = { used: number; mins?: number; resets?: number }
-
-function allowanceWindows(limits: ProviderRateLimits): AllowanceWindow[] {
-  const out: AllowanceWindow[] = []
-  if (typeof limits.primaryUsed === "number") {
-    out.push({
-      used: limits.primaryUsed,
-      mins: limits.primaryWindowMins,
-      resets: limits.primaryResetsAt,
-    })
-  }
-  if (typeof limits.secondaryUsed === "number") {
-    out.push({
-      used: limits.secondaryUsed,
-      mins: limits.secondaryWindowMins,
-      resets: limits.secondaryResetsAt,
-    })
-  }
-  return out
-}
-
-function allowanceTitle(w: AllowanceWindow): string {
-  const spent = `${Math.round(w.used * 100)}% of the ${windowLabel(w.mins)} allowance used`
-  if (w.resets === undefined) return spent
-  return `${spent} · resets ${new Date(w.resets).toLocaleString("en-US")}`
-}
-
-function windowLabel(mins: number | undefined): string {
-  if (mins === undefined) return "window"
-  if (mins % 10080 === 0) return `${mins / 10080}w`
-  if (mins % 1440 === 0) return `${mins / 1440}d`
-  if (mins % 60 === 0) return `${mins / 60}h`
-  return `${mins}m`
-}
-
-function reachedLabel(reached: string): string {
-  return reached.replace(/_/g, " ")
 }
 
 function ItemBody({ item }: { item: AgentTurnItem }) {
@@ -1279,6 +1247,11 @@ export function ChatView({
   const availableEfforts = effortCapabilities.available
   const running = session.status === "running"
   const usageLabel = usage ? formatSessionUsage(usage) : null
+  const headPhase = running
+    ? liveTicker
+      ? stepPhase(liveTicker.step)
+      : "connecting"
+    : null
 
   return (
     <main className="main">
@@ -1288,6 +1261,8 @@ export function ChatView({
         dockOpen={dockOpen}
         scripts={scripts}
         inboxCount={inboxCount}
+        limits={limits}
+        phase={headPhase}
         onOpenInbox={onOpenInbox}
         onRunScript={onRunScript}
         onSaveScripts={onSaveScripts}
@@ -1404,7 +1379,7 @@ export function ChatView({
           </div>
         ) : messages.length === 0 ? (
           <div className="transcript-empty">
-            <p>Empty transcript</p>
+            <p>No messages yet</p>
             <span>
               Message goes to <strong>{session.provider}</strong>
               {session.model ? (
@@ -1415,13 +1390,21 @@ export function ChatView({
               ) : null}{" "}
               in <code>{session.cwd}</code>
             </span>
+            <span className="empty-hint">
+              <span className="kbd">↩</span> send
+              <span className="kbd">⇧↩</span> newline
+              <span className="kbd">⌘K</span> switch session
+            </span>
           </div>
         ) : (
           <>
           {hasOlderMessages || loadingOlder ? (
             <div className="transcript-load-older">
               {loadingOlder ? (
-                <span className="dim">Loading earlier messages…</span>
+                <span
+                  className="skel-line older-skel"
+                  aria-label="Loading earlier messages"
+                />
               ) : (
                 <button
                   type="button"
@@ -1744,7 +1727,10 @@ export function ChatView({
                   >
                     {stash.length === 0 ? (
                       <div className="stash-empty">
-                        ⌘S stashes the current draft
+                        No stashed drafts.
+                        <span className="empty-hint">
+                          <span className="kbd">⌘S</span> stash the draft
+                        </span>
                       </div>
                     ) : (
                       stash.map((entry) => {

@@ -1,7 +1,12 @@
 import { oneLine } from "@shared/text"
 import { splitToolName, summarizeToolArgs, type PlanStep } from "@shared/tool-card"
-import type { AgentTurnItem } from "@shared/types"
-import { unwrapShell, type ToolCall, type TranscriptBlock } from "./tool-runs"
+import type { AgentTurnItem, ChatMessage, SessionStatus } from "@shared/types"
+import {
+  buildTranscript,
+  unwrapShell,
+  type ToolCall,
+  type TranscriptBlock,
+} from "./tool-runs"
 
 export type LiveStep = {
   key: string
@@ -9,6 +14,35 @@ export type LiveStep = {
   label: string
   detail: string | null
   server: string | null
+}
+
+export type LivePhase = "connecting" | "thinking" | "tool"
+
+export function stepPhase(step: LiveStep): LivePhase {
+  if (step.kind === "starting") return "connecting"
+  if (step.kind === "tool") return "tool"
+  return "thinking"
+}
+
+export const phaseLabel: Record<LivePhase, string> = {
+  connecting: "Connecting",
+  thinking: "Thinking",
+  tool: "Running a tool",
+}
+
+export function livePhase(
+  messages: readonly ChatMessage[] | undefined,
+  status: SessionStatus,
+): LivePhase | null {
+  if (status !== "running") return null
+  const last = messages?.[messages.length - 1]
+  if (!last || last.role !== "assistant" || last.streaming !== true) {
+    return "connecting"
+  }
+  const step =
+    itemStep(last.items) ??
+    currentStep(buildTranscript(last.content, last.id).blocks)
+  return stepPhase(step)
 }
 
 export type PlanProgress = {

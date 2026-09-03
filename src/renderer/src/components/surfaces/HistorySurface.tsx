@@ -103,7 +103,11 @@ export function HistorySurface({ cwd, refreshKey }: Props) {
       </header>
       {err ? <div className="scm-notice">{err}</div> : null}
       {loading && commits.length === 0 ? (
-        <div className="scm-empty">Reading the log…</div>
+        <div className="scm-loading" aria-label="Reading the log">
+          <span className="skel-line" />
+          <span className="skel-line" />
+          <span className="skel-line" />
+        </div>
       ) : null}
       {!loading && !err && commits.length === 0 ? (
         <div className="scm-empty">
@@ -140,7 +144,13 @@ export function HistorySurface({ cwd, refreshKey }: Props) {
               detail?.sha === commit.sha ? (
                 <CommitDetail detail={detail} />
               ) : (
-                <div className="scm-empty">Loading this commit…</div>
+                <div
+                  className="scm-loading"
+                  aria-label="Loading this commit"
+                >
+                  <span className="skel-line" />
+                  <span className="skel-line" />
+                </div>
               )
             ) : null}
           </li>

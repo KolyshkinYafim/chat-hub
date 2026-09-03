@@ -6,7 +6,7 @@ import type {
   SessionUsage,
 } from "@shared/types"
 import { buildFleet, fleetSummary, type FleetRow } from "../../lib/fleet"
-import { formatElapsed } from "../../lib/live-step"
+import { formatElapsed, stepPhase } from "../../lib/live-step"
 import { formatRelative } from "../../lib/format"
 import { formatUsd } from "../../lib/usage"
 import { StatusDot } from "../StatusDot"
@@ -45,6 +45,9 @@ export function FleetSurface({
     return (
       <div className="fleet-empty">
         No sessions yet — agents you start will line up here.
+        <span className="empty-hint">
+          <span className="kbd">⌘N</span> new session
+        </span>
       </div>
     )
   }
@@ -101,7 +104,7 @@ function FleetRowButton({
         <span className="fleet-row-sub">
           {row.step ? (
             <>
-              <span className="live-ticker-dot" aria-hidden />
+              <span className={`orb ${stepPhase(row.step)}`} aria-hidden />
               <span className="fleet-step-label">{row.step.label}</span>
               {row.step.detail ? (
                 <span className="fleet-step-detail">· {row.step.detail}</span>

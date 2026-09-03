@@ -17,6 +17,7 @@ import { needsAction } from "@shared/attention"
 import type { EffortLevel, Mode, ModelInfo } from "@shared/settings-types"
 import type { ProjectScript } from "@shared/scripts"
 import { collectAgentActions, editedPathsInMessage } from "../lib/agent-actions"
+import { livePhase } from "../lib/live-step"
 import type { SurfaceKind } from "../lib/surface-bridge"
 import type { Pane } from "../lib/pane-layout"
 import {
@@ -197,6 +198,10 @@ function PaneView({
   // The diff surface reads the same tool cards the transcript already parsed,
   // so there is one answer to "what did this turn change" rather than two.
   const agentActions = useMemo(() => collectAgentActions(messages), [messages])
+  const panePhase = useMemo(
+    () => (session ? livePhase(messages, session.status) : null),
+    [messages, session],
+  )
 
   const autoOpenSeenRef = useRef<{ messageId: string; count: number }>({
     messageId: "",
@@ -402,6 +407,7 @@ function PaneView({
           <StatusDot
             status={session.status}
             attention={needsAction(session)}
+            phase={panePhase}
           />
         ) : null}
         <span className="pane-head-title" title={session?.cwd}>
