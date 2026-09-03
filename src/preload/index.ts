@@ -487,8 +487,15 @@ const api = {
   reportAttentionCount: (count: number): void => {
     ipcRenderer.send(IpcChannels.attentionCount, count)
   },
-  reportWindowSessions: (sessionIds: string[]): void => {
-    ipcRenderer.send(IpcChannels.windowSessions, sessionIds)
+  reportWindowSessions: (
+    sessionIds: string[],
+    attachedIds?: string[],
+  ): void => {
+    ipcRenderer.send(
+      IpcChannels.windowSessions,
+      sessionIds,
+      attachedIds ?? sessionIds,
+    )
   },
   openWindow: (sessionId?: string): Promise<number> =>
     ipcRenderer.invoke(IpcChannels.windowOpen, sessionId ?? null),

@@ -1,3 +1,4 @@
+import { oneLine } from "@shared/text"
 import type { AgentInputRequestInfo, ChatMessage } from "@shared/types"
 import { describeItem } from "./live-step"
 
@@ -144,7 +145,7 @@ function leadOf(content: string): string | null {
     .map((line) => plain(line))
     .filter(Boolean)
   const last = lines[lines.length - 1]
-  return last ? clamp(last, LEAD_MAX) : null
+  return last ? oneLine(last, LEAD_MAX) : null
 }
 
 function stepsOf(items: ChatMessage["items"]): string[] {
@@ -152,7 +153,7 @@ function stepsOf(items: ChatMessage["items"]): string[] {
   for (const item of items ?? []) {
     if (item.kind === "reasoning" || item.status === "pending") continue
     const { label, detail } = describeItem(item)
-    const line = detail ? `${label} · ${clamp(detail, DETAIL_MAX)}` : label
+    const line = detail ? `${label} · ${oneLine(detail, DETAIL_MAX)}` : label
     if (line !== done[done.length - 1]) done.push(line)
   }
   return done.slice(-STEP_MAX)
@@ -166,10 +167,6 @@ function plain(line: string): string {
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .trim()
-}
-
-function clamp(text: string, limit: number): string {
-  return text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text
 }
 
 function capitalize(value: string): string {

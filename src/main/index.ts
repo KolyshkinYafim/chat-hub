@@ -169,10 +169,12 @@ type HubWindow = {
   window: BrowserWindow
   zoom: ZoomController
   sessions: Set<string>
+  attached: Set<string> | null
   cockpit: CockpitWindow
 }
 
 const windows = new WindowRegistry<HubWindow>()
+let developerMenuInstalled = false
 let manager: SessionManager | null = null
 let commandBridge: MonitorCommandBridge | null = null
 let permissions: PermissionBroker | null = null
@@ -290,14 +292,25 @@ function registerWindowIpc(): void {
     dockBadge?.setRendererCount(hub.id, count)
   })
 
-  ipcMain.on(IpcChannels.windowSessions, (event, sessionIds: unknown) => {
-    const hub = hubForWebContents(event.sender.id)
-    if (!hub) return
-    if (!Array.isArray(sessionIds)) return
-    hub.sessions = new Set(
-      sessionIds.filter((id): id is string => typeof id === "string" && id !== ""),
-    )
-  })
+  ipcMain.on(
+    IpcChannels.windowSessions,
+    (event, sessionIds: unknown, attachedIds: unknown) => {
+      const hub = hubForWebContents(event.sender.id)
+      if (!hub) return
+      if (!Array.isArray(sessionIds)) return
+      hub.sessions = new Set(
+        sessionIds.filter(
+          (id): id is string => typeof id === "string" && id !== "",
+        ),
+      )
+      const attached = Array.isArray(attachedIds) ? attachedIds : sessionIds
+      hub.attached = new Set(
+        [...attached, ...hub.sessions].filter(
+          (id): id is string => typeof id === "string" && id !== "",
+        ),
+      )
+    },
+  )
 
   ipcMain.handle(IpcChannels.windowOpen, (_e, sessionId: unknown) => {
     const seed = typeof sessionId === "string" && sessionId ? sessionId : null
@@ -469,7 +482,14 @@ function createWindow(options: CreateWindowOptions = {}): HubWindow {
     },
   )
 
-  const hub: HubWindow = { id, window, zoom, sessions: new Set(), cockpit }
+  const hub: HubWindow = {
+    id,
+    window,
+    zoom,
+    sessions: new Set(),
+    attached: null,
+    cockpit,
+  }
   windows.add(id, hub)
 
   applyHubCockpit(hub)
@@ -498,16 +518,19 @@ function createWindow(options: CreateWindowOptions = {}): HubWindow {
   hardenWebviewHost(window.webContents, (url) => {
     void shell.openExternal(url)
   })
-  installDeveloperMenu(() => focusedHubWindow()?.window ?? null, {
-    zoom: {
-      zoomIn: () => focusedHubWindow()?.zoom.zoomIn(),
-      zoomOut: () => focusedHubWindow()?.zoom.zoomOut(),
-      reset: () => focusedHubWindow()?.zoom.reset(),
-    },
-    newWindow: () => {
-      createWindow({ fresh: true })
-    },
-  })
+  if (!developerMenuInstalled) {
+    developerMenuInstalled = true
+    installDeveloperMenu(() => focusedHubWindow()?.window ?? null, {
+      zoom: {
+        zoomIn: () => focusedHubWindow()?.zoom.zoomIn(),
+        zoomOut: () => focusedHubWindow()?.zoom.zoomOut(),
+        reset: () => focusedHubWindow()?.zoom.reset(),
+      },
+      newWindow: () => {
+        createWindow({ fresh: true })
+      },
+    })
+  }
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (isSafeExternalUrl(url)) {
@@ -1811,6 +1834,18 @@ async function bootstrap(): Promise<void> {
 
   bus.on((event) => {
     if (event.type === "session.active") return
+    if (
+      event.type === "chat.delta" ||
+      event.type === "chat.item" ||
+      event.type === "chat.done"
+    ) {
+      for (const hub of liveWindows()) {
+        if (hub.attached === null || hub.attached.has(event.sessionId)) {
+          sendToWindow(hub, IpcChannels.hubEvent, event)
+        }
+      }
+      return
+    }
     sendToRenderer(IpcChannels.hubEvent, event)
   })
 

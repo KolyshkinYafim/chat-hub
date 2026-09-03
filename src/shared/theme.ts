@@ -218,12 +218,6 @@ export const GLASS_SURFACE_TOKENS: Partial<Record<ThemeToken, string>> = {
 export const GLASS_SCRIM = "rgba(12, 13, 18, 0.88)"
 export const GLASS_CLEAR = "rgba(0, 0, 0, 0)"
 
-export const GLASS_THEME: ThemeDef = {
-  id: "glass",
-  name: "Glass",
-  tokens: { ...BASE_TOKENS, ...GLASS_SURFACE_TOKENS },
-}
-
 export function withGlassSurfaces(def: ThemeDef): ThemeDef {
   const source = isLightTheme(def) ? BASE_TOKENS : { ...BASE_TOKENS, ...def.tokens }
   return {

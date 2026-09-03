@@ -1,3 +1,4 @@
+import { oneLine } from "@shared/text"
 import { activityStamp, needsAction } from "@shared/attention"
 import type {
   AgentInputRequestInfo,
@@ -25,9 +26,7 @@ const UNKNOWN_TITLE = "Unknown session"
 const UNKNOWN_PROJECT = "—"
 
 export function inboxOneLine(text: string, limit = BODY_MAX): string {
-  const flat = text.replace(/\s+/g, " ").trim()
-  if (flat.length <= limit) return flat
-  return `${flat.slice(0, limit - 1).trimEnd()}…`
+  return oneLine(text, limit)
 }
 
 export function inboxPrimaryAction(kind: InboxKind): "allow" | "open" {

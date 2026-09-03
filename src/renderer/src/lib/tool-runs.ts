@@ -1,3 +1,4 @@
+import { oneLine } from "@shared/text"
 import type { ToolCardMeta } from "@shared/tool-card"
 import { splitBlocks, type Block } from "./markdown"
 import { shortenIfPath } from "./short-path"
@@ -276,8 +277,7 @@ function firstLine(text: string): string {
 }
 
 function clamp(text: string): string {
-  const flat = text.replace(/\s+/g, " ").trim()
-  return flat.length > TITLE_MAX ? `${flat.slice(0, TITLE_MAX - 1)}…` : flat
+  return oneLine(text, TITLE_MAX)
 }
 
 export function collapseOutput(text: string): {

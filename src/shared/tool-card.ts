@@ -1,3 +1,5 @@
+import { oneLine } from "./text"
+
 /** One step of a Claude TodoWrite / Codex update_plan checklist. */
 export type PlanStepStatus = "pending" | "in_progress" | "completed"
 
@@ -182,28 +184,23 @@ const ARG_PATH_KEYS = [
  * genuinely empty payload returns "".
  */
 export function summarizeToolArgs(args: unknown, limit = 120): string {
-  if (typeof args === "string") return clampArg(args, limit)
+  if (typeof args === "string") return oneLine(args, limit)
   if (!args || typeof args !== "object") return ""
-  if (Array.isArray(args)) return clampArg(JSON.stringify(args), limit)
+  if (Array.isArray(args)) return oneLine(JSON.stringify(args), limit)
   const o = args as Record<string, unknown>
   const plan = planStepsFromInput(o)
   if (plan.length > 0) {
     const active =
       plan.find((step) => step.status === "in_progress") ??
       plan.find((step) => step.status === "pending")
-    return clampArg(active?.text ?? `${plan.length} steps`, limit)
+    return oneLine(active?.text ?? `${plan.length} steps`, limit)
   }
   for (const key of [...ARG_TEXT_KEYS, ...ARG_PATH_KEYS, "description"]) {
     const value = o[key]
-    if (typeof value === "string" && value.trim()) return clampArg(value, limit)
+    if (typeof value === "string" && value.trim()) return oneLine(value, limit)
   }
   const json = JSON.stringify(o) ?? ""
-  return json.length > 2 ? clampArg(json, limit) : ""
-}
-
-function clampArg(text: string, limit: number): string {
-  const flat = text.replace(/\s+/g, " ").trim()
-  return flat.length > limit ? `${flat.slice(0, limit - 1)}…` : flat
+  return json.length > 2 ? oneLine(json, limit) : ""
 }
 
 const MCP_TOOL_NAME = /^mcp__(.+?)__(.+)$/

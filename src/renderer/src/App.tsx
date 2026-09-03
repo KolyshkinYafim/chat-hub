@@ -288,20 +288,34 @@ export default function App() {
     [],
   )
 
+  const reportAttachment = useCallback(() => {
+    const panes = layoutRef.current.panes
+      .map((p) => p.sessionId)
+      .filter((id): id is string => id !== null)
+    window.chatHub.reportWindowSessions(panes, [
+      ...new Set([...panes, ...attachedRef.current]),
+    ])
+  }, [])
+
   const attachTranscripts = useCallback(
     (loaded: Record<string, ChatMessage[]>) => {
       for (const id of Object.keys(loaded)) attachedRef.current.add(id)
+      reportAttachment()
       setMessagesBySession((curr) => ({ ...curr, ...loaded }))
     },
-    [],
+    [reportAttachment],
   )
 
-  const detachTranscripts = useCallback((ids: ReadonlySet<string>) => {
-    if (ids.size === 0) return
-    for (const id of ids) attachedRef.current.delete(id)
-    setMessagesBySession((curr) => withoutKeys(curr, ids))
-    setOverflowHasMore((curr) => withoutKeys(curr, ids))
-  }, [])
+  const detachTranscripts = useCallback(
+    (ids: ReadonlySet<string>) => {
+      if (ids.size === 0) return
+      for (const id of ids) attachedRef.current.delete(id)
+      reportAttachment()
+      setMessagesBySession((curr) => withoutKeys(curr, ids))
+      setOverflowHasMore((curr) => withoutKeys(curr, ids))
+    },
+    [reportAttachment],
+  )
 
   const ensureTranscript = useCallback(
     (id: string): Promise<ChatMessage[]> => {
@@ -311,6 +325,7 @@ export default function App() {
         return Promise.resolve(messagesBySessionRef.current[id] ?? [])
       }
       attachedRef.current.add(id)
+      reportAttachment()
       setLoadingTranscripts((curr) => new Set(curr).add(id))
       const fetching = window.chatHub
         .getMessages(id)
@@ -323,6 +338,7 @@ export default function App() {
         })
         .catch((err: unknown) => {
           attachedRef.current.delete(id)
+          reportAttachment()
           setError(err instanceof Error ? err.message : String(err))
           return [] as ChatMessage[]
         })
@@ -338,7 +354,7 @@ export default function App() {
       transcriptFetchRef.current.set(id, fetching)
       return fetching
     },
-    [],
+    [reportAttachment],
   )
 
   const noteRecent = useCallback((id: string) => {
@@ -661,12 +677,8 @@ export default function App() {
   }, [layout, windowId])
 
   useEffect(() => {
-    window.chatHub.reportWindowSessions(
-      layout.panes
-        .map((p) => p.sessionId)
-        .filter((id): id is string => id !== null),
-    )
-  }, [layout])
+    reportAttachment()
+  }, [layout, reportAttachment])
 
   useEffect(() => {
     sessionsRef.current = sessions

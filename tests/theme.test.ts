@@ -9,7 +9,6 @@ import {
   GLASS_CLEAR,
   GLASS_SCRIM,
   GLASS_SURFACE_TOKENS,
-  GLASS_THEME,
   isLightTheme,
   isThemeColor,
   parseThemeDef,
@@ -181,7 +180,6 @@ describe("applyTheme", () => {
 describe("glass overlay", () => {
   it("is not a built-in picker theme", () => {
     expect(BUILTIN_THEMES.some((theme) => theme.id === "glass")).toBe(false)
-    expect(GLASS_THEME.id).toBe("glass")
     expect(isThemeColor(GLASS_SURFACE_TOKENS["--bg-sidebar"]!)).toBe(true)
   })
 
