@@ -289,7 +289,16 @@ export function ProjectSearch({
         </div>
         <div className="palette-list psearch-list" role="listbox">
           {rowCount === 0 ? (
-            <div className="palette-empty">{emptyText()}</div>
+            (mode === "files" && !filesError && files === null) ||
+            (mode === "content" && !searchError && searching) ? (
+              <div className="palette-loading" aria-label={emptyText()}>
+                <span className="skel-line" />
+                <span className="skel-line" />
+                <span className="skel-line" />
+              </div>
+            ) : (
+              <div className="palette-empty">{emptyText()}</div>
+            )
           ) : mode === "files" ? (
             renderFileRows()
           ) : (

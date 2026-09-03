@@ -162,7 +162,15 @@ export function AgentInbox({
         </header>
         <div className="inbox-body" role="listbox" aria-label="Waiting items">
           {cards.length === 0 ? (
-            <div className="inbox-empty">All clear</div>
+            <div className="inbox-empty">
+              <p>All clear</p>
+              <span>
+                Permission asks, agent questions and failures land here.
+              </span>
+              <span className="empty-hint">
+                <span className="kbd">esc</span> close
+              </span>
+            </div>
           ) : (
             cards.map((card, index) => {
               const selected = index === active

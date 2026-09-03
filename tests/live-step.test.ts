@@ -6,10 +6,12 @@ import {
   formatElapsed,
   itemPlanProgress,
   itemStep,
+  livePhase,
   planProgress,
+  stepPhase,
 } from "@renderer/lib/live-step"
 import { summarizeToolArgs } from "@shared/tool-card"
-import type { AgentTurnItem } from "@shared/types"
+import type { AgentTurnItem, ChatMessage } from "@shared/types"
 
 function stepFor(src: string) {
   return currentStep(buildTranscript(src).blocks)
@@ -328,5 +330,77 @@ describe("summarizeToolArgs", () => {
   it("stays empty for an argument-free call", () => {
     expect(summarizeToolArgs({})).toBe("")
     expect(summarizeToolArgs(undefined)).toBe("")
+  })
+})
+
+describe("livePhase", () => {
+  const msg = (over: Partial<ChatMessage>): ChatMessage => ({
+    id: "m1",
+    sessionId: "s1",
+    role: "assistant",
+    content: "",
+    createdAt: 0,
+    ...over,
+  })
+
+  it("is null unless the session is running", () => {
+    expect(livePhase([], "idle")).toBeNull()
+    expect(livePhase([msg({ streaming: true })], "waiting_input")).toBeNull()
+    expect(livePhase(undefined, "done")).toBeNull()
+  })
+
+  it("connects before any assistant stream exists", () => {
+    expect(livePhase([], "running")).toBe("connecting")
+    expect(livePhase(undefined, "running")).toBe("connecting")
+    expect(livePhase([msg({ role: "user", content: "go" })], "running")).toBe(
+      "connecting",
+    )
+    expect(livePhase([msg({ streaming: false })], "running")).toBe("connecting")
+  })
+
+  it("reads an open tool fence as the tool phase", () => {
+    const streaming = msg({
+      streaming: true,
+      content: toolUseBlock("Bash", { command: "pnpm test" }, "toolu_a"),
+    })
+    expect(livePhase([streaming], "running")).toBe("tool")
+  })
+
+  it("reads a closed reasoning tail as thinking", () => {
+    const streaming = msg({
+      streaming: true,
+      content: "\n\n```thinking\nhmm\n```\n\n",
+    })
+    expect(livePhase([streaming], "running")).toBe("thinking")
+  })
+
+  it("prefers structured items over the prose", () => {
+    const item: AgentTurnItem = {
+      id: "i1",
+      kind: "command",
+      command: "ls",
+      status: "running",
+    }
+    const streaming = msg({
+      streaming: true,
+      content: "prose tail",
+      items: [item],
+    })
+    expect(livePhase([streaming], "running")).toBe("tool")
+  })
+
+  it("maps writing prose to the thinking orb", () => {
+    const streaming = msg({ streaming: true, content: "Plain prose so far" })
+    expect(livePhase([streaming], "running")).toBe("thinking")
+  })
+})
+
+describe("stepPhase", () => {
+  it("maps every step kind onto the three orbs", () => {
+    const base = { key: "k", label: "", detail: null, server: null }
+    expect(stepPhase({ ...base, kind: "starting" })).toBe("connecting")
+    expect(stepPhase({ ...base, kind: "thinking" })).toBe("thinking")
+    expect(stepPhase({ ...base, kind: "writing" })).toBe("thinking")
+    expect(stepPhase({ ...base, kind: "tool" })).toBe("tool")
   })
 })

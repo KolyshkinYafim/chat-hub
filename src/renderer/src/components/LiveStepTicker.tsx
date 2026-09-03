@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import type { LiveStep, PlanProgress } from "../lib/live-step"
-import { formatElapsed } from "../lib/live-step"
+import { formatElapsed, stepPhase } from "../lib/live-step"
 
 export type LiveStepTickerProps = {
   step: LiveStep
@@ -29,7 +29,7 @@ export function LiveStepTicker({ step, plan, onJump }: LiveStepTickerProps) {
       title="Scroll to the live card"
       aria-live="polite"
     >
-      <span className="live-ticker-dot" aria-hidden />
+      <span className={`orb ${stepPhase(step)}`} aria-hidden />
       <span
         className="live-ticker-label"
         title={step.server ?? undefined}

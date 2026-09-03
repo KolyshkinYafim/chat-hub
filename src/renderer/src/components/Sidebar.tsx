@@ -8,6 +8,7 @@ import {
   type TranscriptHit,
 } from "@shared/search"
 import { formatRelative, statusLabel } from "../lib/format"
+import { livePhase } from "../lib/live-step"
 import { PROJECT_MIME, SESSION_MIME } from "../lib/pane-layout"
 import { needsAction } from "@shared/attention"
 import { type AttentionSeen } from "../lib/attention"
@@ -361,7 +362,12 @@ export function Sidebar({
       >
         <div className="session-row-main t3">
           {live ? (
-            <StatusDot status={s.status} showLabel attention={needsAction(s)} />
+            <StatusDot
+              status={s.status}
+              showLabel
+              attention={needsAction(s)}
+              phase={livePhase(messagesBySession[s.id], s.status)}
+            />
           ) : null}
           {editing ? (
             <input
@@ -652,6 +658,12 @@ export function Sidebar({
             placeholder="Search sessions & messages"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && query) {
+                e.stopPropagation()
+                setQuery("")
+              }
+            }}
             aria-label="Search sessions and transcripts"
           />
           {query ? (
@@ -769,6 +781,9 @@ export function Sidebar({
             {query ? (
               <>
                 Nothing matches <b>{query}</b> in titles or transcripts.
+                <span className="empty-hint">
+                  <span className="kbd">esc</span> clear search
+                </span>
               </>
             ) : statusFilter === "waiting" ? (
               <>No session is waiting on you right now.</>
@@ -778,6 +793,9 @@ export function Sidebar({
               <>
                 No projects yet. Use <b>＋ Add project</b> to pin a folder, or
                 start a session.
+                <span className="empty-hint">
+                  <span className="kbd">⌘N</span> new session
+                </span>
               </>
             )}
           </div>

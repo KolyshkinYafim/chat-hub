@@ -1,10 +1,16 @@
 import { useState } from "react"
-import type { GitCheckoutInfo, SessionMeta } from "@shared/types"
+import type {
+  GitCheckoutInfo,
+  ProviderRateLimits,
+  SessionMeta,
+} from "@shared/types"
 import type { ProjectScript } from "@shared/scripts"
 import { attentionBadge, needsAction } from "@shared/attention"
 import { StatusDot } from "./StatusDot"
 import { ScriptsMenu } from "./ScriptsMenu"
 import { shortCwd, statusLabel } from "../lib/format"
+import { formatQuotaChip, quotaChipTitle } from "../lib/allowance"
+import { phaseLabel, type LivePhase } from "../lib/live-step"
 import { PanelIcon } from "./surfaces/SurfaceIcon"
 
 type Props = {
@@ -13,6 +19,8 @@ type Props = {
   dockOpen: boolean
   scripts: ProjectScript[]
   inboxCount: number
+  limits?: ProviderRateLimits | null
+  phase?: LivePhase | null
   onOpenInbox: () => void
   onRunScript: (script: ProjectScript) => void
   onSaveScripts: (scripts: ProjectScript[]) => Promise<void>
@@ -29,6 +37,8 @@ export function TopBar({
   dockOpen,
   scripts,
   inboxCount,
+  limits = null,
+  phase = null,
   onOpenInbox,
   onRunScript,
   onSaveScripts,
@@ -40,11 +50,20 @@ export function TopBar({
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
   const badge = attentionBadge(inboxCount)
+  const quota = formatQuotaChip(limits)
+  const statusHint =
+    session.status === "running" && phase !== null
+      ? phaseLabel[phase]
+      : statusLabel[session.status]
   return (
     <header className="topbar">
       <div className="topbar-left">
-        <span title={`${statusLabel[session.status]} · ${session.provider}`}>
-          <StatusDot status={session.status} attention={needsAction(session)} />
+        <span title={`${statusHint} · ${session.provider}`}>
+          <StatusDot
+            status={session.status}
+            attention={needsAction(session)}
+            phase={phase}
+          />
         </span>
         <h1 className="topbar-title">
           <button
@@ -68,6 +87,17 @@ export function TopBar({
               <span className="mono-soft" title={git.dirty ? "dirty" : "clean"}>
                 {git.branch}
                 {git.dirty ? " *" : ""}
+              </span>
+            </>
+          ) : null}
+          {quota ? (
+            <>
+              <span className="sep">·</span>
+              <span
+                className="quota-chip"
+                title={quotaChipTitle(limits) ?? undefined}
+              >
+                {quota}
               </span>
             </>
           ) : null}
