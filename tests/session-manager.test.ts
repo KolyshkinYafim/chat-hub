@@ -207,7 +207,7 @@ describe("live activity meta", () => {
     await sm.sendMessage(session.id, "go")
     expect(sm.getSession(session.id)?.live).toBeDefined()
     await sm.flush()
-    const raw = JSON.parse(await readFile(persistence.filePath, "utf8"))
+    const raw = JSON.parse(await readFile(persistence.indexPath, "utf8"))
     const saved = raw.sessions.find(
       (s: { id: string }) => s.id === session.id,
     )
