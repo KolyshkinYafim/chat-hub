@@ -1378,7 +1378,7 @@ export class SessionManager {
         sessionId,
         messages: [...list],
       })
-      this.scheduleSave()
+      this.scheduleSessionSave(sessionId)
     }
     this.emitQueue(sessionId)
     return this.listQueued(sessionId)
