@@ -1,6 +1,5 @@
 
 export const TRANSCRIPT_LRU = 8
-export const RUNNING_HOLD = 12
 
 export function touchRecent(
   recent: readonly string[],

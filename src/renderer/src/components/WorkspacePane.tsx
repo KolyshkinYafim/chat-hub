@@ -18,7 +18,8 @@ import { needsAction } from "@shared/attention"
 import type { EffortLevel, Mode, ModelInfo } from "@shared/settings-types"
 import type { ProjectScript } from "@shared/scripts"
 import { collectAgentActions, editedPathsInMessage } from "../lib/agent-actions"
-import { livePhase } from "../lib/live-step"
+import type { AttentionSeen } from "../lib/attention"
+import { sessionPhase } from "../lib/live-step"
 import type { SurfaceKind } from "../lib/surface-bridge"
 import type { Pane } from "../lib/pane-layout"
 import {
@@ -139,8 +140,8 @@ type Props = {
   } | null
   /** Whole-app state the fleet surface lists; only read when that tab is open. */
   sessions: SessionMeta[]
-  messagesBySession: Record<string, ChatMessage[]>
   usageBySession: Record<string, SessionUsage>
+  attentionSeen: AttentionSeen
   queuedBySession: Record<string, QueuedMessage[]>
   actions: PaneActions
   containerProps?: HTMLAttributes<HTMLElement>
@@ -184,8 +185,8 @@ function PaneView({
   diffFocus,
   filesFocus,
   sessions,
-  messagesBySession,
   usageBySession,
+  attentionSeen,
   queuedBySession,
   actions,
   containerProps,
@@ -206,7 +207,7 @@ function PaneView({
   // so there is one answer to "what did this turn change" rather than two.
   const agentActions = useMemo(() => collectAgentActions(messages), [messages])
   const panePhase = useMemo(
-    () => (session ? livePhase(messages, session.status) : null),
+    () => (session ? sessionPhase(session, messages) : null),
     [messages, session],
   )
 
@@ -366,8 +367,8 @@ function PaneView({
         hookRuns={hookRuns}
         agentActions={agentActions}
         sessions={sessions}
-        messagesBySession={messagesBySession}
         usageBySession={usageBySession}
+        attentionSeen={attentionSeen}
         queuedBySession={queuedBySession}
         browserHeldBy={ownsBrowser ? null : browserHeldBy}
         onTakeBrowser={() => actions.onClaimBrowser(paneId)}

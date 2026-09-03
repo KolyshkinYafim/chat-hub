@@ -1,7 +1,10 @@
 import { oneLine } from "@shared/text"
+import { unwrapShell } from "@shared/live"
 import type { ToolCardMeta } from "@shared/tool-card"
 import { splitBlocks, type Block } from "./markdown"
 import { shortenIfPath } from "./short-path"
+
+export { unwrapShell }
 
 export type ToolResult = {
   text: string
@@ -255,15 +258,6 @@ function delta(meta: ToolCardMeta): string {
   const removed = meta.removed ?? 0
   if (added === 0 && removed === 0) return ""
   return ` +${added} −${removed}`
-}
-
-const SHELL_WRAP =
-  /^\S*\b(?:bash|zsh|sh)\s+-[a-z]*c\s+(['"])([\s\S]*)\1\s*$/
-
-/** `/bin/zsh -lc "…"` is a wrapper the reader never typed — show what is inside. */
-export function unwrapShell(command: string): string {
-  const wrapped = SHELL_WRAP.exec(command.trim())
-  return wrapped ? wrapped[2]!.trim() : command
 }
 
 function baseName(path: string): string {

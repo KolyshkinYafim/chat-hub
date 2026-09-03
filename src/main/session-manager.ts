@@ -6,12 +6,14 @@ import type {
   ProviderRateLimits,
   QueueMoveDirection,
   QueuedMessage,
+  SessionLiveActivity,
   SessionMeta,
   SessionSnapshot,
   SessionStatus,
   SessionUsage,
   TurnUsage,
 } from "@shared/types"
+import { LiveActivityTracker } from "./live-activity"
 import { normalizeProject } from "@shared/project"
 import { getAdapter } from "./adapters"
 import { resolveBinaryForSpawn } from "./provider-probe"
@@ -153,6 +155,7 @@ export class SessionManager {
   private readonly generateTitleFn: TitleGenerator
   private readonly usageLedger: UsageLedger | null
   private readonly worktreeSetup: WorktreeSetupRunner
+  private readonly liveActivity = new LiveActivityTracker()
 
   constructor(
     private readonly bus: EventBus,
@@ -1087,6 +1090,7 @@ export class SessionManager {
     }
     const token = this.nextTurnToken++
     this.turns.set(sessionId, { lastActivityAt: Date.now(), token })
+    this.emitLive(sessionId, this.liveActivity.begin(sessionId))
     // Independent of each other, so reading `.chathub/context` costs the turn
     // no latency of its own — it overlaps the snapshot gate.
     const [systemPrompt] = await Promise.all([
@@ -1550,6 +1554,7 @@ export class SessionManager {
     this.sessions.delete(sessionId)
     this.messages.delete(sessionId)
     this.turns.delete(sessionId)
+    this.liveActivity.clear(sessionId)
     this.queued.delete(sessionId)
     this.usage.delete(sessionId)
     this.configNoted.delete(sessionId)
@@ -1600,6 +1605,7 @@ export class SessionManager {
     this.sessions.clear()
     this.messages.clear()
     this.turns.clear()
+    for (const id of ids) this.liveActivity.clear(id)
     this.queued.clear()
     this.usage.clear()
     this.configNoted.clear()
@@ -1651,6 +1657,7 @@ export class SessionManager {
       },
       onDelta: (sessionId, messageId, delta) => {
         this.markActivity(sessionId)
+        this.emitLive(sessionId, this.liveActivity.delta(sessionId))
         const list = this.messages.get(sessionId)
         if (!list) return
         const idx = list.findIndex((m) => m.id === messageId)
@@ -1687,6 +1694,7 @@ export class SessionManager {
       },
       onTurnItem: (sessionId, messageId, item) => {
         this.markActivity(sessionId)
+        this.emitLive(sessionId, this.liveActivity.item(sessionId, item))
         const list = this.messages.get(sessionId)
         if (!list) return
         const idx = list.findIndex((m) => m.id === messageId)
@@ -1771,9 +1779,29 @@ export class SessionManager {
     this.scheduleSave()
   }
 
-  private applyStatus(id: string, status: SessionStatus): void {
-    const session = this.sessions.get(id)
+  private emitLive(
+    sessionId: string,
+    activity: SessionLiveActivity | null,
+  ): void {
+    if (!activity) return
+    const session = this.sessions.get(sessionId)
     if (!session) return
+    this.sessions.set(sessionId, { ...session, live: activity })
+    this.bus.emit({ type: "session.live", sessionId, live: activity })
+  }
+
+  private clearLive(sessionId: string): void {
+    this.liveActivity.clear(sessionId)
+    const session = this.sessions.get(sessionId)
+    if (!session || session.live === undefined) return
+    const next = { ...session }
+    delete next.live
+    this.sessions.set(sessionId, next)
+    this.bus.emit({ type: "session.live", sessionId, live: null })
+  }
+
+  private applyStatus(id: string, status: SessionStatus): void {
+    if (!this.sessions.has(id)) return
     // Ask-mode pending input wins over idle/running so the Wait filter stays true.
     let effective = status
     if (
@@ -1784,6 +1812,11 @@ export class SessionManager {
     ) {
       effective = "waiting_input"
     }
+    if (effective !== "running" && effective !== "waiting_input") {
+      this.clearLive(id)
+    }
+    const session = this.sessions.get(id)
+    if (!session) return
     if (session.status === effective) {
       this.publishSessionEvent({
         type: "session.status",
@@ -1910,7 +1943,11 @@ export class SessionManager {
     }
     return {
       version: 1,
-      sessions: this.listSessions(),
+      sessions: this.listSessions().map((s) => {
+        const { live: _live, ...rest } = s
+        void _live
+        return rest
+      }),
       usage,
       activeSessionId: this.activeSessionId,
     }

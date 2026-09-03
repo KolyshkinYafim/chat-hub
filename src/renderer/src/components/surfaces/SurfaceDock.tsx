@@ -1,12 +1,12 @@
 import { useCallback } from "react"
 import type { HookRun } from "@shared/hooks"
 import type {
-  ChatMessage,
   QueuedMessage,
   SessionMeta,
   SessionUsage,
 } from "@shared/types"
 import type { AgentAction } from "../../lib/agent-actions"
+import type { AttentionSeen } from "../../lib/attention"
 import type { SurfaceKind } from "../../lib/surface-bridge"
 import {
   clampDockWidth,
@@ -45,8 +45,8 @@ type Props = {
   agentActions?: AgentAction[]
   /** Whole-app session state for the fleet surface. */
   sessions: SessionMeta[]
-  messagesBySession: Record<string, ChatMessage[]>
   usageBySession: Record<string, SessionUsage>
+  attentionSeen: AttentionSeen
   queuedBySession: Record<string, QueuedMessage[]>
   /**
    * Set when another pane holds the single `<webview>` guest — the browser tab
@@ -75,8 +75,8 @@ export function SurfaceDock({
   hookRuns = [],
   agentActions = [],
   sessions,
-  messagesBySession,
   usageBySession,
+  attentionSeen,
   queuedBySession,
   browserHeldBy = null,
   onTakeBrowser,
@@ -207,8 +207,8 @@ export function SurfaceDock({
         {kind === "fleet" ? (
           <FleetSurface
             sessions={sessions}
-            messagesBySession={messagesBySession}
             usageBySession={usageBySession}
+            attentionSeen={attentionSeen}
             queuedBySession={queuedBySession}
             activeSessionId={session.id}
             onSelectSession={onSelectSession}

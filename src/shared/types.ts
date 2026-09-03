@@ -9,6 +9,16 @@ export type SessionStatus =
   | "error"
   | "done"
 
+export type LivePhase = "connecting" | "thinking" | "tool"
+
+export type SessionLiveActivity = {
+  phase: LivePhase
+  stepLabel: string
+  stepDetail?: string
+  since: number
+  startedAt: number
+}
+
 export type ProviderId =
   | "mock"
   | "grok"
@@ -78,6 +88,7 @@ export type SessionMeta = {
    * from this; leaving it out made it guess from an empty focusApp.
    */
   source?: "hub" | "terminal"
+  live?: SessionLiveActivity
   createdAt: number
   updatedAt: number
 }
@@ -451,6 +462,11 @@ export type HubEvent =
       item: AgentTurnItem
     }
   | { type: "chat.done"; sessionId: string; messageId: string }
+  | {
+      type: "session.live"
+      sessionId: string
+      live: SessionLiveActivity | null
+    }
   | { type: "sessions.replaced"; sessions: SessionMeta[] }
   | {
       type: "messages.replaced"
