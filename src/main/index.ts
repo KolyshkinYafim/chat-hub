@@ -84,7 +84,11 @@ import { windowQuery } from "@shared/window-identity"
 import { pickWindowForSession, WindowRegistry } from "./window-registry"
 import { parseCockpitFlags, type CockpitWindow } from "@shared/cockpit"
 import { resolveTheme, themeBackground } from "@shared/theme"
-import { applyCockpitChrome, watchReducedTransparency } from "./cockpit-window"
+import {
+  applyCockpitChrome,
+  shouldGlass,
+  watchReducedTransparency,
+} from "./cockpit-window"
 import { DEFAULT_ZOOM_LEVEL } from "@shared/zoom"
 import {
   appendMcpPathsToGitignore,
@@ -423,7 +427,7 @@ function createWindow(options: CreateWindowOptions = {}): HubWindow {
     options.state ?? cascadeFrom(windows.mostRecent()?.window ?? null)
   const cockpit = cockpitFlagsFor(saved)
   const themeBg = currentThemeBackground()
-  const glass = cockpit.enabled && process.platform === "darwin"
+  const glass = shouldGlass(cockpit.enabled)
   const window = new BrowserWindow({
     ...openingBounds(saved),
     minWidth: MIN_WINDOW_WIDTH,

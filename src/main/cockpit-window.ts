@@ -5,6 +5,12 @@ export function prefersReducedTransparency(): boolean {
   return nativeTheme.prefersReducedTransparency === true
 }
 
+export function shouldGlass(enabled: boolean): boolean {
+  return (
+    enabled && process.platform === "darwin" && !prefersReducedTransparency()
+  )
+}
+
 export function applyCockpitChrome(
   win: BrowserWindow,
   enabled: boolean,
@@ -12,7 +18,7 @@ export function applyCockpitChrome(
   opaqueBackground: string,
 ): void {
   if (win.isDestroyed()) return
-  const glass = enabled && process.platform === "darwin" && !prefersReducedTransparency()
+  const glass = shouldGlass(enabled)
   if (glass) {
     win.setBackgroundColor("#00000000")
     win.setVibrancy(vibrancy)

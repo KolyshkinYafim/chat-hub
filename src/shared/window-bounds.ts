@@ -1,3 +1,4 @@
+import { DEFAULT_WINDOW_ID } from "./window-identity"
 /** A rectangle in screen coordinates — Electron's `Rectangle` shape. */
 export type WindowBounds = {
   x: number
@@ -90,7 +91,7 @@ export function parseWindowStates(raw: unknown): PersistedWindow[] | null {
 export function windowsToReopen(
   saved: readonly PersistedWindow[] | null,
 ): OpeningWindow[] {
-  if (!saved || saved.length === 0) return [{ windowId: 1, state: null }]
+  if (!saved || saved.length === 0) return [{ windowId: DEFAULT_WINDOW_ID, state: null }]
   return saved.map(({ windowId, ...state }) => ({ windowId, state }))
 }
 

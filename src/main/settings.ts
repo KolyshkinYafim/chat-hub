@@ -15,6 +15,7 @@ import type {
   RedactedProviderConfig,
 } from "@shared/settings-types"
 import { parseThemeDef, type ThemeDef } from "@shared/theme"
+import { DEFAULT_WINDOW_ID } from "@shared/window-identity"
 import {
   parseWindowState,
   parseWindowStates,
@@ -90,7 +91,7 @@ export class SettingsStore {
       return structuredClone(this.data.windows)
     }
     const legacy = this.windowState
-    return legacy ? [{ windowId: 1, ...legacy }] : null
+    return legacy ? [{ windowId: DEFAULT_WINDOW_ID, ...legacy }] : null
   }
 
   async setWindowStates(states: readonly PersistedWindow[]): Promise<void> {
