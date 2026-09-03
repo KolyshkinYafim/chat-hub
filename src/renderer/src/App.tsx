@@ -125,6 +125,13 @@ import { dismissToast, pushToast, type Toast } from "./lib/toasts"
  */
 const AUTH_NAG_KEY = "chat-hub.authNagDismissed"
 
+const LOGIN_COMMANDS: Partial<Record<ProviderId, string>> = {
+  claude: "claude /login",
+  codex: "codex login",
+  opencode: "opencode auth login",
+  grok: "grok",
+}
+
 /** The terminal needs one mounted beat to start the script before the browser takes the dock. */
 const SCRIPT_PREVIEW_SWITCH_MS = 800
 
@@ -1414,12 +1421,31 @@ export default function App() {
     }
   }
 
+  const openLoginTerminal = useCallback(
+    (sessionId: string) => {
+      const session = sessionsRef.current.find((s) => s.id === sessionId)
+      const command = session ? LOGIN_COMMANDS[session.provider] : undefined
+      if (!command) return false
+      stashTerminalCommand(sessionId, command)
+      const target = paneForSession(layoutRef.current, sessionId)
+      openSurface(
+        target?.id ?? layoutRef.current.focusedPaneId,
+        sessionId,
+        "terminal",
+      )
+      showToast("Complete the login in the terminal, then send again")
+      return true
+    },
+    [openSurface, showToast],
+  )
+
   const sendMessage = useCallback(
     async (
       sessionId: string,
       text: string,
       opts?: { effort?: EffortLevel; attachments?: string[] },
     ) => {
+      if (text.trim() === "/login" && openLoginTerminal(sessionId)) return
       setError(null)
       setSendingIds((curr) => new Set(curr).add(sessionId))
       try {
@@ -1442,7 +1468,7 @@ export default function App() {
         })
       }
     },
-    [effort],
+    [effort, openLoginTerminal],
   )
 
   const cancelQueued = useCallback((sessionId: string, queuedId: string) => {
@@ -1899,7 +1925,11 @@ export default function App() {
         ? {
             text: noneInstalled
               ? "No agent CLIs found on PATH."
-              : "Some agents need login.",
+              : "The CLI is not logged in — the app login is separate.",
+            onOpenTerminal:
+              !noneInstalled && activeId
+                ? () => openLoginTerminal(activeId)
+                : undefined,
             onOpenSettings: () => setSettingsOpen(true),
             onDismiss: () => {
               setOnboardDismissed(true)
@@ -1907,7 +1937,7 @@ export default function App() {
             },
           }
         : null,
-    [showOnboard, noneInstalled],
+    [showOnboard, noneInstalled, activeId, openLoginTerminal],
   )
 
   const tiled = layout.panes.length > 1

@@ -101,6 +101,7 @@ type Effort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
 
 /** The auth nag, rendered inline so it never outweighs the session title. */
 export type OnboardNotice = {
+  onOpenTerminal?: () => void
   text: string
   onOpenSettings: () => void
   onDismiss: () => void
@@ -1224,6 +1225,15 @@ export function ChatView({
         {onboard ? (
           <div className="onboard-strip">
             <span className="onboard-text">{onboard.text}</span>
+            {onboard.onOpenTerminal ? (
+              <button
+                type="button"
+                className="link-btn"
+                onClick={onboard.onOpenTerminal}
+              >
+                Log in from Terminal
+              </button>
+            ) : null}
             <button
               type="button"
               className="link-btn"
@@ -1313,6 +1323,15 @@ export function ChatView({
       {onboard ? (
         <div className="onboard-strip">
           <span className="onboard-text">{onboard.text}</span>
+          {onboard.onOpenTerminal ? (
+            <button
+              type="button"
+              className="link-btn"
+              onClick={onboard.onOpenTerminal}
+            >
+              Log in from Terminal
+            </button>
+          ) : null}
           <button
             type="button"
             className="link-btn"
