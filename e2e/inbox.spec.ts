@@ -11,6 +11,7 @@ test("agent inbox opens on Alt+Shift+I and shows the clear state", async () => {
   launched = await launchApp([{ id: "s1", title: "Quiet session" }])
   const { page } = launched
 
+  await expect(page.locator(".session-row")).toHaveCount(1)
   await page.keyboard.press("Alt+Shift+KeyI")
   await expect(page.locator(".inbox-empty")).toContainText("All clear")
   await page.keyboard.press("Escape")
