@@ -70,9 +70,11 @@ export async function launchApp(
     }),
   )
 
+  const slowMo = Number(process.env.E2E_SLOWMO ?? "0")
   const app = await electron.launch({
     args: [join(ROOT, "out", "main", "index.js")],
     cwd: ROOT,
+    slowMo: Number.isFinite(slowMo) && slowMo > 0 ? slowMo : undefined,
     env: {
       ...process.env,
       CHAT_HUB_USER_DATA: userData,
