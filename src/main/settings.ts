@@ -462,6 +462,12 @@ export function sanitizeGeneralPatch(patch: unknown): GeneralConfig {
     }
     clean.themeId = p.themeId
   }
+  if (p.allowAgentHubControl !== undefined) {
+    if (typeof p.allowAgentHubControl !== "boolean") {
+      throw new Error("Invalid hub control flag")
+    }
+    clean.allowAgentHubControl = p.allowAgentHubControl
+  }
   if (p.customThemes !== undefined) {
     if (!Array.isArray(p.customThemes) || p.customThemes.length > 64) {
       throw new Error("Invalid themes")

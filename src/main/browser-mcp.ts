@@ -4,6 +4,7 @@ import {
   BROWSER_SESSION_ENV,
   BROWSER_SOCKET_ENV,
 } from "@shared/browser"
+import { HUB_MCP_SERVER_NAME } from "@shared/hub-control"
 import type { McpProjectConfig, McpServerDef } from "@shared/mcp"
 import {
   materializeClaude,
@@ -78,30 +79,58 @@ export function browserMcpServerDef(opts: BrowserMcpSpawn): McpServerDef {
   }
 }
 
+export type BuiltinMcpServer = {
+  def: McpServerDef
+  env: Record<string, string>
+}
+
+export type RegisterBuiltinMcpOptions = {
+  provider: string
+  root: string
+  envFor: EnvLookup
+  servers: BuiltinMcpServer[]
+}
+
+const BUILTIN_SERVER_NAMES = new Set([
+  BROWSER_MCP_SERVER_NAME,
+  HUB_MCP_SERVER_NAME,
+])
+
 /**
  * Write the browser server into the session provider's own CLI config.
  * Claude and OpenCode merge per server key, so only the hub entry is touched;
  * the TOML providers rewrite one marker block wholesale, so the project's other
  * managed servers have to be re-emitted alongside it or they would vanish.
  */
+export async function registerBuiltinMcp(
+  opts: RegisterBuiltinMcpOptions,
+): Promise<BrowserMcpRegistration> {
+  const defs = opts.servers.map((s) => s.def)
+  const config = await configForProvider(opts.provider, opts.root, defs)
+  const envById = new Map(opts.servers.map((s) => [s.def.id, s.env]))
+  const envFor: EnvLookup = (serverId) =>
+    envById.get(serverId) ?? opts.envFor(serverId)
+  const file = await materializeFor(opts.provider, opts.root, config, envFor, [])
+  return { provider: opts.provider, file }
+}
+
 export async function registerBrowserMcp(
   opts: RegisterBrowserMcpOptions,
 ): Promise<BrowserMcpRegistration> {
-  const def = browserMcpServerDef(opts)
-  const config = await configForProvider(opts.provider, opts.root, def)
-  const env = browserMcpEnv(opts)
-  const envFor: EnvLookup = (serverId) =>
-    serverId === def.id ? env : opts.envFor(serverId)
-  const file = await materializeFor(opts.provider, opts.root, config, envFor, [])
-  return { provider: opts.provider, file }
+  return registerBuiltinMcp({
+    provider: opts.provider,
+    root: opts.root,
+    envFor: opts.envFor,
+    servers: [{ def: browserMcpServerDef(opts), env: browserMcpEnv(opts) }],
+  })
 }
 
 export async function unregisterBrowserMcp(
   opts: UnregisterBrowserMcpOptions,
 ): Promise<BrowserMcpRegistration> {
-  const config = await configForProvider(opts.provider, opts.root, null)
+  const config = await configForProvider(opts.provider, opts.root, [])
   const file = await materializeFor(opts.provider, opts.root, config, opts.envFor, [
-    BROWSER_MCP_SERVER_NAME,
+    ...BUILTIN_SERVER_NAMES,
   ])
   return { provider: opts.provider, file }
 }
@@ -109,18 +138,18 @@ export async function unregisterBrowserMcp(
 async function configForProvider(
   provider: string,
   root: string,
-  def: McpServerDef | null,
+  defs: McpServerDef[],
 ): Promise<McpProjectConfig> {
   if (!MARKER_BLOCK_PROVIDERS.has(provider)) {
-    return { version: 1, servers: def ? [def] : [] }
+    return { version: 1, servers: defs }
   }
   const base = await readMcpConfig(root)
-  const kept = base.servers.filter((s) => !isBrowserServer(s))
-  return { version: 1, servers: def ? [...kept, def] : kept }
+  const kept = base.servers.filter((s) => !isBuiltinServer(s))
+  return { version: 1, servers: [...kept, ...defs] }
 }
 
-function isBrowserServer(s: McpServerDef): boolean {
-  return s.id === BROWSER_MCP_SERVER_NAME || s.name === BROWSER_MCP_SERVER_NAME
+function isBuiltinServer(s: McpServerDef): boolean {
+  return BUILTIN_SERVER_NAMES.has(s.id) || BUILTIN_SERVER_NAMES.has(s.name)
 }
 
 async function materializeFor(

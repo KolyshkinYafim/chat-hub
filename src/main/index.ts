@@ -114,7 +114,15 @@ import { chatHubBrowserSocketPath } from "@shared/bridge-path"
 import { BrowserControl } from "./surfaces/browser-control"
 import { SurfaceControl } from "./surfaces/surface-control"
 import { BrowserService } from "./browser-service"
-import { browserMcpServerPath, registerBrowserMcp } from "./browser-mcp"
+import {
+  browserMcpEnv,
+  browserMcpServerDef,
+  browserMcpServerPath,
+  registerBuiltinMcp,
+} from "./browser-mcp"
+import { hubMcpEnv, hubMcpServerDef, hubMcpServerPath } from "./hub-mcp"
+import { HubControl } from "./hub-control"
+import { SURFACE_OPS } from "@shared/surface-control"
 
 const REAL_PROVIDER_IDS: ProviderId[] = [
   "claude",
@@ -249,6 +257,50 @@ const surfaceControl = new SurfaceControl({
   open: (request) => sendToRenderer(IpcChannels.surfaceOpen, request),
 })
 
+const hubControl = new HubControl({
+  enabled: () => settingsStore?.general.allowAgentHubControl !== false,
+  windows: () =>
+    liveWindows().map((hub) => ({
+      id: hub.id,
+      focused: hub.window.isFocused(),
+      sessionIds: [...hub.sessions],
+    })),
+  recency: () => windows.recency(),
+  session: (sessionId) => manager?.getSession(sessionId) ?? null,
+  activeSessionId: () => surfaceControl.activeSessionId,
+  openWindow: (sessionId) => {
+    const hub = createWindow({ fresh: true, sessionId })
+    showWindow(hub)
+    return hub.id
+  },
+  focusSession: (sessionId, windowId) => {
+    const wanted = windowId === null ? null : windows.get(windowId)
+    const hub =
+      wanted && !wanted.window.isDestroyed()
+        ? wanted
+        : windowForSession(sessionId)
+    showWindow(hub)
+    sendToWindow(hub, IpcChannels.hubEvent, {
+      type: "session.active",
+      sessionId,
+    })
+    return hub.id
+  },
+  applyLayout: (command) => {
+    const hub = windows.get(command.windowId)
+    if (!hub || hub.window.isDestroyed()) return
+    showWindow(hub)
+    sendToWindow(hub, IpcChannels.hubLayout, command)
+  },
+  openSurface: (request, surface) =>
+    surfaceControl.handle({
+      id: request.id,
+      sessionId: request.sessionId,
+      op: SURFACE_OPS.open,
+      params: { surface },
+    }),
+})
+
 const browserService = new BrowserService(
   chatHubBrowserSocketPath(),
   browserControl,
@@ -259,6 +311,7 @@ const browserService = new BrowserService(
       sendToWindow(hub, IpcChannels.browserOpen, sessionId)
     },
     surfaces: (request) => surfaceControl.handle(request),
+    hub: (request) => hubControl.handle(request),
   },
 )
 
@@ -1811,21 +1864,29 @@ async function bootstrap(): Promise<void> {
   })
 
   const store = settings
-  sm.setBrowserMcpRegistrar((session) =>
-    registerBrowserMcp({
-      provider: session.provider,
-      root: session.cwd,
+  sm.setBrowserMcpRegistrar((session) => {
+    const location = {
+      packaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      appPath: app.getAppPath(),
+    }
+    const browserSpawn = {
       execPath: process.execPath,
-      scriptPath: browserMcpServerPath({
-        packaged: app.isPackaged,
-        resourcesPath: process.resourcesPath,
-        appPath: app.getAppPath(),
-      }),
+      scriptPath: browserMcpServerPath(location),
       socketPath: browserService.socketPath,
       sessionId: session.id,
+    }
+    const hubSpawn = { ...browserSpawn, scriptPath: hubMcpServerPath(location) }
+    return registerBuiltinMcp({
+      provider: session.provider,
+      root: session.cwd,
       envFor: (serverId) => store.getMcpEnv(serverId),
-    }),
-  )
+      servers: [
+        { def: browserMcpServerDef(browserSpawn), env: browserMcpEnv(browserSpawn) },
+        { def: hubMcpServerDef(hubSpawn), env: hubMcpEnv(hubSpawn) },
+      ],
+    })
+  })
 
   const ready = bootReadyChain({
     projects,

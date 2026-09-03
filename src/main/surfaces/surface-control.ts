@@ -148,6 +148,10 @@ export class SurfaceControl {
 
   constructor(private readonly deps: SurfaceControlDeps) {}
 
+  get activeSessionId(): string | null {
+    return this.state.activeSessionId
+  }
+
   /** Renderer-supplied and therefore untrusted; unknown shapes reset it. */
   setState(raw: unknown): void {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {

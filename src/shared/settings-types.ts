@@ -111,6 +111,7 @@ export type GeneralConfig = {
   themeId?: string
   /** User-saved themes from the Appearance editor / JSON import. */
   customThemes?: ThemeDef[]
+  allowAgentHubControl?: boolean
 }
 
 /**

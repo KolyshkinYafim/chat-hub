@@ -3,6 +3,7 @@ import type {
   SurfaceOpenRequest,
   SurfaceStateReport,
 } from "@shared/surface-control"
+import type { HubLayoutCommand } from "@shared/hub-control"
 import type { ProjectScript, ScriptsFile } from "@shared/scripts"
 import type { ContextDocId, ProjectContext } from "@shared/project-context"
 import type {
@@ -95,6 +96,7 @@ export type SurfaceBridge = {
   onBrowserActivity: (cb: (event: BrowserActivity) => void) => () => void
   onBrowserOpen: (cb: (sessionId: string) => void) => () => void
   onSurfaceOpen: (cb: (request: SurfaceOpenRequest) => void) => () => void
+  onHubLayout: (cb: (command: HubLayoutCommand) => void) => () => void
   reportSurfaceState: (state: SurfaceStateReport) => void
   grokTrustStatus: (cwd: string) => Promise<GrokTrustStatus>
   grokTrustFolder: (cwd: string) => Promise<boolean>

@@ -76,6 +76,7 @@ import {
   type DropTarget,
   type PaneLayout,
 } from "./lib/pane-layout"
+import { applyHubLayout } from "./lib/hub-layout"
 import {
   clampDockWidth,
   loadAutoOpenDock,
@@ -970,6 +971,20 @@ export default function App() {
       setDockFor(target.id, true)
     })
   }, [setDockFor])
+
+  useEffect(() => {
+    return window.chatHub.onHubLayout((command) => {
+      if (command.windowId !== windowId) return
+      const applied = applyHubLayout(layoutRef.current, command)
+      setLayout(applied.layout)
+      if (Object.keys(applied.surfaces).length === 0) return
+      setSurfaceBySession((curr) => {
+        const next = { ...curr, ...applied.surfaces }
+        saveSurfaceBySession(next)
+        return next
+      })
+    })
+  }, [windowId])
 
   /**
    * A turn that edited files wants this pane's dock on the diff. The pane asks;
