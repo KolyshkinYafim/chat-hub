@@ -31,6 +31,7 @@ import type {
 } from "@shared/settings-types"
 import { DEFAULT_MODES } from "@shared/settings-types"
 import { resolveTheme } from "@shared/theme"
+import { readCockpitWindow } from "./lib/cockpit"
 import { applyTheme } from "./lib/theme-apply"
 import { projectFromCwd } from "@shared/project"
 import { clearMigratedArchive, readArchivedForMigration } from "./lib/archive"
@@ -40,7 +41,17 @@ import { prunePendingRuns, stashBrowserUrl, stashTerminalCommand } from "./lib/p
 import { prunePendingPrompts } from "./lib/pending-prompt"
 import { prunePreviewPicks } from "./lib/preview-picks"
 import { pruneScriptTerminals } from "./lib/script-terminals"
-import { mergeReplacedMessages } from "./lib/transcript-window"
+import {
+  mergeReplacedMessages,
+  reconcileFetchedMessages,
+} from "./lib/transcript-window"
+import {
+  evictableTranscripts,
+  retainedTranscripts,
+  RUNNING_HOLD,
+  touchRecent,
+  withoutKeys,
+} from "./lib/transcript-cache"
 import { applyStatusesToProviders } from "./lib/provider-status"
 import { Sidebar } from "./components/Sidebar"
 import { Workspace, type WorkspaceDrop } from "./components/Workspace"
@@ -61,6 +72,7 @@ import {
   pruneLayout,
   saveLayout,
   setPaneDock,
+  soloLayout,
   stepFocus,
   type DropTarget,
   type PaneLayout,
@@ -85,8 +97,10 @@ import {
   saveSidebarWidth,
 } from "./lib/shell-size"
 import { useAttention } from "./lib/use-attention"
+import { buildInboxCards } from "./lib/inbox"
 import { isEditableTarget } from "./lib/editable-target"
 import { SettingsModal } from "./components/SettingsModal"
+import { AgentInbox } from "./components/AgentInbox"
 import {
   NewSessionDialog,
   type NewSessionDraft,
@@ -109,11 +123,18 @@ const AUTH_NAG_KEY = "chat-hub.authNagDismissed"
 const SCRIPT_PREVIEW_SWITCH_MS = 800
 
 export default function App() {
+  const windowIntent = window.chatHub.windowIntent
+  const windowId = windowIntent.windowId
+  const [cockpit, setCockpit] = useState(() => readCockpitWindow().enabled)
   const [booted, setBooted] = useState(false)
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [messagesBySession, setMessagesBySession] = useState<
     Record<string, ChatMessage[]>
   >({})
+  const [loadingTranscripts, setLoadingTranscripts] = useState<
+    ReadonlySet<string>
+  >(() => new Set())
+  const [recentSessions, setRecentSessions] = useState<readonly string[]>([])
   /** Transcript overflow: more pages available in archive.jsonl for this id. */
   const [overflowHasMore, setOverflowHasMore] = useState<
     Record<string, boolean>
@@ -122,7 +143,9 @@ export default function App() {
   const [loadingOlderFor, setLoadingOlderFor] = useState<string | null>(null)
   const loadingOlderRef = useRef<string | null>(null)
   const [layout, setLayout] = useState<PaneLayout>(() =>
-    loadLayout(loadDockOpen()),
+    windowIntent.fresh
+      ? soloLayout(windowIntent.sessionId, loadDockOpen(windowId))
+      : loadLayout(loadDockOpen(windowId), windowId),
   )
   const [projects, setProjects] = useState<Project[]>([])
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -138,6 +161,8 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [inboxOpen, setInboxOpen] = useState(false)
+  const [inboxCleared, setInboxCleared] = useState(0)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [newSessionHint, setNewSessionHint] = useState<{
@@ -217,8 +242,13 @@ export default function App() {
   const layoutRef = useRef(layout)
   const sessionsRef = useRef(sessions)
   const selectSessionRef = useRef<(id: string) => void>(() => {})
+  const loadOlderRef = useRef<(id: string) => void>(() => {})
   // Read after an await, where the value this render closed over is already old.
   const messagesBySessionRef = useRef(messagesBySession)
+  const attachedRef = useRef<Set<string>>(new Set())
+  const transcriptFetchRef = useRef<Map<string, Promise<ChatMessage[]>>>(
+    new Map(),
+  )
   // applyEvent below is a stable (empty-deps) callback bridging main-process
   // events into state; it needs the latest dock/surface/pref values without
   // taking them as deps (which would re-subscribe the IPC listener on every
@@ -230,16 +260,122 @@ export default function App() {
     selectSessionRef.current(id)
   }, [])
   const attention = useAttention(sessions, layout, activeId, jumpToSession)
+  const inboxCards = useMemo(
+    () => buildInboxCards(sessions, permissions, inputRequests),
+    [sessions, permissions, inputRequests],
+  )
+  const openInbox = useCallback(() => setInboxOpen(true), [])
+  const closeInbox = useCallback(() => setInboxOpen(false), [])
+  const onInboxCleared = useCallback((count: number) => {
+    setInboxCleared((n) => n + count)
+  }, [])
 
   useEffect(() => {
     window.chatHub.reportAttentionCount(attention.queue.length)
   }, [attention.queue.length])
 
+  const editTranscript = useCallback(
+    (
+      sessionId: string,
+      edit: (list: readonly ChatMessage[]) => ChatMessage[],
+    ) => {
+      if (!attachedRef.current.has(sessionId)) return
+      setMessagesBySession((curr) => {
+        const list = curr[sessionId] ?? []
+        const next = edit(list)
+        return next === list ? curr : { ...curr, [sessionId]: next }
+      })
+    },
+    [],
+  )
+
+  const reportAttachment = useCallback(() => {
+    const panes = layoutRef.current.panes
+      .map((p) => p.sessionId)
+      .filter((id): id is string => id !== null)
+    window.chatHub.reportWindowSessions(panes, [
+      ...new Set([...panes, ...attachedRef.current]),
+    ])
+  }, [])
+
+  const attachTranscripts = useCallback(
+    (loaded: Record<string, ChatMessage[]>) => {
+      for (const id of Object.keys(loaded)) attachedRef.current.add(id)
+      reportAttachment()
+      setMessagesBySession((curr) => ({ ...curr, ...loaded }))
+    },
+    [reportAttachment],
+  )
+
+  const detachTranscripts = useCallback(
+    (ids: ReadonlySet<string>) => {
+      if (ids.size === 0) return
+      for (const id of ids) attachedRef.current.delete(id)
+      reportAttachment()
+      setMessagesBySession((curr) => withoutKeys(curr, ids))
+      setOverflowHasMore((curr) => withoutKeys(curr, ids))
+    },
+    [reportAttachment],
+  )
+
+  const ensureTranscript = useCallback(
+    (id: string): Promise<ChatMessage[]> => {
+      const running = transcriptFetchRef.current.get(id)
+      if (running) return running
+      if (attachedRef.current.has(id)) {
+        return Promise.resolve(messagesBySessionRef.current[id] ?? [])
+      }
+      attachedRef.current.add(id)
+      reportAttachment()
+      setLoadingTranscripts((curr) => new Set(curr).add(id))
+      const fetching = window.chatHub
+        .getMessages(id)
+        .then((fetched) => {
+          setMessagesBySession((curr) => ({
+            ...curr,
+            [id]: reconcileFetchedMessages(curr[id] ?? [], fetched),
+          }))
+          return fetched
+        })
+        .catch((err: unknown) => {
+          attachedRef.current.delete(id)
+          reportAttachment()
+          setError(err instanceof Error ? err.message : String(err))
+          return [] as ChatMessage[]
+        })
+        .finally(() => {
+          transcriptFetchRef.current.delete(id)
+          setLoadingTranscripts((curr) => {
+            if (!curr.has(id)) return curr
+            const next = new Set(curr)
+            next.delete(id)
+            return next
+          })
+        })
+      transcriptFetchRef.current.set(id, fetching)
+      return fetching
+    },
+    [reportAttachment],
+  )
+
+  const noteRecent = useCallback((id: string) => {
+    setRecentSessions((curr) => touchRecent(curr, id))
+  }, [])
+
   const applyEvent = useCallback((event: HubEvent) => {
     switch (event.type) {
-      case "sessions.replaced":
+      case "sessions.replaced": {
         setSessions(event.sessions)
+        const live = new Set(event.sessions.map((s) => s.id))
+        detachTranscripts(
+          new Set([...attachedRef.current].filter((id) => !live.has(id))),
+        )
+        setRecentSessions((curr) => {
+          const next = curr.filter((id) => live.has(id))
+          return next.length === curr.length ? curr : next
+        })
         break
+      }
       case "queue.changed":
         setQueuedBySession((curr) => ({
           ...curr,
@@ -286,74 +422,44 @@ export default function App() {
         )
         break
       case "messages.replaced":
-        setMessagesBySession((curr) => ({
-          ...curr,
-          [event.sessionId]: mergeReplacedMessages(
-            curr[event.sessionId] ?? [],
-            event.messages,
-          ),
-        }))
+        editTranscript(event.sessionId, (list) =>
+          mergeReplacedMessages(list, event.messages),
+        )
         break
       case "chat.message":
-        setMessagesBySession((curr) => {
-          const list = curr[event.message.sessionId] ?? []
-          if (list.some((m) => m.id === event.message.id)) {
-            return {
-              ...curr,
-              [event.message.sessionId]: list.map((m) =>
-                m.id === event.message.id ? event.message : m,
-              ),
-            }
-          }
-          return {
-            ...curr,
-            [event.message.sessionId]: [...list, event.message],
-          }
-        })
+        editTranscript(event.message.sessionId, (list) =>
+          list.some((m) => m.id === event.message.id)
+            ? list.map((m) => (m.id === event.message.id ? event.message : m))
+            : [...list, event.message],
+        )
         break
       case "chat.delta":
-        setMessagesBySession((curr) => {
-          const list = curr[event.sessionId] ?? []
-          return {
-            ...curr,
-            [event.sessionId]: list.map((m) =>
-              m.id === event.messageId
-                ? {
-                    ...m,
-                    content: m.content + event.delta,
-                    streaming: true,
-                  }
-                : m,
-            ),
-          }
-        })
+        editTranscript(event.sessionId, (list) =>
+          list.map((m) =>
+            m.id === event.messageId
+              ? { ...m, content: m.content + event.delta, streaming: true }
+              : m,
+          ),
+        )
         break
       case "chat.item":
-        setMessagesBySession((curr) => {
-          const list = curr[event.sessionId] ?? []
-          return {
-            ...curr,
-            [event.sessionId]: list.map((message) => {
-              if (message.id !== event.messageId) return message
-              const items = [...(message.items ?? [])]
-              const index = items.findIndex((item) => item.id === event.item.id)
-              if (index === -1) items.push(event.item)
-              else items[index] = event.item
-              return { ...message, items }
-            }),
-          }
-        })
+        editTranscript(event.sessionId, (list) =>
+          list.map((message) => {
+            if (message.id !== event.messageId) return message
+            const items = [...(message.items ?? [])]
+            const index = items.findIndex((item) => item.id === event.item.id)
+            if (index === -1) items.push(event.item)
+            else items[index] = event.item
+            return { ...message, items }
+          }),
+        )
         break
       case "chat.done":
-        setMessagesBySession((curr) => {
-          const list = curr[event.sessionId] ?? []
-          return {
-            ...curr,
-            [event.sessionId]: list.map((m) =>
-              m.id === event.messageId ? { ...m, streaming: false } : m,
-            ),
-          }
-        })
+        editTranscript(event.sessionId, (list) =>
+          list.map((m) =>
+            m.id === event.messageId ? { ...m, streaming: false } : m,
+          ),
+        )
         break
       case "limits.changed":
         setLimitsBySession((curr) => ({
@@ -369,15 +475,9 @@ export default function App() {
         if (event.messageId && event.turn) {
           const turn = event.turn
           const messageId = event.messageId
-          setMessagesBySession((curr) => {
-            const list = curr[event.sessionId] ?? []
-            return {
-              ...curr,
-              [event.sessionId]: list.map((m) =>
-                m.id === messageId ? { ...m, usage: turn } : m,
-              ),
-            }
-          })
+          editTranscript(event.sessionId, (list) =>
+            list.map((m) => (m.id === messageId ? { ...m, usage: turn } : m)),
+          )
         }
         break
       case "permission.request":
@@ -433,11 +533,28 @@ export default function App() {
       default:
         break
     }
+  }, [detachTranscripts, editTranscript])
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("cockpit", cockpit)
+  }, [cockpit])
+
+  useEffect(() => {
+    return window.chatHub.onCockpitChanged((enabled) => {
+      setCockpit(enabled)
+      document.documentElement.classList.toggle("cockpit", enabled)
+      void window.chatHub.getSettings().then((s) => {
+        applyTheme(resolveTheme(s.general.themeId, s.general.customThemes))
+      })
+    })
   }, [])
 
   useEffect(() => {
     const unsub = window.chatHub.onHubEvent(applyEvent)
-    const snapPromise = window.chatHub.getSnapshot()
+    const onScreen = layoutRef.current.panes
+      .map((item) => item.sessionId)
+      .filter((id): id is string => id !== null)
+    const snapPromise = window.chatHub.getSnapshot(onScreen)
 
     void (async () => {
       try {
@@ -446,7 +563,7 @@ export default function App() {
           window.chatHub.listProjects(),
         ])
         setSessions(snap.sessions)
-        setMessagesBySession(snap.messages)
+        attachTranscripts(snap.messages)
         setQueuedBySession(snap.queued)
         setUsageBySession(snap.usage)
         setLimitsBySession(snap.rateLimits)
@@ -467,8 +584,12 @@ export default function App() {
         for (const restoredPane of restored.panes) {
           if (restoredPane.sessionId) {
             void seedOverflowFlag(restoredPane.sessionId)
+            void ensureTranscript(restoredPane.sessionId)
+            noteRecent(restoredPane.sessionId)
           }
         }
+        const focusedId = focusedPane(restored).sessionId
+        if (focusedId) noteRecent(focusedId)
         setProjects(pinned)
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
@@ -533,7 +654,7 @@ export default function App() {
     return () => {
       unsub()
     }
-  }, [applyEvent])
+  }, [applyEvent, attachTranscripts, ensureTranscript, noteRecent])
 
   useLayoutEffect(() => {
     if (!booted) return
@@ -551,12 +672,14 @@ export default function App() {
 
   useEffect(() => {
     layoutRef.current = layout
-    saveLayout(layout)
-    // A workspace that is back to one pane keeps writing the app-wide dock
-    // preference, so nothing about single-pane persistence changed.
+    saveLayout(layout, windowId)
     const only = layout.panes.length === 1 ? layout.panes[0] : null
-    if (only) saveDockOpen(only.dockOpen)
-  }, [layout])
+    if (only) saveDockOpen(only.dockOpen, windowId)
+  }, [layout, windowId])
+
+  useEffect(() => {
+    reportAttachment()
+  }, [layout, reportAttachment])
 
   useEffect(() => {
     sessionsRef.current = sessions
@@ -569,6 +692,47 @@ export default function App() {
   useEffect(() => {
     messagesBySessionRef.current = messagesBySession
   }, [messagesBySession])
+
+  const fleetOpen = useMemo(
+    () =>
+      layout.panes.some(
+        (pane) =>
+          pane.dockOpen &&
+          pane.sessionId !== null &&
+          surfaceBySession[pane.sessionId] === "fleet",
+      ),
+    [layout.panes, surfaceBySession],
+  )
+
+  const heldRunningIds = useMemo(() => {
+    if (!fleetOpen) return [] as string[]
+    return sessions
+      .filter((s) => s.status === "running" && !s.archived)
+      .map((s) => s.id)
+      .slice(0, RUNNING_HOLD)
+  }, [fleetOpen, sessions])
+
+  useEffect(() => {
+    const keep = new Set([
+      ...retainedTranscripts(
+        layout.panes.map((item) => item.sessionId),
+        recentSessions,
+      ),
+      ...heldRunningIds,
+    ])
+    const drop = new Set(
+      evictableTranscripts(attachedRef.current, keep).filter(
+        (id) => !transcriptFetchRef.current.has(id),
+      ),
+    )
+    detachTranscripts(drop)
+  }, [layout.panes, recentSessions, heldRunningIds, detachTranscripts])
+
+  useEffect(() => {
+    for (const id of heldRunningIds) {
+      if (!attachedRef.current.has(id)) void ensureTranscript(id)
+    }
+  }, [heldRunningIds, ensureTranscript])
 
   useEffect(() => {
     surfaceBySessionRef.current = surfaceBySession
@@ -954,8 +1118,7 @@ export default function App() {
     if (!paneForSession(layoutRef.current, sessionId)) {
       await selectSession(sessionId)
     }
-
-    const loaded = messagesBySessionRef.current[sessionId] ?? []
+    const loaded = await ensureTranscript(sessionId)
     if (loaded.some((m) => m.id === messageId)) return
 
     // The hit came out of archive.jsonl, so nothing on screen can scroll to it
@@ -1015,7 +1178,7 @@ export default function App() {
       await window.chatHub.resolveInput(requestId, answers)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
-      const snap = await window.chatHub.getSnapshot()
+      const snap = await window.chatHub.getSnapshot([])
       setInputRequests(snap.inputRequests)
     }
   }
@@ -1103,7 +1266,8 @@ export default function App() {
         if (curr.some((s) => s.id === session.id)) return curr
         return [session, ...curr]
       })
-      setMessagesBySession((curr) => ({ ...curr, [session.id]: [] }))
+      attachTranscripts({ [session.id]: [] })
+      noteRecent(session.id)
       // The folder is auto-pinned as a project in main — reflect it.
       void window.chatHub.listProjects().then(setProjects)
     } catch (err) {
@@ -1128,13 +1292,12 @@ export default function App() {
   async function adoptSession(id: string) {
     activeIdRef.current = id
     setError(null)
+    noteRecent(id)
+    const transcript = ensureTranscript(id)
     try {
       await window.chatHub.setActiveSession(id)
-      if (!messagesBySessionRef.current[id]) {
-        const msgs = await window.chatHub.getMessages(id)
-        setMessagesBySession((curr) => ({ ...curr, [id]: msgs }))
-      }
       await seedOverflowFlag(id)
+      await transcript
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -1147,17 +1310,20 @@ export default function App() {
     await adoptSession(id)
   }
 
+  const openInNewWindow = useCallback((sessionId?: string) => {
+    void window.chatHub.openWindow(sessionId)
+  }, [])
+
   async function loadOlderMessages(sessionId: string) {
     if (loadingOlderRef.current !== null) return
     if (overflowRef.current[sessionId] === false) return
-    const list = messagesBySessionRef.current[sessionId] ?? []
-    const beforeId = list[0]?.id ?? null
     loadingOlderRef.current = sessionId
     setLoadingOlderFor(sessionId)
     try {
+      const list = await ensureTranscript(sessionId)
       const page = await window.chatHub.loadArchivedMessages(
         sessionId,
-        beforeId,
+        list[0]?.id ?? null,
         50,
       )
       if (page.messages.length > 0) {
@@ -1182,6 +1348,7 @@ export default function App() {
 
   useEffect(() => {
     selectSessionRef.current = (id: string) => void selectSession(id)
+    loadOlderRef.current = (id: string) => void loadOlderMessages(id)
   })
 
   async function deleteSession(id: string) {
@@ -1196,9 +1363,12 @@ export default function App() {
     setError(null)
     try {
       await window.chatHub.deleteSession(id)
-      const snap = await window.chatHub.getSnapshot()
+      detachTranscripts(new Set([id]))
+      setRecentSessions((curr) => curr.filter((known) => known !== id))
+      const held = [...attachedRef.current].filter((known) => known !== id)
+      const snap = await window.chatHub.getSnapshot(held)
       setSessions(snap.sessions)
-      setMessagesBySession(snap.messages)
+      attachTranscripts(snap.messages)
       setQueuedBySession(snap.queued)
       setUsageBySession(snap.usage)
       setLimitsBySession(snap.rateLimits)
@@ -1406,7 +1576,7 @@ export default function App() {
       onEffortChange: changeEffort,
       onOpenFolder: openFolder,
       onOpenEditor: openEditor,
-      onLoadOlder: (id) => void loadOlderMessages(id),
+      onLoadOlder: (id) => loadOlderRef.current(id),
       onHighlightShown: clearHighlight,
       onResolvePermission: (id, allow) => void resolvePermission(id, allow),
       onResolveInput: (id, answers) => void resolveAgentInput(id, answers),
@@ -1415,6 +1585,7 @@ export default function App() {
       onOpenDiff: openDiffForPath,
       onCreate: () => openNewSession(),
       onShowShortcuts: () => setShortcutsOpen(true),
+      onOpenInbox: openInbox,
       onGitChanged: refreshGit,
       onDockWidthChange: setDockWidth,
       onDockWidthCommit: saveDockWidth,
@@ -1442,6 +1613,7 @@ export default function App() {
       openDiffForPath,
       openEditor,
       openFolder,
+      openInbox,
       refreshGit,
       renameSession,
       runScript,
@@ -1495,6 +1667,7 @@ export default function App() {
     wizardOpen ||
     newSessionOpen ||
     paletteOpen ||
+    inboxOpen ||
     shortcutsOpen ||
     projectSearch !== null
 
@@ -1503,6 +1676,11 @@ export default function App() {
     // fires against a stale session or an overlay that has since closed.
     const onKey = (e: KeyboardEvent) => {
       const meta = e.metaKey || e.ctrlKey
+      if (meta && e.shiftKey && !e.altKey && e.key.toLowerCase() === "n") {
+        e.preventDefault()
+        openInNewWindow()
+        return
+      }
       if (meta && e.key === ",") {
         e.preventDefault()
         setSettingsOpen(true)
@@ -1522,6 +1700,12 @@ export default function App() {
         if (anyOverlayOpen || isEditableTarget(e.target)) return
         e.preventDefault()
         attention.jumpNext()
+        return
+      }
+      if (!meta && e.altKey && e.shiftKey && e.code === "KeyI") {
+        if (anyOverlayOpen || isEditableTarget(e.target)) return
+        e.preventDefault()
+        setInboxOpen(true)
         return
       }
       // Pane walk. Every other binding below resolves against the focused
@@ -1605,6 +1789,7 @@ export default function App() {
     scriptsByCwd,
     runScript,
     abortSession,
+    openInNewWindow,
     toggleDockFor,
     toggleDiffSurface,
     toggleHistorySurface,
@@ -1648,7 +1833,9 @@ export default function App() {
   if (!booted) {
     return (
       <div
-        className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""}`}
+        className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""} ${
+          cockpit ? "is-cockpit" : ""
+        }`}
         style={{ "--sidebar-w": `${sidebarWidth}px` } as CSSProperties}
       />
     )
@@ -1657,8 +1844,8 @@ export default function App() {
   return (
     <div
       className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""} ${
-        tiled ? "is-tiled" : showDock ? "dock-is-open" : ""
-      }`}
+        tiled ? "is-tiled" : showDock && !cockpit ? "dock-is-open" : ""
+      } ${cockpit ? "is-cockpit" : ""}`}
       style={
         {
           "--sidebar-w": `${sidebarWidth}px`,
@@ -1689,6 +1876,7 @@ export default function App() {
           void jumpToMessage(sessionId, messageId)
         }
         onDelete={(id) => void deleteSession(id)}
+        onOpenInNewWindow={openInNewWindow}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenSwitcher={() => setPaletteOpen(true)}
         onShowShortcuts={() => setShortcutsOpen(true)}
@@ -1718,6 +1906,7 @@ export default function App() {
         scriptsByCwd={scriptsByCwd}
         overflowHasMore={overflowHasMore}
         loadingOlderFor={loadingOlderFor}
+        loadingTranscripts={loadingTranscripts}
         sendingIds={sendingIds}
         highlight={highlight}
         providers={providers}
@@ -1732,9 +1921,11 @@ export default function App() {
         error={error}
         onboard={onboard}
         anyOverlayOpen={anyOverlayOpen}
+        inboxCount={inboxCards.length}
         browserClaim={browserClaim}
         actions={paneActions}
         onDrop={onWorkspaceDrop}
+        cockpit={cockpit}
       />
       {settingsOpen ? (
         <SettingsModal
@@ -1767,6 +1958,10 @@ export default function App() {
             activeSession?.cwd ?? projects[0]?.cwd ?? null
           }
           sessions={sessions}
+          cockpit={cockpit}
+          onCockpitChange={(enabled) => {
+            void window.chatHub.setCockpit(enabled)
+          }}
         />
       ) : null}
       {wizardOpen ? (
@@ -1774,12 +1969,12 @@ export default function App() {
           onFinish={() => {
             setWizardOpen(false)
             void Promise.all([
-              window.chatHub.getSnapshot(),
+              window.chatHub.getSnapshot([...attachedRef.current]),
               window.chatHub.getSettings(),
               window.chatHub.listProjects(),
             ]).then(([snap, s, pinned]) => {
               setSessions(snap.sessions)
-              setMessagesBySession(snap.messages)
+              attachTranscripts(snap.messages)
               setQueuedBySession(snap.queued)
               setUsageBySession(snap.usage)
               setLimitsBySession(snap.rateLimits)
@@ -1790,6 +1985,8 @@ export default function App() {
                 setLayout((curr) =>
                   assignSession(curr, curr.focusedPaneId, id),
                 )
+                void ensureTranscript(id)
+                noteRecent(id)
               }
               setProjects(pinned)
               setProviderStatuses(s.statuses)
@@ -1803,9 +2000,23 @@ export default function App() {
           sessions={sessions}
           activeId={activeId}
           attentionCount={attention.queue.length}
+          inboxCount={inboxCards.length}
           onSelect={(id) => void selectSession(id)}
           onNextAttention={attention.jumpNext}
+          onNewWindow={openInNewWindow}
+          onOpenInbox={openInbox}
           onClose={() => setPaletteOpen(false)}
+        />
+      ) : null}
+      {inboxOpen ? (
+        <AgentInbox
+          cards={inboxCards}
+          clearedToday={inboxCleared}
+          onAllow={(id) => void resolvePermission(id, true)}
+          onDeny={(id) => void resolvePermission(id, false)}
+          onOpenSession={(id) => void selectSession(id)}
+          onCleared={onInboxCleared}
+          onClose={closeInbox}
         />
       ) : null}
       {projectSearch && activeSession ? (

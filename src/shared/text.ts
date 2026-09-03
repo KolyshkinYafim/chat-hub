@@ -48,3 +48,9 @@ export function describeValue(value: unknown): string {
     return Object.prototype.toString.call(value)
   }
 }
+
+export function oneLine(text: string, limit: number): string {
+  const flat = text.replace(/\s+/g, " ").trim()
+  if (flat.length <= limit) return flat
+  return `${flat.slice(0, limit - 1).trimEnd()}…`
+}

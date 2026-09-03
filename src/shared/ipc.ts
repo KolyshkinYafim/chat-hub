@@ -42,6 +42,8 @@ export const IpcChannels = {
   gitRemoveWorktree: "git:remove-worktree",
   gitPruneWorktrees: "git:prune-worktrees",
   attentionCount: "attention:count",
+  windowSessions: "window:sessions",
+  windowOpen: "window:open",
   getSettings: "settings:get",
   setPermissionMode: "settings:permission",
   getProviderStatuses: "providers:status",
@@ -119,6 +121,8 @@ export const IpcChannels = {
   contextWriteDoc: "surface:context-write-doc",
   contextSeed: "surface:context-seed",
   contextSetShare: "surface:context-set-share",
+  setWindowCockpit: "window:set-cockpit",
+  cockpitChanged: "window:cockpit-changed",
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]

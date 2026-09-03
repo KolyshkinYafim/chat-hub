@@ -1,3 +1,4 @@
+import { DEFAULT_WINDOW_ID } from "./window-identity"
 /** A rectangle in screen coordinates — Electron's `Rectangle` shape. */
 export type WindowBounds = {
   x: number
@@ -13,6 +14,8 @@ export type WorkArea = WindowBounds
 export type WindowState = {
   bounds: WindowBounds
   maximized: boolean
+  cockpit?: boolean
+  focused?: boolean
 }
 
 export const DEFAULT_WINDOW_WIDTH = 1280
@@ -39,7 +42,12 @@ const FALLBACK_AREA: WorkArea = {
 /** Reads back geometry written by an older (or hand-edited) settings.json. */
 export function parseWindowState(raw: unknown): WindowState | null {
   if (!raw || typeof raw !== "object") return null
-  const outer = raw as { bounds?: unknown; maximized?: unknown }
+  const outer = raw as {
+    bounds?: unknown
+    maximized?: unknown
+    cockpit?: unknown
+    focused?: unknown
+  }
   if (!outer.bounds || typeof outer.bounds !== "object") return null
   const b = outer.bounds as Record<string, unknown>
   const nums = [b.x, b.y, b.width, b.height]
@@ -57,7 +65,37 @@ export function parseWindowState(raw: unknown): WindowState | null {
       height,
     },
     maximized: outer.maximized === true,
+    ...(typeof outer.cockpit === "boolean" ? { cockpit: outer.cockpit } : {}),
+    ...(outer.focused === true ? { focused: true } : {}),
   }
+}
+
+export type PersistedWindow = WindowState & { windowId: number }
+
+export type OpeningWindow = { windowId: number; state: WindowState | null }
+
+export function parseWindowStates(raw: unknown): PersistedWindow[] | null {
+  if (!Array.isArray(raw)) return null
+  const out: PersistedWindow[] = []
+  const seen = new Set<number>()
+  for (const row of raw) {
+    const id = (row as { windowId?: unknown } | null)?.windowId
+    if (typeof id !== "number" || !Number.isInteger(id) || id < 1) continue
+    if (seen.has(id)) continue
+    const state = parseWindowState(row)
+    if (!state) continue
+    seen.add(id)
+    out.push({ windowId: id, ...state })
+  }
+  if (out.length === 0) return null
+  return out.sort((a, b) => a.windowId - b.windowId)
+}
+
+export function windowsToReopen(
+  saved: readonly PersistedWindow[] | null,
+): OpeningWindow[] {
+  if (!saved || saved.length === 0) return [{ windowId: DEFAULT_WINDOW_ID, state: null }]
+  return saved.map(({ windowId, ...state }) => ({ windowId, state }))
 }
 
 type Overlap = { width: number; height: number }

@@ -5,6 +5,8 @@
  * DOM. The renderer holds one `PaneLayout` and replaces it wholesale.
  */
 
+import { DEFAULT_WINDOW_ID, windowScopedKey } from "@shared/window-identity"
+
 const LAYOUT_KEY = "chat-hub.workspace.panes"
 const LAYOUT_VERSION = 1
 
@@ -361,17 +363,27 @@ export function serializeLayout(layout: PaneLayout): string {
   return JSON.stringify(stored)
 }
 
-export function loadLayout(fallbackDockOpen: boolean): PaneLayout {
+export function layoutKey(windowId = DEFAULT_WINDOW_ID): string {
+  return windowScopedKey(LAYOUT_KEY, windowId)
+}
+
+export function loadLayout(
+  fallbackDockOpen: boolean,
+  windowId = DEFAULT_WINDOW_ID,
+): PaneLayout {
   return (
-    parseLayout(localStorage.getItem(LAYOUT_KEY)) ??
+    parseLayout(localStorage.getItem(layoutKey(windowId))) ??
     soloLayout(null, fallbackDockOpen)
   )
 }
 
-export function hasStoredLayout(): boolean {
-  return parseLayout(localStorage.getItem(LAYOUT_KEY)) !== null
+export function hasStoredLayout(windowId = DEFAULT_WINDOW_ID): boolean {
+  return parseLayout(localStorage.getItem(layoutKey(windowId))) !== null
 }
 
-export function saveLayout(layout: PaneLayout): void {
-  localStorage.setItem(LAYOUT_KEY, serializeLayout(layout))
+export function saveLayout(
+  layout: PaneLayout,
+  windowId = DEFAULT_WINDOW_ID,
+): void {
+  localStorage.setItem(layoutKey(windowId), serializeLayout(layout))
 }

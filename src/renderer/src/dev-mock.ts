@@ -37,6 +37,7 @@ import {
   type TranscriptHit,
 } from "@shared/search"
 import { encodeToolCardMeta, type ToolCardMeta } from "@shared/tool-card"
+import { parseWindowIntent, windowQuery } from "@shared/window-identity"
 import {
   BINARY_TYPE,
   TEXT_TYPE,
@@ -1486,7 +1487,19 @@ function seedWorkspace(): void {
 export function installDevMock(): void {
   seedWorkspace()
   const api = {
-    getSnapshot: async () => snapshot,
+    cockpit: false,
+    setCockpit: async (enabled) => ({ enabled }),
+    onCockpitChanged: () => () => {},
+    getSnapshot: async (sessionIds?: readonly string[]) => {
+      if (!sessionIds) return snapshot
+      const wanted = new Set(sessionIds)
+      return {
+        ...snapshot,
+        messages: Object.fromEntries(
+          Object.entries(snapshot.messages).filter(([id]) => wanted.has(id)),
+        ),
+      }
+    },
     listSessions: async () => sessions,
     getMessages: async (id: string) => messages[id] ?? [],
     loadArchivedMessages: async (sessionId, beforeMessageId, limit = 50) => {
@@ -1799,6 +1812,19 @@ export function installDevMock(): void {
     voiceAvailable: async () => true,
     voiceToggle: async () => true,
     voiceCancel: async () => true,
+    windowIntent: parseWindowIntent(window.location.search),
+    reportWindowSessions: () => {},
+    openWindow: async (sessionId?: string) => {
+      window.open(
+        `${window.location.pathname}${windowQuery({
+          windowId: Date.now() % 1000,
+          fresh: true,
+          sessionId: sessionId ?? null,
+        })}&mock=1`,
+        "_blank",
+      )
+      return 0
+    },
   } satisfies Partial<ChatHubApi>
   // Typed, never cast: a preload method with no stub here is a compile error
   // rather than a mock that crashes the moment a component calls it.

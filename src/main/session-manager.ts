@@ -32,6 +32,8 @@ import { inspectAttachmentPaths } from "./attachments"
 import { MessageArchive, type ArchivedContext } from "./message-archive"
 import {
   MIN_TRANSCRIPT_QUERY,
+  mergeTranscriptHits,
+  searchTranscripts,
   type ArchiveSearchResult,
   type TranscriptHit,
 } from "@shared/search"
@@ -291,7 +293,14 @@ export class SessionManager {
     const q = query.trim()
     if (q.length < MIN_TRANSCRIPT_QUERY) return { hits: [], truncated: false }
 
-    const hits: TranscriptHit[] = []
+    const unheld: Record<string, ChatMessage[]> = {}
+    for (const sessionId of this.sessions.keys()) {
+      if (Object.hasOwn(loadedFrom, sessionId)) continue
+      unheld[sessionId] = this.getMessages(sessionId)
+    }
+    const live = searchTranscripts(q, unheld)
+
+    const archived: TranscriptHit[] = []
     let truncated = false
     for (const sessionId of this.archivedSessions) {
       if (!this.sessions.has(sessionId)) continue
@@ -301,9 +310,12 @@ export class SessionManager {
         loadedFrom[sessionId] ?? null,
       )
       if (found.truncated) truncated = true
-      if (found.hit) hits.push(found.hit)
+      if (found.hit) archived.push(found.hit)
     }
-    return { hits, truncated }
+    return {
+      hits: [...mergeTranscriptHits(live, archived).values()],
+      truncated,
+    }
   }
 
   /**
@@ -752,18 +764,16 @@ export class SessionManager {
     }
   }
 
-  getSnapshot(): SessionSnapshot {
+  getSnapshot(sessionIds?: readonly string[]): SessionSnapshot {
+    const wanted = sessionIds ? new Set(sessionIds) : null
     const messages: Record<string, ChatMessage[]> = {}
     for (const [id, msgs] of this.messages) {
+      if (wanted && !wanted.has(id)) continue
       messages[id] = msgs
     }
     const queued: Record<string, QueuedMessage[]> = {}
     for (const id of this.queued.keys()) {
       queued[id] = this.listQueued(id)
-    }
-    const usage: Record<string, SessionUsage> = {}
-    for (const [id, total] of this.usage) {
-      usage[id] = total
     }
     const rateLimits: Record<string, ProviderRateLimits> = {}
     for (const [id, limits] of this.rateLimits) {
@@ -773,12 +783,20 @@ export class SessionManager {
       sessions: this.listSessions(),
       messages,
       queued,
-      usage,
+      usage: this.usageTotals(),
       rateLimits,
       permissions: this.permissions?.list() ?? [],
       inputRequests: this.permissions?.listInputs() ?? [],
       activeSessionId: this.activeSessionId,
     }
+  }
+
+  usageTotals(): Record<string, SessionUsage> {
+    const usage: Record<string, SessionUsage> = {}
+    for (const [id, total] of this.usage) {
+      usage[id] = total
+    }
+    return usage
   }
 
   getUsage(sessionId: string): SessionUsage | undefined {

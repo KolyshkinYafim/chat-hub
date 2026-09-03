@@ -9,6 +9,7 @@ export class NotificationService {
   constructor(
     private readonly getSession: (id: string) => SessionMeta | undefined,
     private readonly soundEnabled: () => boolean = () => false,
+    private readonly onActivate: (sessionId: string) => void = () => {},
   ) {}
 
   handle(event: SessionEvent): void {
@@ -39,6 +40,7 @@ export class NotificationService {
       : event.id
 
     const n = new Notification({ title, body, silent: !this.soundEnabled() })
+    n.on("click", () => this.onActivate(event.id))
     n.show()
   }
 }

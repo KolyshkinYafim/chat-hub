@@ -327,5 +327,91 @@ describe("shell state", () => {
     await s.setGeneralConfig({ themeId: "dawn" })
     expect(s.windowState?.bounds.width).toBe(1000)
   })
+
+  it("preserves the per-window cockpit flag across geometry writes", async () => {
+    const { s } = await store()
+    await s.setWindowState({
+      bounds: { x: 1, y: 2, width: 1000, height: 700 },
+      maximized: false,
+      cockpit: true,
+    })
+    await s.setWindowState({
+      bounds: { x: 8, y: 9, width: 1100, height: 800 },
+      maximized: true,
+    })
+    expect(s.windowState?.cockpit).toBe(true)
+    expect(s.windowState?.bounds.width).toBe(1100)
+    await s.setWindowState({
+      bounds: { x: 8, y: 9, width: 1100, height: 800 },
+      maximized: false,
+      cockpit: false,
+    })
+    expect(s.windowState?.cockpit).toBe(false)
+  })
+})
+
+describe("the window set", () => {
+  const BOUNDS = { x: 5, y: 6, width: 1100, height: 800 }
+
+  it("has no window list until one is saved", async () => {
+    const { s } = await store()
+    expect(s.windowStates).toBeNull()
+  })
+
+  it("round-trips every window through the settings file", async () => {
+    const { s, file } = await store()
+    await s.setWindowStates([
+      { windowId: 1, bounds: BOUNDS, maximized: false },
+      { windowId: 2, bounds: BOUNDS, maximized: true },
+    ])
+
+    const reloaded = new SettingsStore(file)
+    await reloaded.load()
+    expect(reloaded.windowStates).toEqual([
+      { windowId: 1, bounds: BOUNDS, maximized: false },
+      { windowId: 2, bounds: BOUNDS, maximized: true },
+    ])
+  })
+
+  it("reads a pre-multiwindow file as the one window it described", async () => {
+    const { s } = await store()
+    await s.setWindowState({ bounds: BOUNDS, maximized: true })
+    expect(s.windowStates).toEqual([
+      { windowId: 1, bounds: BOUNDS, maximized: true },
+    ])
+  })
+
+  it("refuses to write an empty set over the one it remembers", async () => {
+    const { s, file } = await store()
+    await s.setWindowStates([{ windowId: 2, bounds: BOUNDS, maximized: false }])
+    await s.setWindowStates([])
+
+    const reloaded = new SettingsStore(file)
+    await reloaded.load()
+    expect(reloaded.windowStates).toEqual([
+      { windowId: 2, bounds: BOUNDS, maximized: false },
+    ])
+  })
+
+  it("keeps the window set when other settings are written", async () => {
+    const { s } = await store()
+    await s.setWindowStates([{ windowId: 3, bounds: BOUNDS, maximized: false }])
+    await s.setGeneralConfig({ themeId: "dawn" })
+    expect(s.windowStates?.[0]?.windowId).toBe(3)
+  })
+
+  it("drops a window list it cannot trust", async () => {
+    const { s, file } = await store()
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 2,
+        windows: [{ windowId: 1, bounds: { x: 0, y: 0, width: "wide" } }],
+      }),
+      "utf8",
+    )
+    await s.load()
+    expect(s.windowStates).toBeNull()
+  })
 })
 

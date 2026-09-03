@@ -1,7 +1,9 @@
 import { useMemo, useState, type KeyboardEvent } from "react"
 import type { SessionMeta } from "@shared/types"
 import {
+  AGENT_INBOX_KEY,
   buildPaletteEntries,
+  NEW_WINDOW_KEY,
   paletteKey,
   resolvePaletteCursor,
   type PaletteCursor,
@@ -13,8 +15,11 @@ type Props = {
   sessions: SessionMeta[]
   activeId: string | null
   attentionCount: number
+  inboxCount: number
   onSelect: (id: string) => void
   onNextAttention: () => void
+  onNewWindow: (sessionId?: string) => void
+  onOpenInbox: () => void
   onClose: () => void
 }
 
@@ -23,16 +28,19 @@ export function CommandPalette({
   sessions,
   activeId,
   attentionCount,
+  inboxCount,
   onSelect,
   onNextAttention,
+  onNewWindow,
+  onOpenInbox,
   onClose,
 }: Props) {
   const [query, setQuery] = useState("")
   const [cursor, setCursor] = useState<PaletteCursor>({ key: null, index: 0 })
 
   const entries = useMemo(
-    () => buildPaletteEntries(sessions, query, attentionCount),
-    [sessions, query, attentionCount],
+    () => buildPaletteEntries(sessions, query, attentionCount, inboxCount),
+    [sessions, query, attentionCount, inboxCount],
   )
   const keys = useMemo(() => entries.map(paletteKey), [entries])
   const active = resolvePaletteCursor(keys, cursor)
@@ -41,9 +49,16 @@ export function CommandPalette({
     setCursor({ key: keys[index] ?? null, index })
   }
 
-  function pick(entry: PaletteEntry) {
-    if (entry.kind === "command") onNextAttention()
-    else onSelect(entry.session.id)
+  function pick(entry: PaletteEntry, newWindow = false) {
+    if (entry.kind === "command") {
+      if (entry.key === NEW_WINDOW_KEY) onNewWindow()
+      else if (entry.key === AGENT_INBOX_KEY) onOpenInbox()
+      else onNextAttention()
+    } else if (newWindow) {
+      onNewWindow(entry.session.id)
+    } else {
+      onSelect(entry.session.id)
+    }
     onClose()
   }
 
@@ -57,7 +72,7 @@ export function CommandPalette({
     } else if (e.key === "Enter") {
       e.preventDefault()
       const hit = entries[active]
-      if (hit) pick(hit)
+      if (hit) pick(hit, e.metaKey || e.ctrlKey)
     } else if (e.key === "Escape") {
       e.preventDefault()
       onClose()
@@ -112,7 +127,7 @@ export function CommandPalette({
                     i === active ? "on" : ""
                   }`}
                   onMouseEnter={() => moveTo(i)}
-                  onClick={() => pick(entry)}
+                  onClick={(e) => pick(entry, e.metaKey || e.ctrlKey)}
                 >
                   <span className="palette-title">
                     {command ? entry.label : entry.session.title}
@@ -125,7 +140,7 @@ export function CommandPalette({
                         }${entry.session.id === activeId ? " · current" : ""}`}
                   </span>
                   <span className={`palette-time ${command ? "kbd" : ""}`}>
-                    {command ? "⌥⇧U" : formatRelative(entry.session.updatedAt)}
+                    {command ? entry.hint : formatRelative(entry.session.updatedAt)}
                   </span>
                 </button>
               )
@@ -135,6 +150,7 @@ export function CommandPalette({
         <div className="palette-foot">
           <span className="kbd">↑↓</span> move
           <span className="kbd">↩</span> open
+          <span className="kbd">⌘↩</span> new window
           <span className="kbd">esc</span> close
         </div>
       </div>

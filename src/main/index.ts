@@ -74,8 +74,21 @@ import {
   trackWindowState,
   type ZoomController,
 } from "./window-state"
-import { MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH } from "@shared/window-bounds"
+import {
+  MIN_WINDOW_HEIGHT,
+  MIN_WINDOW_WIDTH,
+  windowsToReopen,
+  type WindowState,
+} from "@shared/window-bounds"
+import { windowQuery } from "@shared/window-identity"
+import { pickWindowForSession, WindowRegistry } from "./window-registry"
+import { parseCockpitFlags, type CockpitWindow } from "@shared/cockpit"
 import { resolveTheme, themeBackground } from "@shared/theme"
+import {
+  applyCockpitChrome,
+  shouldGlass,
+  watchReducedTransparency,
+} from "./cockpit-window"
 import { DEFAULT_ZOOM_LEVEL } from "@shared/zoom"
 import {
   appendMcpPathsToGitignore,
@@ -151,7 +164,17 @@ function buildProbeInputs(settings: SettingsStore): ProbeInput[] {
   return out
 }
 
-let mainWindow: BrowserWindow | null = null
+type HubWindow = {
+  id: number
+  window: BrowserWindow
+  zoom: ZoomController
+  sessions: Set<string>
+  attached: Set<string> | null
+  cockpit: CockpitWindow
+}
+
+const windows = new WindowRegistry<HubWindow>()
+let developerMenuInstalled = false
 let manager: SessionManager | null = null
 let commandBridge: MonitorCommandBridge | null = null
 let permissions: PermissionBroker | null = null
@@ -159,14 +182,91 @@ let dockBadge: DockBadge | null = null
 // createWindow also runs from `activate` and the monitor bridge, long after
 // bootstrap handed the store around, so the window path reads it from here.
 let settingsStore: SettingsStore | null = null
-let zoom: ZoomController | null = null
 
 const PROVIDER_IDS = new Set(PROVIDERS.map((p) => p.id))
 
+function liveWindows(): HubWindow[] {
+  return windows.values().filter((hub) => !hub.window.isDestroyed())
+}
+
+function hubForWebContents(webContentsId: number): HubWindow | null {
+  return (
+    liveWindows().find((hub) => hub.window.webContents.id === webContentsId) ??
+    null
+  )
+}
+
 function sendToRenderer(channel: string, payload: unknown): void {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send(channel, payload)
+  for (const hub of liveWindows()) {
+    hub.window.webContents.send(channel, payload)
   }
+}
+
+function sendToWindow(hub: HubWindow, channel: string, payload: unknown): void {
+  if (hub.window.isDestroyed()) return
+  hub.window.webContents.send(channel, payload)
+}
+
+function showWindow(hub: HubWindow): void {
+  if (hub.window.isDestroyed()) return
+  if (hub.window.isMinimized()) hub.window.restore()
+  hub.window.show()
+  hub.window.focus()
+}
+
+function windowForSession(sessionId: string | null): HubWindow {
+  const shows = new Map<number, ReadonlySet<string>>(
+    liveWindows().map((hub) => [hub.id, hub.sessions]),
+  )
+  const pick = pickWindowForSession(sessionId, shows, windows.recency())
+  const existing = pick === null ? undefined : windows.get(pick)
+  if (existing && !existing.window.isDestroyed()) return existing
+  return createWindow({ sessionId })
+}
+
+function focusSessionNow(sessionId: string | null): void {
+  const hub = windowForSession(sessionId)
+  showWindow(hub)
+  if (!sessionId) return
+  sendToWindow(hub, IpcChannels.hubEvent, {
+    type: "session.active",
+    sessionId,
+  })
+}
+
+let pendingFocus: { sessionIds: string[]; timer: NodeJS.Timeout } | null = null
+
+function flushPendingFocus(): void {
+  if (!pendingFocus) return
+  const { sessionIds, timer } = pendingFocus
+  clearTimeout(timer)
+  pendingFocus = null
+  for (const sessionId of sessionIds) focusSessionNow(sessionId)
+}
+
+function focusSession(sessionId: string | null): void {
+  const live = liveWindows()
+  if (
+    sessionId &&
+    live.length > 0 &&
+    live.some((hub) => hub.attached === null) &&
+    !live.some((hub) => hub.sessions.has(sessionId))
+  ) {
+    if (pendingFocus) {
+      clearTimeout(pendingFocus.timer)
+      if (!pendingFocus.sessionIds.includes(sessionId)) {
+        pendingFocus.sessionIds.push(sessionId)
+      }
+      pendingFocus.timer = setTimeout(flushPendingFocus, 3000)
+    } else {
+      pendingFocus = {
+        sessionIds: [sessionId],
+        timer: setTimeout(flushPendingFocus, 3000),
+      }
+    }
+    return
+  }
+  focusSessionNow(sessionId)
 }
 
 const terminals = new TerminalSessions({
@@ -195,8 +295,9 @@ const browserService = new BrowserService(
   browserControl,
   {
     requestOpen: (sessionId) => {
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
-      sendToRenderer(IpcChannels.browserOpen, sessionId)
+      const hub = windowForSession(sessionId)
+      if (!hub.window.isDestroyed()) hub.window.show()
+      sendToWindow(hub, IpcChannels.browserOpen, sessionId)
     },
     surfaces: (request) => surfaceControl.handle(request),
   },
@@ -213,6 +314,54 @@ function registerBrowserIpc(): void {
   )
   ipcMain.on(IpcChannels.surfaceState, (_e, state: unknown) => {
     surfaceControl.setState(state)
+  })
+}
+
+function registerWindowIpc(): void {
+  ipcMain.on(IpcChannels.attentionCount, (event, count: unknown) => {
+    if (typeof count !== "number" || !Number.isFinite(count) || count < 0) {
+      return
+    }
+    const hub = hubForWebContents(event.sender.id)
+    if (!hub) return
+    dockBadge?.setRendererCount(hub.id, count)
+  })
+
+  ipcMain.on(
+    IpcChannels.windowSessions,
+    (event, sessionIds: unknown, attachedIds: unknown) => {
+      const hub = hubForWebContents(event.sender.id)
+      if (!hub) return
+      if (!Array.isArray(sessionIds)) return
+      hub.sessions = new Set(
+        sessionIds.filter(
+          (id): id is string => typeof id === "string" && id !== "",
+        ),
+      )
+      const attached: unknown[] = Array.isArray(attachedIds)
+        ? (attachedIds as unknown[])
+        : sessionIds
+      hub.attached = new Set([
+        ...attached.filter(
+          (id): id is string => typeof id === "string" && id !== "",
+        ),
+        ...hub.sessions,
+      ])
+      if (
+        pendingFocus &&
+        (pendingFocus.sessionIds.some((id) => hub.sessions.has(id)) ||
+          liveWindows().every((live) => live.attached !== null))
+      ) {
+        flushPendingFocus()
+      }
+    },
+  )
+
+  ipcMain.handle(IpcChannels.windowOpen, (_e, sessionId: unknown) => {
+    const seed = typeof sessionId === "string" && sessionId ? sessionId : null
+    const hub = createWindow({ fresh: true, sessionId: seed })
+    showWindow(hub)
+    return hub.id
   })
 }
 
@@ -259,6 +408,11 @@ function normalizeSendOpts(opts: unknown): SendOpts | undefined {
   return clean
 }
 
+function normalizeSessionIds(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  return value.filter((id): id is string => typeof id === "string" && id !== "")
+}
+
 function isExistingFile(path: string): boolean {
   try {
     return statSync(path).isFile()
@@ -281,91 +435,219 @@ function bootMark(label: string): void {
   console.log(`[boot] ${label} +${Date.now() - bootStart}ms`)
 }
 
-function createWindow(): void {
-  const saved = settingsStore?.windowState ?? null
-  mainWindow = new BrowserWindow({
+export type CreateWindowOptions = {
+  windowId?: number
+  state?: WindowState | null
+  fresh?: boolean
+  sessionId?: string | null
+}
+
+const CASCADE_STEP = 28
+
+function cascadeFrom(previous: BrowserWindow | null): WindowState | null {
+  if (!previous || previous.isDestroyed()) return null
+  const bounds = previous.getNormalBounds()
+  return {
+    bounds: {
+      ...bounds,
+      x: bounds.x + CASCADE_STEP,
+      y: bounds.y + CASCADE_STEP,
+    },
+    maximized: false,
+  }
+}
+
+function currentThemeBackground(): string {
+  return themeBackground(
+    resolveTheme(
+      settingsStore?.general.themeId,
+      settingsStore?.general.customThemes,
+    ),
+  )
+}
+
+function cockpitFlagsFor(saved: WindowState | null): CockpitWindow {
+  return parseCockpitFlags(process.argv, process.env, saved?.cockpit)
+}
+
+function applyHubCockpit(hub: HubWindow): void {
+  applyCockpitChrome(
+    hub.window,
+    hub.cockpit.enabled && !hub.window.isFullScreen(),
+    hub.cockpit.vibrancy,
+    currentThemeBackground(),
+  )
+}
+
+function createWindow(options: CreateWindowOptions = {}): HubWindow {
+  const id = options.windowId ?? windows.nextId()
+  const saved =
+    options.state ?? cascadeFrom(windows.mostRecent()?.window ?? null)
+  const cockpit = cockpitFlagsFor(saved)
+  const themeBg = currentThemeBackground()
+  const glass = shouldGlass(cockpit.enabled)
+  const window = new BrowserWindow({
     ...openingBounds(saved),
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
     title: "Chat Hub",
-    backgroundColor: themeBackground(
-      resolveTheme(
-        settingsStore?.general.themeId,
-        settingsStore?.general.customThemes,
-      ),
-    ),
+    backgroundColor: glass ? "#00000000" : themeBg,
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 16 },
+    ...(glass
+      ? {
+          vibrancy: cockpit.vibrancy,
+          visualEffectState: "active" as const,
+        }
+      : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
       webviewTag: true,
+      additionalArguments: cockpit.enabled
+        ? [
+            "--chat-hub-cockpit=1",
+            `--chat-hub-cockpit-vibrancy=${cockpit.vibrancy}`,
+          ]
+        : [],
     },
   })
 
-  if (saved?.maximized) mainWindow.maximize()
+  if (saved?.maximized) window.maximize()
 
   const store = settingsStore
-  if (store) {
-    trackWindowState(mainWindow, (state) => {
-      void store.setWindowState(state).catch(() => {
-        // Geometry is a convenience: a failed write must not break the window.
-      })
-    })
-  }
 
-  // Chromium drops the zoom factor on every load, so the controller re-asserts
-  // it — including after the Developer menu's Reload.
-  zoom = createZoomController(
-    () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null),
+  const zoom = createZoomController(
+    () => (window.isDestroyed() ? null : window.webContents),
     store?.zoomLevel ?? DEFAULT_ZOOM_LEVEL,
     (level) => {
       void store?.setZoomLevel(level).catch(() => {})
     },
   )
-  mainWindow.webContents.on("did-finish-load", () => zoom?.apply())
-  mainWindow.webContents.once("did-finish-load", () => bootMark("renderer.loaded"))
 
-  mainWindow.on("closed", () => {
-    mainWindow = null
-    zoom = null
-    dockBadge?.clearRendererCount()
+  const hub: HubWindow = {
+    id,
+    window,
+    zoom,
+    sessions: new Set(),
+    attached: null,
+    cockpit,
+  }
+  windows.add(id, hub)
+
+  applyHubCockpit(hub)
+  watchReducedTransparency(() => {
+    for (const live of liveWindows()) applyHubCockpit(live)
+  })
+  window.on("enter-full-screen", () => applyHubCockpit(hub))
+  window.on("leave-full-screen", () => applyHubCockpit(hub))
+
+  if (store) {
+    trackWindowState(window, () => rememberWindows())
+  }
+  window.on("focus", () => windows.touch(id))
+
+  window.webContents.on("did-finish-load", () => zoom.apply())
+  window.webContents.once("did-finish-load", () => bootMark("renderer.loaded"))
+
+  window.on("closed", () => {
+    windows.remove(id)
+    dockBadge?.dropWindow(id)
     // Media tokens are capabilities into a workspace; nothing may replay them
-    // against the next window, which can be pointed at a different project.
-    revokeMediaGrants()
+    revokeMediaGrants(id)
+    rememberWindows()
   })
 
-  hardenWebviewHost(mainWindow.webContents, (url) => {
+  hardenWebviewHost(window.webContents, (url) => {
     void shell.openExternal(url)
   })
-  installDeveloperMenu(() => mainWindow, {
-    zoom: {
-      zoomIn: () => zoom?.zoomIn(),
-      zoomOut: () => zoom?.zoomOut(),
-      reset: () => zoom?.reset(),
-    },
-  })
+  if (!developerMenuInstalled) {
+    developerMenuInstalled = true
+    installDeveloperMenu(() => focusedHubWindow()?.window ?? null, {
+      zoom: {
+        zoomIn: () => focusedHubWindow()?.zoom.zoomIn(),
+        zoomOut: () => focusedHubWindow()?.zoom.zoomOut(),
+        reset: () => focusedHubWindow()?.zoom.reset(),
+      },
+      newWindow: () => {
+        createWindow({ fresh: true })
+      },
+    })
+  }
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  window.webContents.setWindowOpenHandler(({ url }) => {
     if (isSafeExternalUrl(url)) {
       void shell.openExternal(url)
     }
     return { action: "deny" }
   })
 
-  mainWindow.webContents.on("will-navigate", (event, url) => {
+  window.webContents.on("will-navigate", (event, url) => {
     if (!isRendererNavigationAllowed(url)) {
       event.preventDefault()
     }
   })
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
-  } else {
-    void mainWindow.loadFile(join(__dirname, "../renderer/index.html"))
+  if (cockpit.enabled) bootMark(`cockpit.${cockpit.vibrancy}`)
+
+  const params = new URLSearchParams(
+    windowQuery({
+      windowId: id,
+      fresh: options.fresh === true,
+      sessionId: options.sessionId ?? null,
+    }).slice(1),
+  )
+  if (cockpit.enabled) {
+    params.set("cockpit", "1")
+    params.set("vibrancy", cockpit.vibrancy)
   }
+  const query = `?${params.toString()}`
+  if (process.env.ELECTRON_RENDERER_URL) {
+    void window.loadURL(`${process.env.ELECTRON_RENDERER_URL}${query}`)
+  } else {
+    void window.loadFile(join(__dirname, "../renderer/index.html"), {
+      search: query,
+    })
+  }
+  return hub
+}
+
+function focusedHubWindow(): HubWindow | null {
+  const focused = BrowserWindow.getFocusedWindow()
+  if (focused) {
+    const hub = liveWindows().find((entry) => entry.window === focused)
+    if (hub) return hub
+  }
+  const recent = windows.mostRecent()
+  return recent && !recent.window.isDestroyed() ? recent : null
+}
+
+function rememberWindows(): void {
+  const store = settingsStore
+  if (!store) return
+  const open = liveWindows().map((hub) => ({
+    windowId: hub.id,
+    bounds: hub.window.getNormalBounds(),
+    maximized: hub.window.isMaximized(),
+    cockpit: hub.cockpit.enabled,
+    focused: hub.id === windows.mostRecentId(),
+  }))
+  if (open.length === 0) return
+  void store.setWindowStates(open).catch(() => {
+  })
+}
+
+function openRememberedWindows(): HubWindow[] {
+  const openings = windowsToReopen(settingsStore?.windowStates ?? null)
+  const opened = openings.map(({ windowId, state }) =>
+    createWindow({ windowId, state }),
+  )
+  const focusedAt = openings.findIndex(({ state }) => state?.focused === true)
+  const front = opened[focusedAt === -1 ? opened.length - 1 : focusedAt]
+  if (front) showWindow(front)
+  return opened
 }
 
 export function registerIpc(
@@ -378,13 +660,13 @@ export function registerIpc(
   providerStatuses: ProviderStatusRefresher,
   ready: Promise<void>,
 ): void {
-  ipcMain.handle(IpcChannels.getSnapshot, async () => {
+  ipcMain.handle(IpcChannels.getSnapshot, async (_e, sessionIds: unknown) => {
     await ready
     if (!snapshotServed) {
       snapshotServed = true
       bootMark("snapshot.served")
     }
-    return sm.getSnapshot()
+    return sm.getSnapshot(normalizeSessionIds(sessionIds))
   })
   ipcMain.handle(IpcChannels.usageSummary, async () => {
     await ready
@@ -394,10 +676,11 @@ export function registerIpc(
     await ready
     return sm.listSessions()
   })
-  ipcMain.handle(IpcChannels.getMessages, (_e, sessionId: unknown) => {
+  ipcMain.handle(IpcChannels.getMessages, async (_e, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) {
       throw new Error("Invalid sessionId")
     }
+    await ready
     return sm.getMessages(sessionId)
   })
   ipcMain.handle(
@@ -532,13 +815,13 @@ export function registerIpc(
       throw new Error("Invalid sessionId")
     }
     sm.setActiveSession(sessionId)
-    return sm.getSnapshot()
+    return sm.getSnapshot(sessionId === null ? [] : [sessionId])
   })
   ipcMain.handle(IpcChannels.listProviders, () => listProviderInfo())
   ipcMain.handle(IpcChannels.getBridgePath, () => bridge.path)
 
   ipcMain.handle(IpcChannels.pickFolder, async () => {
-    const win = BrowserWindow.getFocusedWindow() ?? mainWindow
+    const win = BrowserWindow.getFocusedWindow() ?? focusedHubWindow()?.window ?? null
     const result = await dialog.showOpenDialog(win ?? undefined!, {
       properties: ["openDirectory", "createDirectory"],
       title: "Open project folder",
@@ -825,6 +1108,19 @@ export function registerIpc(
   ipcMain.handle(IpcChannels.setGeneralConfig, async (_e, patch: unknown) => {
     const next = await settings.setGeneralConfig(sanitizeGeneralPatch(patch))
     return { general: next.general }
+  })
+
+  ipcMain.handle(IpcChannels.setWindowCockpit, async (e, enabled: unknown) => {
+    const on = enabled === true
+    const hub = liveWindows().find(
+      (entry) => entry.window.webContents === e.sender,
+    )
+    if (!hub) return { enabled: false }
+    hub.cockpit = { ...hub.cockpit, enabled: on }
+    applyHubCockpit(hub)
+    rememberWindows()
+    hub.window.webContents.send(IpcChannels.cockpitChanged, on)
+    return { enabled: on }
   })
 
   ipcMain.handle(IpcChannels.getDataPaths, (): DataPaths => {
@@ -1192,7 +1488,7 @@ export function registerIpc(
   )
 
   ipcMain.handle(IpcChannels.pickFiles, async () => {
-    const win = BrowserWindow.getFocusedWindow() ?? mainWindow
+    const win = BrowserWindow.getFocusedWindow() ?? focusedHubWindow()?.window ?? null
     const result = await dialog.showOpenDialog(win ?? undefined!, {
       properties: ["openFile", "multiSelections"],
       title: "Attach files",
@@ -1282,7 +1578,7 @@ export function registerIpc(
     let folder: string | null =
       typeof cwd === "string" && cwd.trim() ? cwd.trim() : null
     if (!folder) {
-      const win = BrowserWindow.getFocusedWindow() ?? mainWindow
+      const win = BrowserWindow.getFocusedWindow() ?? focusedHubWindow()?.window ?? null
       const result = await dialog.showOpenDialog(win ?? undefined!, {
         properties: ["openDirectory", "createDirectory"],
         title: "Add project folder",
@@ -1446,11 +1742,13 @@ if (process.env.ELECTRON_RENDERER_URL) {
   app.setPath("userData", `${app.getPath("userData")}-dev`)
 }
 
-function focusMainWindow(): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return
-  if (mainWindow.isMinimized()) mainWindow.restore()
-  mainWindow.show()
-  mainWindow.focus()
+function focusHubWindow(): void {
+  const hub = focusedHubWindow()
+  if (hub) {
+    showWindow(hub)
+    return
+  }
+  if (settingsStore) openRememberedWindows()
 }
 
 export interface SingleInstanceHooks {
@@ -1481,7 +1779,7 @@ export function startSingleInstance(
     hooks.quit()
     return "quit"
   }
-  hooks.onSecondInstance(focusMainWindow)
+  hooks.onSecondInstance(focusHubWindow)
   hooks.boot()
   return "boot"
 }
@@ -1500,7 +1798,7 @@ export async function bootReadyChain(opts: {
   await opts.startBroker()
   await sm.init()
   await usageLedger.init(
-    seedFromSessions(sm.listSessions(), sm.getSnapshot().usage),
+    seedFromSessions(sm.listSessions(), sm.usageTotals()),
   )
   // Backfill: every existing session folder becomes a first-class project so it
   // stays pinned/manageable in the sidebar even after its sessions are gone.
@@ -1568,6 +1866,7 @@ async function bootstrap(): Promise<void> {
   const notifications = new NotificationService(
     (id) => manager?.getSession(id),
     () => settings.general.completionSound === true,
+    focusSession,
   )
   const usageLedger = new UsageLedger(UsageLedger.defaultPath(userData))
   const sm = new SessionManager(
@@ -1582,9 +1881,20 @@ async function bootstrap(): Promise<void> {
   manager = sm
 
   bus.on((event) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(IpcChannels.hubEvent, event)
+    if (event.type === "session.active") return
+    if (
+      event.type === "chat.delta" ||
+      event.type === "chat.item" ||
+      event.type === "chat.done"
+    ) {
+      for (const hub of liveWindows()) {
+        if (hub.attached === null || hub.attached.has(event.sessionId)) {
+          sendToWindow(hub, IpcChannels.hubEvent, event)
+        }
+      }
+      return
     }
+    sendToRenderer(IpcChannels.hubEvent, event)
   })
 
   const store = settings
@@ -1628,42 +1938,28 @@ async function bootstrap(): Promise<void> {
     providerStatuses,
     ready,
   )
-  registerSurfaceIpc(terminals)
+  registerSurfaceIpc(terminals, (webContentsId) => {
+    return hubForWebContents(webContentsId)?.id ?? null
+  })
   registerBrowserIpc()
   registerMediaProtocol()
-  createWindow()
+  registerWindowIpc()
+  openRememberedWindows()
   bootMark("window.created")
 
   await ready
   bootMark("ready.resolved")
 
   dockBadge = wireDockBadge(bus, () => sm.listSessions())
-  ipcMain.on(IpcChannels.attentionCount, (_e, count: unknown) => {
-    if (typeof count !== "number" || !Number.isFinite(count) || count < 0) {
-      return
-    }
-    dockBadge?.setRendererCount(count)
-  })
 
   await browserService.start()
 
-  commandBridge = new MonitorCommandBridge(sm, (sessionId) => {
-    if (!mainWindow || mainWindow.isDestroyed()) createWindow()
-    mainWindow?.show()
-    mainWindow?.focus()
-    // null means "surface only": pushing an id the manager refused would leave
-    // the renderer pointing at a session that no longer exists.
-    if (sessionId && mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(IpcChannels.hubEvent, {
-        type: "session.active",
-        sessionId,
-      })
-    }
-  })
+  commandBridge = new MonitorCommandBridge(sm, focusSession)
   commandBridge.start()
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (windows.size === 0) openRememberedWindows()
+    else focusHubWindow()
   })
 }
 

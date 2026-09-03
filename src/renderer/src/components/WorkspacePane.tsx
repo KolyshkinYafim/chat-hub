@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { DragEvent, HTMLAttributes } from "react"
 import type { HookRun } from "@shared/hooks"
 import type {
@@ -19,6 +19,12 @@ import type { ProjectScript } from "@shared/scripts"
 import { collectAgentActions, editedPathsInMessage } from "../lib/agent-actions"
 import type { SurfaceKind } from "../lib/surface-bridge"
 import type { Pane } from "../lib/pane-layout"
+import {
+  cockpitTabForSurface,
+  surfaceForCockpitTab,
+  type CockpitTab,
+} from "@shared/cockpit"
+import { CockpitTabs } from "./CockpitTabs"
 import { ChatView, type OnboardNotice } from "./ChatView"
 import { StatusDot } from "./StatusDot"
 import { SurfaceDock } from "./surfaces/SurfaceDock"
@@ -71,6 +77,7 @@ export type PaneActions = {
   onOpenDiff: (paneId: string, sessionId: string, path: string) => void
   onCreate: () => void
   onShowShortcuts: () => void
+  onOpenInbox: () => void
   onGitChanged: () => void
   onDockWidthChange: (width: number) => void
   onDockWidthCommit: (width: number) => void
@@ -91,6 +98,7 @@ type Props = {
   messages: ChatMessage[]
   hasOlderMessages: boolean
   loadingOlder: boolean
+  transcriptPending: boolean
   highlightMessageId: string | null
   usage: SessionUsage | null
   limits: ProviderRateLimits | null
@@ -109,6 +117,7 @@ type Props = {
   error: string | null
   onboard: OnboardNotice | null
   anyOverlayOpen: boolean
+  inboxCount: number
   dockWidth: number
   /** What the sidebar occupies, so the dock's own clamp can see it. */
   sidebarWidth: number
@@ -127,6 +136,7 @@ type Props = {
   queuedBySession: Record<string, QueuedMessage[]>
   actions: PaneActions
   containerProps?: HTMLAttributes<HTMLElement>
+  cockpit?: boolean
 }
 
 function PaneView({
@@ -140,6 +150,7 @@ function PaneView({
   messages,
   hasOlderMessages,
   loadingOlder,
+  transcriptPending,
   highlightMessageId,
   usage,
   limits,
@@ -158,6 +169,7 @@ function PaneView({
   error,
   onboard,
   anyOverlayOpen,
+  inboxCount,
   dockWidth,
   sidebarWidth,
   gitRefresh,
@@ -169,11 +181,18 @@ function PaneView({
   queuedBySession,
   actions,
   containerProps,
+  cockpit = false,
 }: Props) {
   const paneId = pane.id
   const sessionId = session?.id ?? null
   const cwd = session?.cwd ?? null
   const dockOpen = pane.dockOpen && session !== null
+  const [tab, setTab] = useState<CockpitTab>("chat")
+
+  useEffect(() => {
+    if (!cockpit) return
+    setTab(cockpitTabForSurface(surface))
+  }, [cockpit, surface])
 
   // The diff surface reads the same tool cards the transcript already parsed,
   // so there is one answer to "what did this turn change" rather than two.
@@ -236,6 +255,7 @@ function PaneView({
       messages={messages}
       hasOlderMessages={hasOlderMessages}
       loadingOlder={loadingOlder}
+      transcriptPending={transcriptPending}
       onLoadOlder={() => sessionId && actions.onLoadOlder(sessionId)}
       providers={providers}
       models={models}
@@ -276,14 +296,50 @@ function PaneView({
       }
       dockOpen={dockOpen}
       onToggleDock={() => actions.onToggleDock(paneId)}
+      inboxCount={inboxCount}
+      onOpenInbox={actions.onOpenInbox}
     />
   )
 
+  const pickTab = useCallback(
+    (next: CockpitTab) => {
+      setTab(next)
+      const kind = surfaceForCockpitTab(next)
+      if (!sessionId) return
+      actions.onSelectSurface(paneId, sessionId, kind)
+    },
+    [actions, paneId, sessionId],
+  )
+
+  const chatNode = cockpit ? (
+    <div className="cockpit-chat" hidden={tab !== "chat"}>
+      {chat}
+    </div>
+  ) : (
+    chat
+  )
+
+  const column = (
+    <>
+      {cockpit ? (
+        <CockpitTabs
+          value={tab}
+          onChange={pickTab}
+          surfacesEnabled={session !== null}
+        />
+      ) : null}
+      {chatNode}
+    </>
+  )
+
+  const dockSession = session
+  const stageDock = cockpit && tab !== "chat" && dockSession
+  const sideDock = !cockpit && dockOpen && dockSession
   const dock =
-    dockOpen && session ? (
+    (stageDock || sideDock) && dockSession ? (
       <SurfaceDock
-        session={session}
-        kind={surface}
+        session={dockSession}
+        kind={surface ?? surfaceForCockpitTab(tab)}
         width={dockWidth}
         sidebarWidth={sidebarWidth}
         gitRefreshKey={gitRefresh}
@@ -302,7 +358,11 @@ function PaneView({
         onSelectKind={selectSurface}
         onWidthChange={actions.onDockWidthChange}
         onWidthCommit={actions.onDockWidthCommit}
-        onClose={() => actions.onToggleDock(paneId)}
+        onClose={() => {
+          if (cockpit) pickTab("chat")
+          else actions.onToggleDock(paneId)
+        }}
+        layout={stageDock ? "stage" : "side"}
       />
     ) : null
 
@@ -310,9 +370,10 @@ function PaneView({
     return (
       <>
         <div className="main-column" data-pane-id={paneId} {...containerProps}>
-          {chat}
+          {column}
+          {cockpit ? dock : null}
         </div>
-        {dock}
+        {cockpit ? null : dock}
       </>
     )
   }
@@ -320,7 +381,7 @@ function PaneView({
   return (
     <section
       className={`pane${focused ? " is-focused" : ""}${
-        dockOpen ? " has-dock" : ""
+        !cockpit && dockOpen ? " has-dock" : ""
       }`}
       data-pane-id={paneId}
       aria-label={session ? session.title : "Empty pane"}
@@ -357,8 +418,11 @@ function PaneView({
         </button>
       </header>
       <div className="pane-body">
-        <div className="main-column">{chat}</div>
-        {dock}
+        <div className="main-column">
+          {column}
+          {cockpit ? dock : null}
+        </div>
+        {cockpit ? null : dock}
       </div>
     </section>
   )

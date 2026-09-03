@@ -117,6 +117,7 @@ export function buildDeveloperMenuTemplate(
   getWindow: WindowProvider,
   log: MainLog,
   zoom?: ZoomActions,
+  newWindow?: () => void,
 ): MenuItemConstructorOptions[] {
   const developer: MenuItemConstructorOptions = {
     label: "Developer",
@@ -163,8 +164,22 @@ export function buildDeveloperMenuTemplate(
     ],
   }
 
+  const fileMenu: MenuItemConstructorOptions[] = [
+    ...(newWindow
+      ? [
+          {
+            label: "New Window",
+            accelerator: "CommandOrControl+Shift+N",
+            click: newWindow,
+          } satisfies MenuItemConstructorOptions,
+          { type: "separator" } satisfies MenuItemConstructorOptions,
+        ]
+      : []),
+    { role: "close" },
+  ]
+
   const common: MenuItemConstructorOptions[] = [
-    { label: "File", submenu: [{ role: "close" }] },
+    { label: "File", submenu: fileMenu },
     {
       label: "Edit",
       submenu: [
@@ -209,6 +224,7 @@ export type DeveloperMenuOptions = {
   logPath?: string
   /** Omitted in tests; production always supplies the persisted controller. */
   zoom?: ZoomActions
+  newWindow?: () => void
 }
 
 /** Install the native menu and context Inspect action for one Hub window. */
@@ -232,7 +248,12 @@ export function installDeveloperMenu(
 
   Menu.setApplicationMenu(
     Menu.buildFromTemplate(
-      buildDeveloperMenuTemplate(getWindow, log, options.zoom),
+      buildDeveloperMenuTemplate(
+        getWindow,
+        log,
+        options.zoom,
+        options.newWindow,
+      ),
     ),
   )
   log.write("developer.menu-installed")

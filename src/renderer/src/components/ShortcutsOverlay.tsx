@@ -21,6 +21,10 @@ const GROUPS: Group[] = [
         keys: "⌥⇧U",
         what: "Next waiting — cycle the sessions that need you (waiting → failed → fresh done)",
       },
+      {
+        keys: "⌥⇧I",
+        what: "Agent inbox — pending permissions, questions and failures across sessions",
+      },
       { keys: "⌘N", what: "New session" },
       { keys: "⌘,", what: "Settings" },
       { keys: "⌘/", what: "Show or hide this list" },

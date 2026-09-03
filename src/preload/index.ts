@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron"
 import { IpcChannels } from "@shared/ipc"
+import { parseWindowIntent } from "@shared/window-identity"
 import type {
   CreateSessionInput,
   GitBranchList,
@@ -62,9 +63,28 @@ import type {
 import type { ProjectScript, ScriptsFile } from "@shared/scripts"
 import type { ContextDocId, ProjectContext } from "@shared/project-context"
 
+const windowIntent = parseWindowIntent(
+  (globalThis as { location?: { search?: string } }).location?.search ?? "",
+)
+
+const cockpit =
+  process.argv.includes("--chat-hub-cockpit=1") ||
+  process.argv.includes("--chat-hub-cockpit")
+
 const api = {
-  getSnapshot: (): Promise<SessionSnapshot> =>
-    ipcRenderer.invoke(IpcChannels.getSnapshot),
+  windowIntent,
+  cockpit,
+  setCockpit: (enabled: boolean): Promise<{ enabled: boolean }> =>
+    ipcRenderer.invoke(IpcChannels.setWindowCockpit, enabled),
+  onCockpitChanged: (cb: (enabled: boolean) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, enabled: boolean) => cb(enabled)
+    ipcRenderer.on(IpcChannels.cockpitChanged, handler)
+    return () => {
+      ipcRenderer.removeListener(IpcChannels.cockpitChanged, handler)
+    }
+  },
+  getSnapshot: (sessionIds?: readonly string[]): Promise<SessionSnapshot> =>
+    ipcRenderer.invoke(IpcChannels.getSnapshot, sessionIds),
   listSessions: (): Promise<SessionMeta[]> =>
     ipcRenderer.invoke(IpcChannels.listSessions),
   getMessages: (sessionId: string): Promise<ChatMessage[]> =>
@@ -467,6 +487,18 @@ const api = {
   reportAttentionCount: (count: number): void => {
     ipcRenderer.send(IpcChannels.attentionCount, count)
   },
+  reportWindowSessions: (
+    sessionIds: string[],
+    attachedIds?: string[],
+  ): void => {
+    ipcRenderer.send(
+      IpcChannels.windowSessions,
+      sessionIds,
+      attachedIds ?? sessionIds,
+    )
+  },
+  openWindow: (sessionId?: string): Promise<number> =>
+    ipcRenderer.invoke(IpcChannels.windowOpen, sessionId ?? null),
   mcpList: (cwd: string): Promise<McpListResult> =>
     ipcRenderer.invoke(IpcChannels.mcpList, cwd),
   mcpUpsert: (cwd: string, server: McpServerDef): Promise<McpListResult> =>

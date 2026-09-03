@@ -1,3 +1,4 @@
+import { oneLine } from "@shared/text"
 import { splitToolName, summarizeToolArgs, type PlanStep } from "@shared/tool-card"
 import type { AgentTurnItem } from "@shared/types"
 import { unwrapShell, type ToolCall, type TranscriptBlock } from "./tool-runs"
@@ -208,6 +209,5 @@ function callDetail(call: ToolCall): string | null {
 }
 
 function clampDetail(text: string): string {
-  const flat = text.replace(/\s+/g, " ").trim()
-  return flat.length > DETAIL_MAX ? `${flat.slice(0, DETAIL_MAX - 1)}…` : flat
+  return oneLine(text, DETAIL_MAX)
 }

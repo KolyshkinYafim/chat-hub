@@ -3,13 +3,21 @@ import type { HubEvent, SessionMeta } from "@shared/types"
 import { attentionBadge, needsAction } from "@shared/attention"
 
 export type DockBadge = {
-  setRendererCount(count: number): void
-  clearRendererCount(): void
+  setRendererCount(windowId: number, count: number): void
+  dropWindow(windowId: number): void
 }
 
 const INERT: DockBadge = {
   setRendererCount: () => {},
-  clearRendererCount: () => {},
+  dropWindow: () => {},
+}
+
+export function badgeCount(
+  reports: ReadonlyMap<number, number>,
+  fallback: number,
+): number {
+  if (reports.size === 0) return fallback
+  return Math.max(...reports.values())
 }
 
 export function wireDockBadge(
@@ -19,12 +27,12 @@ export function wireDockBadge(
 ): DockBadge {
   if (platform !== "darwin") return INERT
 
-  let rendererCount: number | null = null
+  const reports = new Map<number, number>()
   let fallbackCount = listSessions().filter(needsAction).length
   let shown: string | null = null
 
   const apply = () => {
-    const text = attentionBadge(rendererCount ?? fallbackCount)
+    const text = attentionBadge(badgeCount(reports, fallbackCount))
     if (text === shown) return
     shown = text
     app.dock?.setBadge(text)
@@ -38,12 +46,12 @@ export function wireDockBadge(
   apply()
 
   return {
-    setRendererCount(count) {
-      rendererCount = count
+    setRendererCount(windowId, count) {
+      reports.set(windowId, count)
       apply()
     },
-    clearRendererCount() {
-      rendererCount = null
+    dropWindow(windowId) {
+      if (!reports.delete(windowId)) return
       apply()
     },
   }

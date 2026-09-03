@@ -59,6 +59,21 @@ export function markSeen(
   return { ...seen, [sessionId]: stamp }
 }
 
+export function mergeSeen(
+  base: AttentionSeen,
+  incoming: AttentionSeen,
+): AttentionSeen {
+  const out: Record<string, number> = { ...base }
+  let changed = false
+  for (const [id, at] of Object.entries(incoming)) {
+    if ((out[id] ?? 0) < at) {
+      out[id] = at
+      changed = true
+    }
+  }
+  return changed ? out : base
+}
+
 export function parseAttentionSeen(raw: string | null): AttentionSeen {
   if (raw === null) return {}
   try {

@@ -69,6 +69,7 @@ type Props = {
   scriptsByCwd: Record<string, ProjectScript[]>
   overflowHasMore: Record<string, boolean>
   loadingOlderFor: string | null
+  loadingTranscripts: ReadonlySet<string>
   sendingIds: ReadonlySet<string>
   highlight: { sessionId: string; messageId: string } | null
   providers: ProviderInfo[]
@@ -84,10 +85,12 @@ type Props = {
   error: string | null
   onboard: OnboardNotice | null
   anyOverlayOpen: boolean
+  inboxCount: number
   /** Pane that most recently asked for the one browser guest. */
   browserClaim: string | null
   actions: PaneActions
   onDrop: (drop: WorkspaceDrop) => void
+  cockpit?: boolean
 }
 
 const NO_MESSAGES: ChatMessage[] = []
@@ -122,6 +125,7 @@ function dragKind(types: readonly string[]): WorkspaceDrop["kind"] | null {
 }
 
 export function Workspace({
+  cockpit = false,
   layout,
   sessions,
   messagesBySession,
@@ -138,6 +142,7 @@ export function Workspace({
   scriptsByCwd,
   overflowHasMore,
   loadingOlderFor,
+  loadingTranscripts,
   sendingIds,
   highlight,
   providers,
@@ -152,6 +157,7 @@ export function Workspace({
   error,
   onboard,
   anyOverlayOpen,
+  inboxCount,
   browserClaim,
   actions,
   onDrop,
@@ -318,6 +324,7 @@ export function Workspace({
           sessionId ? overflowHasMore[sessionId] === true : false
         }
         loadingOlder={loadingOlderFor !== null && loadingOlderFor === sessionId}
+        transcriptPending={sessionId !== null && loadingTranscripts.has(sessionId)}
         highlightMessageId={
           highlight && highlight.sessionId === sessionId
             ? highlight.messageId
@@ -348,6 +355,7 @@ export function Workspace({
         error={focused ? error : null}
         onboard={focused ? onboard : null}
         anyOverlayOpen={anyOverlayOpen}
+        inboxCount={inboxCount}
         dockWidth={dockWidth}
         sidebarWidth={sidebarWidth}
         gitRefresh={gitRefresh}
@@ -359,6 +367,7 @@ export function Workspace({
         queuedBySession={queuedBySession}
         actions={actions}
         containerProps={tiled ? undefined : containerProps}
+        cockpit={cockpit}
       />
     )
   }

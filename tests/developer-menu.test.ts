@@ -19,6 +19,8 @@ vi.mock("electron", () => ({
   app: {
     name: "Chat Hub",
     getPath: () => electron.logsPath,
+    relaunch: vi.fn(),
+    exit: vi.fn(),
   },
   Menu: {
     buildFromTemplate: (template: MenuItemConstructorOptions[]) => ({
@@ -103,6 +105,36 @@ beforeEach(() => {
   electron.logsPath = mkdtempSync(join(tmpdir(), "chat-hub-developer-"))
 })
 
+describe("File menu", () => {
+  it("offers New Window on ⌘⇧N and still closes the window", () => {
+    const host = fakeContents()
+    const window = fakeWindow(host.contents)
+    const log = createMainLog(join(electron.logsPath, "menu.log"))
+    const opened: string[] = []
+    const file = submenu(
+      buildDeveloperMenuTemplate(() => window, log, undefined, () =>
+        opened.push("new"),
+      ),
+      "File",
+    )
+
+    const newWindow = item(file, "New Window")
+    expect(newWindow.accelerator).toBe("CommandOrControl+Shift+N")
+    click(newWindow)
+    expect(opened).toEqual(["new"])
+    expect(file.some((entry) => entry.role === "close")).toBe(true)
+  })
+
+  it("leaves the File menu as it was when no opener is supplied", () => {
+    const host = fakeContents()
+    const window = fakeWindow(host.contents)
+    const log = createMainLog(join(electron.logsPath, "menu.log"))
+    const file = submenu(buildDeveloperMenuTemplate(() => window, log), "File")
+    expect(file).toHaveLength(1)
+    expect(file[0]?.role).toBe("close")
+  })
+})
+
 describe("Developer menu", () => {
   it("declares the required actions and native shortcuts", () => {
     const host = fakeContents()
@@ -121,6 +153,9 @@ describe("Developer menu", () => {
       "CommandOrControl+Shift+R",
     )
     expect(item(developer, "Reveal Main Log")).toBeDefined()
+    expect(
+      developer.find((entry) => entry.label === "Toggle cockpit (restart)"),
+    ).toBeUndefined()
   })
 
   it("carries the native zoom accelerators without shadowing the existing ones", () => {

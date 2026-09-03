@@ -8,6 +8,7 @@ import {
   isUnseenDone,
   markSeen,
   nextAttention,
+  mergeSeen,
   parseAttentionSeen,
   pruneSeen,
   type AttentionSeen,
@@ -38,6 +39,15 @@ export function useAttention(
   useEffect(() => {
     localStorage.setItem(SEEN_KEY, JSON.stringify(seen))
   }, [seen])
+
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== SEEN_KEY) return
+      setSeen((curr) => mergeSeen(curr, parseAttentionSeen(e.newValue)))
+    }
+    window.addEventListener("storage", onStorage)
+    return () => window.removeEventListener("storage", onStorage)
+  }, [])
 
   useEffect(() => {
     if (seededRef.current || sessions.length === 0) return

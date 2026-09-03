@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest"
 import type { SessionMeta } from "../src/shared/types"
 import { fuzzyScore } from "../src/renderer/src/lib/fuzzy"
 import {
+  AGENT_INBOX_KEY,
+  AGENT_INBOX_MATCH,
   buildPaletteEntries,
+  NEW_WINDOW_KEY,
   NEXT_ATTENTION_KEY,
   NEXT_ATTENTION_MATCH,
   paletteKey,
@@ -28,15 +31,21 @@ function session(patch: Partial<SessionMeta> = {}): SessionMeta {
 }
 
 function kinds(entries: ReturnType<typeof buildPaletteEntries>) {
-  return entries.map((e) => (e.kind === "command" ? "command" : e.session.id))
+  return entries.map((e) => (e.kind === "command" ? e.key : e.session.id))
 }
 
 describe("buildPaletteEntries", () => {
-  it("puts the command after the sessions on an empty query", () => {
+  it("puts the commands after the sessions on an empty query", () => {
     const a = session({ title: "Fix webhook retries" })
     const b = session({ title: "Tune reward curve" })
-    const entries = buildPaletteEntries([a, b], "", 2)
-    expect(kinds(entries)).toEqual([b.id, a.id, "command"])
+    const entries = buildPaletteEntries([a, b], "", 2, 2)
+    expect(kinds(entries)).toEqual([
+      b.id,
+      a.id,
+      NEXT_ATTENTION_KEY,
+      AGENT_INBOX_KEY,
+      NEW_WINDOW_KEY,
+    ])
   })
 
   it("keeps Enter opening the most recent session on an empty query", () => {
@@ -46,16 +55,25 @@ describe("buildPaletteEntries", () => {
     expect(entries[0]).toEqual({ kind: "session", session: newer })
   })
 
-  it("hides the command when nothing needs attention", () => {
+  it("hides next waiting when nothing needs attention but keeps the rest", () => {
     const entries = buildPaletteEntries([session()], "", 0)
-    expect(kinds(entries)).not.toContain("command")
+    expect(kinds(entries)).not.toContain(NEXT_ATTENTION_KEY)
+    expect(kinds(entries)).toContain(AGENT_INBOX_KEY)
+    expect(kinds(entries)).toContain(NEW_WINDOW_KEY)
   })
 
-  it("hides the command when the query does not match it", () => {
+  it("hides the commands when the query does not match them", () => {
     expect(fuzzyScore("fix webhook", NEXT_ATTENTION_MATCH)).toBeNull()
+    expect(fuzzyScore("fix webhook", AGENT_INBOX_MATCH)).toBeNull()
     const a = session({ title: "Fix webhook retries" })
-    const entries = buildPaletteEntries([a], "fix webhook", 3)
+    const entries = buildPaletteEntries([a], "fix webhook", 3, 3)
     expect(kinds(entries)).toEqual([a.id])
+  })
+
+  it("finds the new-window command by name", () => {
+    const a = session({ title: "Fix webhook retries" })
+    const entries = buildPaletteEntries([a], "new window", 0)
+    expect(kinds(entries)[0]).toBe(NEW_WINDOW_KEY)
   })
 
   it("ranks the command only above sessions it strictly outscores", () => {
@@ -68,10 +86,11 @@ describe("buildPaletteEntries", () => {
     expect(weakScore).not.toBeNull()
     expect(commandScore ?? 0).toBeGreaterThan(weakScore ?? 0)
     const entries = buildPaletteEntries([weak], "next waiting", 1)
-    expect(kinds(entries)).toEqual(["command", weak.id])
+    expect(kinds(entries)[0]).toBe(NEXT_ATTENTION_KEY)
+    expect(kinds(entries)).toContain(weak.id)
   })
 
-  it("keeps an equally scoring session above the command", () => {
+  it("keeps an equally scoring session above next waiting", () => {
     const exact = session({ title: "Next waiting improvements" })
     const sessionScore = fuzzyScore(
       "next waiting",
@@ -80,21 +99,41 @@ describe("buildPaletteEntries", () => {
     const commandScore = fuzzyScore("next waiting", NEXT_ATTENTION_MATCH)
     expect(sessionScore).toBe(commandScore)
     const entries = buildPaletteEntries([exact], "next waiting", 1)
-    expect(kinds(entries)).toEqual([exact.id, "command"])
+    expect(kinds(entries)).toEqual([exact.id, NEXT_ATTENTION_KEY])
   })
 
-  it("caps session results while still listing the command", () => {
+  it("surfaces the inbox command for an inbox query", () => {
+    const a = session({ title: "Fix webhook retries" })
+    const entries = buildPaletteEntries([a], "inbox", 1, 4)
+    expect(kinds(entries)[0]).toBe(AGENT_INBOX_KEY)
+    const inbox = entries.find(
+      (entry) => entry.kind === "command" && entry.key === AGENT_INBOX_KEY,
+    )
+    expect(inbox?.kind === "command" && inbox.sub).toContain("4 waiting")
+  })
+
+  it("caps session results while still listing the commands", () => {
     const many = Array.from({ length: 20 }, () => session())
-    const entries = buildPaletteEntries(many, "", 1)
-    expect(entries).toHaveLength(13)
-    expect(kinds(entries).at(-1)).toBe("command")
+    const entries = buildPaletteEntries(many, "", 1, 1)
+    expect(entries.filter((e) => e.kind === "session")).toHaveLength(12)
+    expect(kinds(entries).slice(-3)).toEqual([
+      NEXT_ATTENTION_KEY,
+      AGENT_INBOX_KEY,
+      NEW_WINDOW_KEY,
+    ])
   })
 
   it("gives every entry a stable, unique key", () => {
     const a = session()
     const entries = buildPaletteEntries([a], "", 1)
     const keys = entries.map(paletteKey)
-    expect(keys).toEqual([a.id, NEXT_ATTENTION_KEY])
+    expect(keys).toEqual([
+      a.id,
+      NEXT_ATTENTION_KEY,
+      AGENT_INBOX_KEY,
+      NEW_WINDOW_KEY,
+    ])
+    expect(new Set(keys).size).toBe(keys.length)
   })
 })
 

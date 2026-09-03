@@ -1,4 +1,5 @@
 import { isSurfaceKind } from "@shared/surfaces"
+import { DEFAULT_WINDOW_ID, windowScopedKey } from "@shared/window-identity"
 import { MIN_TRANSCRIPT_WIDTH } from "./shell-size"
 import type { SurfaceKind } from "./surface-bridge"
 
@@ -46,12 +47,12 @@ export function saveDockWidth(px: number): void {
   localStorage.setItem(WIDTH_KEY, String(Math.round(px)))
 }
 
-export function loadDockOpen(): boolean {
-  return localStorage.getItem(OPEN_KEY) === "1"
+export function loadDockOpen(windowId = DEFAULT_WINDOW_ID): boolean {
+  return localStorage.getItem(windowScopedKey(OPEN_KEY, windowId)) === "1"
 }
 
-export function saveDockOpen(open: boolean): void {
-  localStorage.setItem(OPEN_KEY, open ? "1" : "0")
+export function saveDockOpen(open: boolean, windowId = DEFAULT_WINDOW_ID): void {
+  localStorage.setItem(windowScopedKey(OPEN_KEY, windowId), open ? "1" : "0")
 }
 
 export function loadSurfaceBySession(): Record<string, SurfaceKind> {

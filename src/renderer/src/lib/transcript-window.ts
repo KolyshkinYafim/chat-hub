@@ -19,3 +19,14 @@ export function mergeReplacedMessages(
   if (overlap <= 0) return [...replacement]
   return [...existing.slice(0, overlap), ...replacement]
 }
+
+export function reconcileFetchedMessages(
+  live: readonly ChatMessage[],
+  fetched: readonly ChatMessage[],
+): ChatMessage[] {
+  if (live.length === 0) return [...fetched]
+  const inWindow = new Set(fetched.map((m) => m.id))
+  const after = live.filter((m) => !inWindow.has(m.id))
+  if (after.length === 0) return [...fetched]
+  return [...fetched, ...after]
+}

@@ -117,6 +117,7 @@ type Props = {
   /** True when the session has older turns in the on-disk overflow archive. */
   hasOlderMessages?: boolean
   loadingOlder?: boolean
+  transcriptPending?: boolean
   onLoadOlder?: () => void
   providers: ProviderInfo[]
   models: ModelInfo[]
@@ -151,6 +152,8 @@ type Props = {
   onOpenDiff: (path: string) => void
   dockOpen: boolean
   onToggleDock: () => void
+  inboxCount: number
+  onOpenInbox: () => void
   /** An overlay owns Escape while open — the dictation cancel must not eat it. */
   anyOverlayOpen: boolean
 }
@@ -619,6 +622,7 @@ export function ChatView({
   messages,
   hasOlderMessages = false,
   loadingOlder = false,
+  transcriptPending = false,
   onLoadOlder,
   providers,
   models,
@@ -649,6 +653,8 @@ export function ChatView({
   onOpenDiff,
   dockOpen,
   onToggleDock,
+  inboxCount,
+  onOpenInbox,
   anyOverlayOpen,
 }: Props) {
   const [draft, setDraft] = useState("")
@@ -1281,6 +1287,8 @@ export function ChatView({
         git={git}
         dockOpen={dockOpen}
         scripts={scripts}
+        inboxCount={inboxCount}
+        onOpenInbox={onOpenInbox}
         onRunScript={onRunScript}
         onSaveScripts={onSaveScripts}
         onToggleDock={onToggleDock}
@@ -1388,7 +1396,13 @@ export function ChatView({
         ref={transcriptRef}
         onScroll={onTranscriptScroll}
       >
-        {messages.length === 0 ? (
+        {messages.length === 0 && transcriptPending ? (
+          <div className="transcript-loading" aria-label="Loading transcript">
+            <span className="transcript-skeleton is-ask" />
+            <span className="transcript-skeleton is-reply" />
+            <span className="transcript-skeleton is-ask" />
+          </div>
+        ) : messages.length === 0 ? (
           <div className="transcript-empty">
             <p>Empty transcript</p>
             <span>

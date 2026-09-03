@@ -39,6 +39,10 @@ vi.mock("electron", () => {
       static getAllWindows(): unknown[] {
         return []
       }
+
+      static getFocusedWindow(): unknown {
+        return null
+      }
     },
     dialog: {},
     ipcMain: {
@@ -50,6 +54,10 @@ vi.mock("electron", () => {
       },
     },
     shell: {},
+    nativeTheme: {
+      prefersReducedTransparency: false,
+      on: () => {},
+    },
   }
 })
 
@@ -111,8 +119,6 @@ describe("startSingleInstance", () => {
     const { hooks, secondInstance } = spyHooks(true)
     startSingleInstance(hooks)
 
-    // mainWindow is null on a fresh import; focusing must not throw, or the
-    // duplicate launch takes the surviving instance down with it.
     expect(() => secondInstance()?.()).not.toThrow()
   })
 })

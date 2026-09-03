@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest"
 import {
   colorDifference,
+  compositeOver,
   contrastRatio,
   lightnessGap,
   okLab,
   okLightness,
+  parseColorAlpha,
   parseColorChannels,
   relativeLuminance,
 } from "@shared/contrast"
@@ -28,6 +30,23 @@ describe("parseColorChannels", () => {
   it("returns null for anything else", () => {
     expect(parseColorChannels("red")).toBeNull()
     expect(parseColorChannels("var(--bg)")).toBeNull()
+  })
+})
+
+describe("parseColorAlpha", () => {
+  it("reads hex and rgb alpha, defaulting to opaque", () => {
+    expect(parseColorAlpha("#fff")).toBe(1)
+    expect(parseColorAlpha("#88a7fdcc")).toBeCloseTo(204 / 255, 5)
+    expect(parseColorAlpha("rgb(1, 2, 3)")).toBe(1)
+    expect(parseColorAlpha("rgba(1, 2, 3, 0.5)")).toBe(0.5)
+    expect(parseColorAlpha("teal")).toBeNull()
+  })
+})
+
+describe("compositeOver", () => {
+  it("blends a translucent colour over a backdrop", () => {
+    expect(compositeOver("rgba(0, 0, 0, 0.5)", "#ffffff")).toBe("rgb(128, 128, 128)")
+    expect(compositeOver("#000000", "#ffffff")).toBe("rgb(0, 0, 0)")
   })
 })
 

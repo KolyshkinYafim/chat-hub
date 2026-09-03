@@ -9,6 +9,7 @@ declare module "react" {
         preload?: string
         allowpopups?: string
         useragent?: string
+        webpreferences?: string
       }
     }
   }

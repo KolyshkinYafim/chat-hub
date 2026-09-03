@@ -12,6 +12,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    environmentMatchGlobs: [["**/*.dom.test.ts", "jsdom"]],
     include: ["src/**/*.test.ts", "tests/**/*.test.ts"],
     reporters: ["default"],
     // Real-git tests spawn dozens of subprocesses; under a full parallel run
