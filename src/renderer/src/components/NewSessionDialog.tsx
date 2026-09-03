@@ -70,17 +70,33 @@ export function NewSessionDialog({
   const [agentPinned, setAgentPinned] = useState(false)
   const listRef = useRef<HTMLDivElement | null>(null)
 
-  // Selectable agents = enabled, installed instances (default + shadow homes).
   const agents = useMemo(
-    () =>
-      statuses.filter(
-        (s) =>
-          s.id !== "mock" &&
-          s.enabled &&
-          (s.installed || s.instanceId === instanceId),
-      ),
-    [statuses, instanceId],
+    () => statuses.filter((s) => s.id !== "mock" && s.enabled),
+    [statuses],
   )
+
+  const agentChips = useMemo(() => {
+    if (agents.length > 0) {
+      return agents.map((s) => ({
+        key: s.instanceId,
+        label: s.label,
+        ready: s.installed,
+        note: !s.installed
+          ? "install"
+          : s.auth === "needs_login"
+            ? "log in"
+            : null,
+        hint: s.authDetail ?? undefined,
+      }))
+    }
+    return enabledAgents.map((p) => ({
+      key: p.id,
+      label: p.label,
+      ready: p.available,
+      note: p.available ? null : "install",
+      hint: p.description,
+    }))
+  }, [agents, enabledAgents])
   /** The fallback list, used before any probe has landed. */
   const enabledAgents = useMemo(
     () => providers.filter((p) => enabledProviderIds.includes(p.id)),
@@ -308,6 +324,29 @@ export function NewSessionDialog({
             )}
           </div>
 
+          <div className="ns-agents" role="radiogroup" aria-label="Agent">
+            {agentChips.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                role="radio"
+                aria-checked={chip.key === instanceId}
+                className={`ns-agent${chip.key === instanceId ? " is-on" : ""}`}
+                disabled={busy || !chip.ready}
+                title={chip.hint}
+                onClick={() => {
+                  setAgentPinned(true)
+                  setInstanceId(chip.key)
+                }}
+              >
+                {chip.label}
+                {chip.note ? (
+                  <span className="ns-agent-note">{chip.note}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+
           <details
             className="ns-options"
             open={optionsOpen}
@@ -347,7 +386,11 @@ export function NewSessionDialog({
                           </option>
                         ))
                       : agents.map((s) => (
-                          <option key={s.instanceId} value={s.instanceId}>
+                          <option
+                            key={s.instanceId}
+                            value={s.instanceId}
+                            disabled={!s.installed && s.instanceId !== instanceId}
+                          >
                             {s.label}
                             {!s.installed ? " (install)" : ""}
                           </option>

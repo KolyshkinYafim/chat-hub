@@ -2888,6 +2888,49 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   color: var(--text-muted);
 }
 
+.ns-agents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 2px;
+}
+
+.ns-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.ns-agent:hover:not(:disabled) {
+  border-color: var(--text-faint);
+  color: var(--text);
+}
+
+.ns-agent.is-on {
+  border-color: var(--accent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.ns-agent:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ns-agent-note {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
 .ns-options > summary {
   display: flex;
   align-items: baseline;
