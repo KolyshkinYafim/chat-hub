@@ -85,8 +85,12 @@ export default tseslint.config(
   },
   {
     // Runtime Node scripts shipped as resources (not part of any tsconfig).
-    files: ["resources/**/*.{js,mjs,cjs}", "e2e/**/*.mjs"],
+    files: ["resources/**/*.{js,mjs,cjs}"],
     languageOptions: { globals: globals.node },
+  },
+  {
+    files: ["e2e/**/*.mjs"],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
   {
     files: ["src/renderer/public/**/*.js"],
