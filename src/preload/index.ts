@@ -17,6 +17,7 @@ import type {
   Project,
   ProviderId,
   ProviderInfo,
+  QueueMoveDirection,
   QueuedMessage,
   SessionMeta,
   SessionSnapshot,
@@ -144,6 +145,18 @@ const api = {
     queuedId: string,
   ): Promise<QueuedMessage[]> =>
     ipcRenderer.invoke(IpcChannels.cancelQueued, sessionId, queuedId),
+  editQueued: (
+    sessionId: string,
+    queuedId: string,
+    text: string,
+  ): Promise<QueuedMessage[]> =>
+    ipcRenderer.invoke(IpcChannels.editQueued, sessionId, queuedId, text),
+  reorderQueued: (
+    sessionId: string,
+    queuedId: string,
+    direction: QueueMoveDirection,
+  ): Promise<QueuedMessage[]> =>
+    ipcRenderer.invoke(IpcChannels.reorderQueued, sessionId, queuedId, direction),
   abortSession: (sessionId: string): Promise<void> =>
     ipcRenderer.invoke(IpcChannels.abortSession, sessionId),
   deleteSession: (sessionId: string): Promise<void> =>

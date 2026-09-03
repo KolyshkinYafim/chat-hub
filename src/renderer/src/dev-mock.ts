@@ -1681,8 +1681,25 @@ export function installDevMock(): void {
     savePastedImage: async () => "/mock/pasted.png",
     createSession: async () => sessions[0],
     sendMessage: async () => {},
-    cancelQueued: async (sessionId, queuedId) =>
-      (queued[sessionId] ?? []).filter((q) => q.id !== queuedId),
+    cancelQueued: async (sessionId, queuedId) => {
+      queued[sessionId] = (queued[sessionId] ?? []).filter((q) => q.id !== queuedId)
+      return queued[sessionId]
+    },
+    editQueued: async (sessionId, queuedId, text) => {
+      const entry = queued[sessionId]?.find((q) => q.id === queuedId)
+      if (entry && text.trim()) entry.text = text.trim()
+      return queued[sessionId] ?? []
+    },
+    reorderQueued: async (sessionId, queuedId, direction) => {
+      const list = queued[sessionId] ?? []
+      const from = list.findIndex((q) => q.id === queuedId)
+      const to = direction === "up" ? from - 1 : from + 1
+      if (from !== -1 && to >= 0 && to < list.length) {
+        const [entry] = list.splice(from, 1)
+        list.splice(to, 0, entry)
+      }
+      return list
+    },
     abortSession: async () => {},
     deleteSession: async () => {},
     openPath: async () => true,

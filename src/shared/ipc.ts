@@ -8,6 +8,8 @@ export const IpcChannels = {
   searchArchivedTranscripts: "session:search-archive",
   sendMessage: "session:send",
   cancelQueued: "queue:cancel",
+  editQueued: "queue:edit",
+  reorderQueued: "queue:reorder",
   abortSession: "session:abort",
   deleteSession: "session:delete",
   setActiveSession: "session:set-active",

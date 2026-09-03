@@ -361,6 +361,8 @@ export type QueuedMessage = {
   createdAt: number
 }
 
+export type QueueMoveDirection = "up" | "down"
+
 export type PermissionDecision = "allow" | "deny"
 
 /** Which surface answered — the Hub transcript, the island, or nobody. */

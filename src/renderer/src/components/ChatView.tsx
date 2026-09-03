@@ -18,6 +18,7 @@ import type {
   PermissionRequestInfo,
   ProviderInfo,
   ProviderRateLimits,
+  QueueMoveDirection,
   QueuedMessage,
   SessionMeta,
   SessionUsage,
@@ -81,7 +82,7 @@ import {
   type QuestionAnswer,
   type QuestionContext,
 } from "../lib/agent-question"
-import { formatSessionUsage, formatUsage, usageDetail } from "../lib/usage"
+import { formatSessionUsage, formatTurnMeta, usageDetail } from "../lib/usage"
 import {
   contextUsedTokens,
   contextWindowFor,
@@ -137,6 +138,8 @@ type Props = {
   sending: boolean
   queued: QueuedMessage[]
   onCancelQueued: (id: string) => void
+  onEditQueued: (id: string, text: string) => void
+  onReorderQueued: (id: string, direction: QueueMoveDirection) => void
   onShowShortcuts: () => void
   onModelChange: (model: string) => void
   onPermissionChange: (mode: PermissionMode) => void
@@ -171,8 +174,16 @@ type ComposerDraft = {
 }
 
 /** Per-turn cost, folded into the agent turn's meta row. */
-function TurnCost({ usage }: { usage: TurnUsage }) {
-  const label = formatUsage(usage)
+function TurnCost({
+  usage,
+  model,
+  sessionWindow,
+}: {
+  usage: TurnUsage
+  model?: string
+  sessionWindow?: number
+}) {
+  const label = formatTurnMeta(usage, model, sessionWindow)
   if (!label) return null
   return (
     <span className="turn-cost" title={usageDetail(usage)}>
@@ -603,6 +614,8 @@ export function ChatView({
   sending,
   queued,
   onCancelQueued,
+  onEditQueued,
+  onReorderQueued,
   onShowShortcuts,
   onModelChange,
   onPermissionChange,
@@ -633,11 +646,21 @@ export function ChatView({
     returnFocus: HTMLElement | null
   } | null>(null)
   const [dragActive, setDragActive] = useState(false)
+  const [editingQueue, setEditingQueue] = useState<{
+    id: string
+    text: string
+  } | null>(null)
   const [atBottom, setAtBottom] = useState(true)
   const bottomRef = useRef<HTMLDivElement>(null)
   const transcriptRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const atBottomRef = useRef(true)
+
+  useEffect(() => {
+    if (editingQueue && !queued.some((q) => q.id === editingQueue.id)) {
+      setEditingQueue(null)
+    }
+  }, [editingQueue, queued])
   const flashedRef = useRef<string | null>(null)
   /** After prepending archive pages, restore viewport over the same content. */
   const scrollRestoreRef = useRef<{ height: number; top: number } | null>(null)
@@ -1510,7 +1533,13 @@ export function ChatView({
                         {formatClock(m.createdAt)}
                       </span>
                     )}
-                    {m.usage ? <TurnCost usage={m.usage} /> : null}
+                    {m.usage ? (
+                      <TurnCost
+                        usage={m.usage}
+                        model={session.model}
+                        sessionWindow={usage?.contextWindow}
+                      />
+                    ) : null}
                   </div>
                   <TurnItems
                     items={m.items}
@@ -1576,7 +1605,59 @@ export function ChatView({
             {queued.map((q, i) => (
               <span key={q.id} className="queued-chip" title={q.text}>
                 <span className="queued-tag">queued {i + 1}</span>
-                <span className="queued-text">{q.text}</span>
+                {editingQueue?.id === q.id ? (
+                  <input
+                    className="queued-edit"
+                    value={editingQueue.text}
+                    autoFocus
+                    onChange={(e) =>
+                      setEditingQueue({ id: q.id, text: e.target.value })
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault()
+                        const text = editingQueue.text.trim()
+                        if (text && text !== q.text) onEditQueued(q.id, text)
+                        setEditingQueue(null)
+                      } else if (e.key === "Escape") {
+                        e.stopPropagation()
+                        setEditingQueue(null)
+                      }
+                    }}
+                    onBlur={() => setEditingQueue(null)}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="queued-text queued-text-edit"
+                    title="Edit this queued message"
+                    onClick={() => setEditingQueue({ id: q.id, text: q.text })}
+                  >
+                    {q.text}
+                  </button>
+                )}
+                {queued.length > 1 ? (
+                  <>
+                    <button
+                      type="button"
+                      className="icon-chip xs ghost"
+                      title="Send earlier"
+                      disabled={i === 0}
+                      onClick={() => onReorderQueued(q.id, "up")}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-chip xs ghost"
+                      title="Send later"
+                      disabled={i === queued.length - 1}
+                      onClick={() => onReorderQueued(q.id, "down")}
+                    >
+                      ↓
+                    </button>
+                  </>
+                ) : null}
                 <button
                   type="button"
                   className="icon-chip xs ghost danger"

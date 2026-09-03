@@ -8,6 +8,7 @@ import type {
   PermissionRequestInfo,
   ProviderInfo,
   ProviderRateLimits,
+  QueueMoveDirection,
   QueuedMessage,
   SessionMeta,
   SessionUsage,
@@ -58,6 +59,12 @@ export type PaneActions = {
   ) => Promise<void>
   onAbort: (sessionId: string) => void
   onCancelQueued: (sessionId: string, queuedId: string) => void
+  onEditQueued: (sessionId: string, queuedId: string, text: string) => void
+  onReorderQueued: (
+    sessionId: string,
+    queuedId: string,
+    direction: QueueMoveDirection,
+  ) => void
   onRenameSession: (sessionId: string) => void
   onUnsettle: (sessionId: string) => void
   onModelChange: (sessionId: string, model: string) => void
@@ -274,6 +281,12 @@ function PaneView({
       queued={queued}
       onCancelQueued={(id) =>
         sessionId && actions.onCancelQueued(sessionId, id)
+      }
+      onEditQueued={(id, text) =>
+        sessionId && actions.onEditQueued(sessionId, id, text)
+      }
+      onReorderQueued={(id, direction) =>
+        sessionId && actions.onReorderQueued(sessionId, id, direction)
       }
       onShowShortcuts={actions.onShowShortcuts}
       onModelChange={(m) => sessionId && actions.onModelChange(sessionId, m)}

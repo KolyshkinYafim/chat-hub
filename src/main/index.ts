@@ -853,6 +853,36 @@ export function registerIpc(
       return sm.cancelQueued(sessionId, queuedId)
     },
   )
+  ipcMain.handle(
+    IpcChannels.editQueued,
+    (_e, sessionId: unknown, queuedId: unknown, text: unknown) => {
+      if (typeof sessionId !== "string" || !sessionId) {
+        throw new Error("Invalid sessionId")
+      }
+      if (typeof queuedId !== "string" || !queuedId) {
+        throw new Error("Invalid queued id")
+      }
+      if (typeof text !== "string") {
+        throw new Error("Invalid message")
+      }
+      return sm.editQueued(sessionId, queuedId, text)
+    },
+  )
+  ipcMain.handle(
+    IpcChannels.reorderQueued,
+    (_e, sessionId: unknown, queuedId: unknown, direction: unknown) => {
+      if (typeof sessionId !== "string" || !sessionId) {
+        throw new Error("Invalid sessionId")
+      }
+      if (typeof queuedId !== "string" || !queuedId) {
+        throw new Error("Invalid queued id")
+      }
+      if (direction !== "up" && direction !== "down") {
+        throw new Error("Invalid direction")
+      }
+      return sm.reorderQueued(sessionId, queuedId, direction)
+    },
+  )
   ipcMain.handle(IpcChannels.abortSession, async (_e, sessionId: unknown) => {
     await ready
     if (typeof sessionId !== "string" || !sessionId) {
