@@ -21,6 +21,7 @@ export type ModelInfo = {
 export type ProviderConfig = {
   /** Override binary path (empty = auto-detect) */
   binaryPath?: string
+  baseUrl?: string
   /** Default model id for new sessions */
   defaultModel?: string
   /** Off = hidden from composer / new-session pickers. undefined = on. */
@@ -36,6 +37,7 @@ export type ProviderConfig = {
 /** ProviderConfig with secrets stripped, safe to send to the renderer. */
 export type RedactedProviderConfig = {
   binaryPath?: string
+  baseUrl?: string
   defaultModel?: string
   enabled?: boolean
 }

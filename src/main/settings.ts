@@ -45,6 +45,7 @@ export type ResolvedInstance = {
   isExtra: boolean
   label: string
   binaryPath?: string
+  baseUrl?: string
   defaultModel?: string
   enabled: boolean
   homeDir?: string
@@ -236,6 +237,7 @@ export class SettingsStore {
       isExtra: false,
       label: provider,
       binaryPath: cfg.binaryPath,
+      baseUrl: cfg.baseUrl,
       defaultModel: cfg.defaultModel,
       enabled: cfg.enabled !== false,
       homeDir: undefined,
@@ -250,6 +252,7 @@ export class SettingsStore {
       if (!cfg) continue
       out[id as ProviderId] = {
         binaryPath: cfg.binaryPath,
+        baseUrl: cfg.baseUrl,
         defaultModel: cfg.defaultModel,
         enabled: cfg.enabled,
       }
@@ -343,6 +346,10 @@ export class SettingsStore {
             patch.binaryPath !== undefined
               ? patch.binaryPath.trim() || undefined
               : prev.binaryPath,
+          baseUrl:
+            patch.baseUrl !== undefined
+              ? patch.baseUrl.trim() || undefined
+              : prev.baseUrl,
           defaultModel:
             patch.defaultModel !== undefined
               ? patch.defaultModel.trim() || undefined

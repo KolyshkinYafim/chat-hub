@@ -10,6 +10,7 @@ import {
   buildGrokArgs,
   buildOpenCodeArgs,
 } from "./adapters/args"
+import { normalizeOllamaBaseUrl } from "./adapters/ollama"
 import { DEFAULT_HOME } from "./instances"
 import { CodexAppServerClient } from "./codex-protocol/client"
 import type { ModelListResponse } from "./codex-protocol/generated/v2/ModelListResponse"
@@ -77,6 +78,13 @@ const META: Record<
     docsUrl: "https://github.com/openai/codex",
     envHints: [{ key: "OPENAI_API_KEY", label: "OpenAI API key" }],
   },
+  ollama: {
+    label: "Ollama",
+    names: [],
+    loginCommand: null,
+    docsUrl: "https://ollama.com",
+    envHints: [],
+  },
   mock: {
     label: "Mock",
     names: [],
@@ -117,6 +125,7 @@ export type ProbeInput = {
   /** Display label override (for extra instances). */
   label?: string
   binaryPath?: string
+  baseUrl?: string
   defaultModel?: string
   enabled?: boolean
   /** Env var names set for this instance (drives "API key → connected"). */
@@ -411,6 +420,100 @@ async function listModels(
   return []
 }
 
+export const OLLAMA_PROBE_TIMEOUT_MS = 1500
+
+export type OllamaFetch = (
+  url: string,
+  init?: { signal?: AbortSignal },
+) => Promise<{ ok: boolean; json(): Promise<unknown> }>
+
+export type OllamaProbeResult = {
+  running: boolean
+  version: string | null
+  models: ModelInfo[]
+}
+
+export function parseOllamaTags(raw: unknown): ModelInfo[] {
+  const models = (raw as { models?: unknown } | null)?.models
+  if (!Array.isArray(models)) return []
+  const out: ModelInfo[] = []
+  for (const entry of models) {
+    const name = (entry as { name?: unknown } | null)?.name
+    if (typeof name === "string" && name) out.push({ id: name, label: name })
+  }
+  return out
+}
+
+async function fetchJsonWithin(
+  fetchFn: OllamaFetch,
+  url: string,
+  timeoutMs: number,
+): Promise<unknown> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const response = await fetchFn(url, { signal: controller.signal })
+    if (!response.ok) return null
+    return await response.json()
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export async function probeOllama(
+  baseUrl: string,
+  opts: { timeoutMs?: number; fetchFn?: OllamaFetch } = {},
+): Promise<OllamaProbeResult> {
+  const fetchFn = opts.fetchFn ?? fetch
+  const timeoutMs = opts.timeoutMs ?? OLLAMA_PROBE_TIMEOUT_MS
+  const versionBody = await fetchJsonWithin(
+    fetchFn,
+    `${baseUrl}/api/version`,
+    timeoutMs,
+  )
+  if (versionBody === null) {
+    return { running: false, version: null, models: [] }
+  }
+  const versionValue = (versionBody as { version?: unknown }).version
+  const version = typeof versionValue === "string" ? versionValue : null
+  const tagsBody = await fetchJsonWithin(fetchFn, `${baseUrl}/api/tags`, timeoutMs)
+  return { running: true, version, models: parseOllamaTags(tagsBody) }
+}
+
+function ollamaStatus(
+  input: ProbeInput,
+  probe: OllamaProbeResult,
+  baseUrl: string,
+): ProviderStatus {
+  const meta = META.ollama
+  const detail = probe.running
+    ? probe.models.length > 0
+      ? `Local server at ${baseUrl}`
+      : `Running at ${baseUrl} — no models yet, run \`ollama pull <model>\``
+    : `Not running — start Ollama at ${baseUrl} (\`ollama serve\`)`
+  return {
+    id: "ollama",
+    instanceId: input.instanceId ?? "ollama",
+    homeDir: null,
+    isExtra: input.isExtra ?? false,
+    label: input.label ?? meta.label,
+    installed: probe.running,
+    binaryPath: null,
+    version: probe.version,
+    auth: probe.running ? "connected" : "not_installed",
+    authDetail: detail,
+    models: probe.models,
+    defaultModel: pickAvailableModel(input.defaultModel, probe.models),
+    loginCommand: null,
+    docsUrl: meta.docsUrl,
+    enabled: input.enabled !== false,
+    envKeys: input.envKeys ?? [],
+    envHints: meta.envHints,
+  }
+}
+
 export function pickAvailableModel(
   configuredModel: string | undefined,
   models: ModelInfo[],
@@ -454,6 +557,12 @@ export async function probeProvider(input: ProbeInput): Promise<ProviderStatus> 
       envKeys,
       envHints: meta.envHints,
     }
+  }
+
+  if (id === "ollama") {
+    const baseUrl = normalizeOllamaBaseUrl(input.baseUrl)
+    const probe = await probeOllama(baseUrl)
+    return ollamaStatus(input, probe, baseUrl)
   }
 
   const binaryPath = resolveBinary(id, input.binaryPath)
@@ -548,6 +657,20 @@ export async function testProvider(
 
   const id = input.provider
   if (id === "mock") return done(true, "Built-in mock — always OK")
+
+  if (id === "ollama") {
+    const baseUrl = normalizeOllamaBaseUrl(input.baseUrl)
+    const probe = await probeOllama(baseUrl)
+    if (!probe.running) {
+      return done(false, `No Ollama server responded at ${baseUrl}`)
+    }
+    const count = probe.models.length
+    const versionPart = probe.version ? ` ${probe.version}` : ""
+    return done(
+      true,
+      `Ollama${versionPart} at ${baseUrl} · ${count} model${count === 1 ? "" : "s"} installed`,
+    )
+  }
 
   const bin = resolveBinary(id, input.binaryPath)
   if (!bin) return done(false, "CLI not found — set a binary path in Settings")

@@ -9,7 +9,13 @@ export type SessionStatus =
   | "error"
   | "done"
 
-export type ProviderId = "mock" | "grok" | "claude" | "codex" | "opencode"
+export type ProviderId =
+  | "mock"
+  | "grok"
+  | "claude"
+  | "codex"
+  | "opencode"
+  | "ollama"
 
 export type ProviderInfo = {
   id: ProviderId
@@ -543,6 +549,12 @@ export const PROVIDERS: ProviderInfo[] = [
   {
     id: "codex",
     label: "Codex CLI",
+    available: false,
+    description: "Detect at runtime",
+  },
+  {
+    id: "ollama",
+    label: "Ollama",
     available: false,
     description: "Detect at runtime",
   },
