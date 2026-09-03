@@ -70,7 +70,7 @@ export function AgentInbox({
     if (!prev) return
     let removed = 0
     for (const id of prev) if (!ids.has(id)) removed += 1
-    if (removed > 0) onCleared(removed)
+    if (removed > 0 && document.hasFocus()) onCleared(removed)
   }, [cards, onCleared])
 
   useEffect(() => {

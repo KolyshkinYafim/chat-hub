@@ -692,18 +692,35 @@ export default function App() {
     messagesBySessionRef.current = messagesBySession
   }, [messagesBySession])
 
+  const runningIds = useMemo(
+    () =>
+      sessions
+        .filter((s) => s.status === "running" && !s.archived)
+        .map((s) => s.id),
+    [sessions],
+  )
+
   useEffect(() => {
-    const keep = retainedTranscripts(
-      layout.panes.map((item) => item.sessionId),
-      recentSessions,
-    )
+    const keep = new Set([
+      ...retainedTranscripts(
+        layout.panes.map((item) => item.sessionId),
+        recentSessions,
+      ),
+      ...runningIds,
+    ])
     const drop = new Set(
       evictableTranscripts(attachedRef.current, keep).filter(
         (id) => !transcriptFetchRef.current.has(id),
       ),
     )
     detachTranscripts(drop)
-  }, [layout.panes, recentSessions, detachTranscripts])
+  }, [layout.panes, recentSessions, runningIds, detachTranscripts])
+
+  useEffect(() => {
+    for (const id of runningIds) {
+      if (!attachedRef.current.has(id)) void ensureTranscript(id)
+    }
+  }, [runningIds, ensureTranscript])
 
   useEffect(() => {
     surfaceBySessionRef.current = surfaceBySession

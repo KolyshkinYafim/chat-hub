@@ -224,7 +224,7 @@ function windowForSession(sessionId: string | null): HubWindow {
   return createWindow({ sessionId })
 }
 
-function focusSession(sessionId: string | null): void {
+function focusSessionNow(sessionId: string | null): void {
   const hub = windowForSession(sessionId)
   showWindow(hub)
   if (!sessionId) return
@@ -232,6 +232,34 @@ function focusSession(sessionId: string | null): void {
     type: "session.active",
     sessionId,
   })
+}
+
+let pendingFocus: { sessionId: string; timer: NodeJS.Timeout } | null = null
+
+function flushPendingFocus(): void {
+  if (!pendingFocus) return
+  const { sessionId, timer } = pendingFocus
+  clearTimeout(timer)
+  pendingFocus = null
+  focusSessionNow(sessionId)
+}
+
+function focusSession(sessionId: string | null): void {
+  const live = liveWindows()
+  if (
+    sessionId &&
+    live.length > 0 &&
+    live.some((hub) => hub.attached === null) &&
+    !live.some((hub) => hub.sessions.has(sessionId))
+  ) {
+    if (pendingFocus) clearTimeout(pendingFocus.timer)
+    pendingFocus = {
+      sessionId,
+      timer: setTimeout(flushPendingFocus, 3000),
+    }
+    return
+  }
+  focusSessionNow(sessionId)
 }
 
 const terminals = new TerminalSessions({
@@ -303,12 +331,22 @@ function registerWindowIpc(): void {
           (id): id is string => typeof id === "string" && id !== "",
         ),
       )
-      const attached = Array.isArray(attachedIds) ? attachedIds : sessionIds
-      hub.attached = new Set(
-        [...attached, ...hub.sessions].filter(
+      const attached: unknown[] = Array.isArray(attachedIds)
+        ? (attachedIds as unknown[])
+        : sessionIds
+      hub.attached = new Set([
+        ...attached.filter(
           (id): id is string => typeof id === "string" && id !== "",
         ),
-      )
+        ...hub.sessions,
+      ])
+      if (
+        pendingFocus &&
+        (hub.sessions.has(pendingFocus.sessionId) ||
+          liveWindows().every((live) => live.attached !== null))
+      ) {
+        flushPendingFocus()
+      }
     },
   )
 

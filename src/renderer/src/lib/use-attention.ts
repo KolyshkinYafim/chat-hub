@@ -40,6 +40,15 @@ export function useAttention(
   }, [seen])
 
   useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== SEEN_KEY) return
+      setSeen(parseAttentionSeen(e.newValue))
+    }
+    window.addEventListener("storage", onStorage)
+    return () => window.removeEventListener("storage", onStorage)
+  }, [])
+
+  useEffect(() => {
     if (seededRef.current || sessions.length === 0) return
     seededRef.current = true
     setSeen((curr) => {
