@@ -48,7 +48,6 @@ import {
 import {
   evictableTranscripts,
   retainedTranscripts,
-  RUNNING_HOLD,
   touchRecent,
   withoutKeys,
 } from "./lib/transcript-cache"
@@ -427,6 +426,18 @@ export default function App() {
           }),
         )
         break
+      case "session.live":
+        setSessions((curr) =>
+          curr.map((s) => {
+            if (s.id !== event.sessionId) return s
+            if (event.live) return { ...s, live: event.live }
+            if (s.live === undefined) return s
+            const { live: _live, ...rest } = s
+            void _live
+            return rest
+          }),
+        )
+        break
       case "messages.replaced":
         editTranscript(event.sessionId, (list) =>
           mergeReplacedMessages(list, event.messages),
@@ -699,46 +710,18 @@ export default function App() {
     messagesBySessionRef.current = messagesBySession
   }, [messagesBySession])
 
-  const fleetOpen = useMemo(
-    () =>
-      layout.panes.some(
-        (pane) =>
-          pane.dockOpen &&
-          pane.sessionId !== null &&
-          surfaceBySession[pane.sessionId] === "fleet",
-      ),
-    [layout.panes, surfaceBySession],
-  )
-
-  const heldRunningIds = useMemo(() => {
-    if (!fleetOpen) return [] as string[]
-    return sessions
-      .filter((s) => s.status === "running" && !s.archived)
-      .map((s) => s.id)
-      .slice(0, RUNNING_HOLD)
-  }, [fleetOpen, sessions])
-
   useEffect(() => {
-    const keep = new Set([
-      ...retainedTranscripts(
-        layout.panes.map((item) => item.sessionId),
-        recentSessions,
-      ),
-      ...heldRunningIds,
-    ])
+    const keep = retainedTranscripts(
+      layout.panes.map((item) => item.sessionId),
+      recentSessions,
+    )
     const drop = new Set(
       evictableTranscripts(attachedRef.current, keep).filter(
         (id) => !transcriptFetchRef.current.has(id),
       ),
     )
     detachTranscripts(drop)
-  }, [layout.panes, recentSessions, heldRunningIds, detachTranscripts])
-
-  useEffect(() => {
-    for (const id of heldRunningIds) {
-      if (!attachedRef.current.has(id)) void ensureTranscript(id)
-    }
-  }, [heldRunningIds, ensureTranscript])
+  }, [layout.panes, recentSessions, detachTranscripts])
 
   useEffect(() => {
     surfaceBySessionRef.current = surfaceBySession
@@ -1937,6 +1920,7 @@ export default function App() {
         layout={layout}
         sessions={sessions}
         messagesBySession={messagesBySession}
+        attentionSeen={attention.seen}
         usageBySession={usageBySession}
         limitsBySession={limitsBySession}
         queuedBySession={queuedBySession}

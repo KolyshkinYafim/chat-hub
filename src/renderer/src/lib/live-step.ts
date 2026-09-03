@@ -1,12 +1,22 @@
 import { oneLine } from "@shared/text"
-import { splitToolName, summarizeToolArgs, type PlanStep } from "@shared/tool-card"
-import type { AgentTurnItem, ChatMessage, SessionStatus } from "@shared/types"
+import { splitToolName, type PlanStep } from "@shared/tool-card"
+import { describeItem, phaseLabel } from "@shared/live"
+import type {
+  AgentTurnItem,
+  ChatMessage,
+  LivePhase,
+  SessionLiveActivity,
+  SessionMeta,
+  SessionStatus,
+} from "@shared/types"
 import {
   buildTranscript,
-  unwrapShell,
   type ToolCall,
   type TranscriptBlock,
 } from "./tool-runs"
+
+export { describeItem, phaseLabel }
+export type { LivePhase }
 
 export type LiveStep = {
   key: string
@@ -16,18 +26,10 @@ export type LiveStep = {
   server: string | null
 }
 
-export type LivePhase = "connecting" | "thinking" | "tool"
-
 export function stepPhase(step: LiveStep): LivePhase {
   if (step.kind === "starting") return "connecting"
   if (step.kind === "tool") return "tool"
   return "thinking"
-}
-
-export const phaseLabel: Record<LivePhase, string> = {
-  connecting: "Connecting",
-  thinking: "Thinking",
-  tool: "Running a tool",
 }
 
 export function livePhase(
@@ -43,6 +45,30 @@ export function livePhase(
     itemStep(last.items) ??
     currentStep(buildTranscript(last.content, last.id).blocks)
   return stepPhase(step)
+}
+
+export function sessionPhase(
+  session: SessionMeta,
+  messages?: readonly ChatMessage[],
+): LivePhase | null {
+  if (session.status !== "running") return null
+  return session.live?.phase ?? livePhase(messages, session.status)
+}
+
+export function metaStep(live: SessionLiveActivity): LiveStep {
+  const kind =
+    live.phase === "tool"
+      ? "tool"
+      : live.phase === "connecting"
+        ? "starting"
+        : "thinking"
+  return {
+    key: `meta:${live.phase}:${live.stepLabel}:${live.since}`,
+    kind,
+    label: live.stepLabel,
+    detail: live.stepDetail ? clampDetail(live.stepDetail) : null,
+    server: null,
+  }
 }
 
 export type PlanProgress = {
@@ -102,73 +128,6 @@ export function itemPlanProgress(
     total: steps.length,
     active: steps.find((step) => step.status === "running")?.text ?? null,
   }
-}
-
-/** What a turn item is doing, split into "which tool" and "on what". */
-export function describeItem(item: AgentTurnItem): {
-  label: string
-  detail: string
-  server: string | null
-} {
-  const plain = (label: string, detail: string) => ({ label, detail, server: null })
-  switch (item.kind) {
-    case "command":
-      return plain("Shell", unwrapShell(item.command.split("\n")[0] ?? ""))
-    case "tool": {
-      const { label, server } = splitToolName(item.name)
-      return { label, detail: summarizeToolArgs(item.arguments), server }
-    }
-    case "file_change": {
-      const paths = item.changes.map((change) => change.path)
-      if (paths.length === 1) return plain("Edit", paths[0]!)
-      return plain("Edit", paths.length ? `${paths.length} files` : "code diff")
-    }
-    case "plan": {
-      const active =
-        item.steps?.find((step) => step.status === "running") ??
-        item.steps?.find((step) => step.status === "pending")
-      return plain("Plan", active?.text || item.text)
-    }
-    case "subagent": {
-      const open = item.steps?.find((step) => step.status === "running")
-      const detail =
-        [open?.label, open?.detail].filter(Boolean).join(" · ") ||
-        item.description ||
-        `${item.steps?.length ?? 0} steps`
-      return plain(`${item.name} agent`, detail)
-    }
-    case "web_search":
-      return plain("Search", item.query)
-    case "image":
-      return plain("Image", item.path)
-    case "review":
-      return plain("Review", item.text)
-    case "compaction":
-      return plain("Compacting context", compactionDetail(item))
-    case "reasoning":
-      return plain("Reasoning", "")
-    case "notice":
-      return plain(
-        item.level === "warning" ? "Warning" : "Note",
-        item.detail ? `${item.title} · ${item.detail}` : item.title,
-      )
-    case "error":
-      return plain("Error", item.message)
-    // A transcript written by a newer build can carry a kind this one has
-    // never heard of; a row that says nothing beats a renderer that throws.
-    default:
-      return plain("Step", "")
-  }
-}
-
-function compactionDetail(item: AgentTurnItem & { kind: "compaction" }): string {
-  if (item.preTokens === undefined) return ""
-  const to = item.postTokens === undefined ? "" : ` → ${formatTokens(item.postTokens)}`
-  return `${formatTokens(item.preTokens)}${to} tokens`
-}
-
-function formatTokens(count: number): string {
-  return count >= 1000 ? `${Math.round(count / 100) / 10}k` : String(count)
 }
 
 export function currentStep(blocks: TranscriptBlock[]): LiveStep {

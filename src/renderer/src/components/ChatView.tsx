@@ -62,6 +62,7 @@ import {
   currentStep,
   itemPlanProgress,
   itemStep,
+  metaStep,
   planProgress,
   stepPhase,
 } from "../lib/live-step"
@@ -689,15 +690,18 @@ export function ChatView({
       ? lastMessage
       : null
   const liveTicker = useMemo(() => {
-    if (!liveMessage) return null
-    const { blocks } = buildTranscript(liveMessage.content, liveMessage.id)
-    // Codex and Grok stream structured items, not tool fences in the prose —
-    // without this the ticker reports "Writing" through an entire tool call.
-    return {
-      step: itemStep(liveMessage.items) ?? currentStep(blocks),
-      plan: itemPlanProgress(liveMessage.items) ?? planProgress(blocks),
+    if (liveMessage) {
+      const { blocks } = buildTranscript(liveMessage.content, liveMessage.id)
+      return {
+        step: itemStep(liveMessage.items) ?? currentStep(blocks),
+        plan: itemPlanProgress(liveMessage.items) ?? planProgress(blocks),
+      }
     }
-  }, [liveMessage])
+    if (session?.status === "running" && session.live) {
+      return { step: metaStep(session.live), plan: null }
+    }
+    return null
+  }, [liveMessage, session])
 
   // A pending question is drawn above the transcript, where the turn that
   // raised it is often already scrolled away — so the card carries its own.
@@ -1250,7 +1254,7 @@ export function ChatView({
   const headPhase = running
     ? liveTicker
       ? stepPhase(liveTicker.step)
-      : "connecting"
+      : (session.live?.phase ?? "connecting")
     : null
 
   return (

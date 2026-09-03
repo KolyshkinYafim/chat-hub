@@ -40,6 +40,7 @@ const { adapter, state } = vi.hoisted(() => {
     usage: null as { costUsd?: number; outputTokens?: number } | null,
     lastEnv: undefined as Record<string, string> | undefined,
     lastPermissionMode: undefined as string | undefined,
+    cb: null as AdapterCallbacks | null,
   }
   const adapter = {
     id: "mock" as const,
@@ -64,6 +65,7 @@ const { adapter, state } = vi.hoisted(() => {
       state.sent.push(message)
       state.lastEnv = opts?.env
       state.lastPermissionMode = opts?.permissionMode
+      state.cb = cb
       if (state.sendEmitsRunning) {
         cb.onSessionEvent({
           type: "session.status",
@@ -145,6 +147,72 @@ beforeEach(() => {
   state.usage = null
   state.lastEnv = undefined
   state.lastPermissionMode = undefined
+  state.cb = null
+})
+
+describe("live activity meta", () => {
+  it("tracks phase transitions on the meta and damps same-step updates", async () => {
+    const { sm, dir, events } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.sendMessage(session.id, "go")
+    expect(sm.getSession(session.id)?.live?.phase).toBe("connecting")
+
+    const cb = state.cb!
+    cb.onMessage({
+      id: "a1",
+      sessionId: session.id,
+      role: "assistant",
+      content: "",
+      createdAt: Date.now(),
+      streaming: true,
+    })
+    cb.onDelta(session.id, "a1", "hel")
+    cb.onDelta(session.id, "a1", "lo")
+    cb.onDelta(session.id, "a1", "!")
+    const liveEvents = () => events.filter((e) => e.type === "session.live")
+    expect(liveEvents()).toHaveLength(2)
+    expect(sm.getSession(session.id)?.live?.stepLabel).toBe("Writing")
+
+    cb.onTurnItem(session.id, "a1", {
+      id: "t1",
+      kind: "command",
+      status: "running",
+      command: "pnpm test",
+    })
+    expect(sm.getSession(session.id)?.live?.phase).toBe("tool")
+    expect(sm.getSession(session.id)?.live?.stepDetail).toBe("pnpm test")
+    cb.onTurnItem(session.id, "a1", {
+      id: "t1",
+      kind: "command",
+      status: "running",
+      command: "pnpm test",
+    })
+    cb.onDelta(session.id, "a1", "still going")
+    expect(liveEvents()).toHaveLength(3)
+    expect(sm.getSnapshot().sessions.find((s) => s.id === session.id)?.live?.phase).toBe(
+      "tool",
+    )
+
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(sm.getSession(session.id)?.status).toBe("idle"),
+    )
+    expect(sm.getSession(session.id)?.live).toBeUndefined()
+    expect(liveEvents().at(-1)).toMatchObject({ live: null })
+  })
+
+  it("keeps live activity out of the persisted state", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.sendMessage(session.id, "go")
+    expect(sm.getSession(session.id)?.live).toBeDefined()
+    await sm.flush()
+    const raw = JSON.parse(await readFile(persistence.filePath, "utf8"))
+    const saved = raw.sessions.find(
+      (s: { id: string }) => s.id === session.id,
+    )
+    expect(saved.live).toBeUndefined()
+  })
 })
 
 describe("cost & tokens", () => {

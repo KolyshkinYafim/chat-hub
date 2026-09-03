@@ -1,30 +1,26 @@
 import { useEffect, useMemo, useState } from "react"
-import type {
-  ChatMessage,
-  QueuedMessage,
-  SessionMeta,
-  SessionUsage,
-} from "@shared/types"
+import type { QueuedMessage, SessionMeta, SessionUsage } from "@shared/types"
 import { buildFleet, fleetSummary, type FleetRow } from "../../lib/fleet"
-import { formatElapsed, stepPhase } from "../../lib/live-step"
+import type { AttentionSeen } from "../../lib/attention"
+import { formatElapsed } from "../../lib/live-step"
 import { formatRelative } from "../../lib/format"
 import { formatUsd } from "../../lib/usage"
 import { StatusDot } from "../StatusDot"
 
 type Props = {
   sessions: SessionMeta[]
-  messagesBySession: Record<string, ChatMessage[]>
   usageBySession: Record<string, SessionUsage>
   queuedBySession: Record<string, QueuedMessage[]>
+  attentionSeen: AttentionSeen
   activeSessionId: string
   onSelectSession: (id: string) => void
 }
 
 export function FleetSurface({
   sessions,
-  messagesBySession,
   usageBySession,
   queuedBySession,
+  attentionSeen,
   activeSessionId,
   onSelectSession,
 }: Props) {
@@ -37,8 +33,8 @@ export function FleetSurface({
 
   const fleet = useMemo(
     () =>
-      buildFleet(sessions, messagesBySession, usageBySession, queuedBySession, now),
-    [sessions, messagesBySession, usageBySession, queuedBySession, now],
+      buildFleet(sessions, usageBySession, queuedBySession, attentionSeen, now),
+    [sessions, usageBySession, queuedBySession, attentionSeen, now],
   )
 
   if (fleet.total === 0) {
@@ -55,11 +51,11 @@ export function FleetSurface({
   return (
     <div className="fleet-surface">
       <div className="fleet-summary">{fleetSummary(fleet.counts)}</div>
-      {fleet.groups.map((group) => (
-        <section key={group.project} className="fleet-group">
-          <h3 className="fleet-group-name">{group.project}</h3>
+      {fleet.sections.map((section) => (
+        <section key={section.kind} className={`fleet-group ${section.kind}`}>
+          <h3 className="fleet-group-name">{section.title}</h3>
           <div className="fleet-rows">
-            {group.rows.map((row) => (
+            {section.rows.map((row) => (
               <FleetRowButton
                 key={row.id}
                 row={row}
@@ -92,22 +88,26 @@ function FleetRowButton({
       className={`fleet-row ${active ? "active" : ""} ${row.settled ? "settled" : ""}`}
       onClick={() => onSelect(row.id)}
     >
-      <StatusDot status={row.status} attention={row.attention} />
+      <StatusDot
+        status={row.status}
+        attention={row.attention}
+        phase={row.live?.phase ?? null}
+      />
       <span className="fleet-row-body">
         <span className="fleet-row-head">
           <span className="fleet-row-title">{row.title}</span>
           <span className="fleet-row-chip">
-            {row.provider}
+            {row.project} · {row.provider}
             {row.model ? ` · ${row.model}` : ""}
           </span>
         </span>
         <span className="fleet-row-sub">
-          {row.step ? (
+          {row.live ? (
             <>
-              <span className={`orb ${stepPhase(row.step)}`} aria-hidden />
-              <span className="fleet-step-label">{row.step.label}</span>
-              {row.step.detail ? (
-                <span className="fleet-step-detail">· {row.step.detail}</span>
+              <span className={`orb ${row.live.phase}`} aria-hidden />
+              <span className="fleet-step-label">{row.live.stepLabel}</span>
+              {row.live.stepDetail ? (
+                <span className="fleet-step-detail">· {row.live.stepDetail}</span>
               ) : null}
             </>
           ) : (
@@ -118,7 +118,7 @@ function FleetRowButton({
         </span>
       </span>
       <span className="fleet-row-meta">
-        {row.step ? (
+        {row.live ? (
           <span className="fleet-row-elapsed">{formatElapsed(row.elapsedMs)}</span>
         ) : null}
         {row.costUsd !== null ? (

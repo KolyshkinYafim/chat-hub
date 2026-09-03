@@ -1,21 +1,21 @@
 import type {
-  ChatMessage,
   QueuedMessage,
+  SessionLiveActivity,
   SessionMeta,
   SessionStatus,
   SessionUsage,
 } from "@shared/types"
-import { needsAction, STATUS_RANK } from "@shared/attention"
-import { buildTranscript } from "./tool-runs"
-import { currentStep, type LiveStep } from "./live-step"
+import { activityStamp, needsAction, STATUS_RANK } from "@shared/attention"
+import { isUnseenDone, type AttentionSeen } from "./attention"
 
 export type FleetRow = {
   id: string
   title: string
+  project: string
   provider: string
   model: string | null
   status: SessionStatus
-  step: LiveStep | null
+  live: SessionLiveActivity | null
   updatedAt: number
   elapsedMs: number
   costUsd: number | null
@@ -24,72 +24,82 @@ export type FleetRow = {
   attention: boolean
 }
 
-export type FleetGroup = {
-  project: string
+export type FleetSectionKind =
+  | "attention"
+  | "working"
+  | "review"
+  | "idle"
+  | "settled"
+
+export type FleetSection = {
+  kind: FleetSectionKind
+  title: string
   rows: FleetRow[]
 }
 
-export type FleetCounts = {
-  working: number
-  waiting: number
-  error: number
-  idle: number
-  settled: number
-}
+export type FleetCounts = Record<FleetSectionKind, number>
 
 export type Fleet = {
-  groups: FleetGroup[]
+  sections: FleetSection[]
   counts: FleetCounts
   total: number
 }
 
-function rowRank(row: FleetRow): number {
-  return row.settled ? 4 : STATUS_RANK[row.status]
+const SECTION_ORDER: FleetSectionKind[] = [
+  "attention",
+  "working",
+  "review",
+  "idle",
+  "settled",
+]
+
+const SECTION_TITLES: Record<FleetSectionKind, string> = {
+  attention: "Needs attention",
+  working: "Working",
+  review: "To review",
+  idle: "Idle",
+  settled: "Settled",
 }
 
-function liveTurn(
+export function fleetSection(
   session: SessionMeta,
-  messages: ChatMessage[],
-): { step: LiveStep; since: number } | null {
-  if (session.status !== "running") return null
-  const last = messages[messages.length - 1]
-  if (!last || last.role !== "assistant" || last.streaming !== true) return null
-  return {
-    step: currentStep(buildTranscript(last.content, last.id).blocks),
-    since: last.createdAt,
+  seen: AttentionSeen,
+): FleetSectionKind {
+  if (needsAction(session)) return "attention"
+  if (session.status === "running" && session.settledAt === undefined) {
+    return "working"
   }
+  if (isUnseenDone(session, seen)) return "review"
+  if (session.settledAt !== undefined) return "settled"
+  return "idle"
 }
 
-function compareRows(a: FleetRow, b: FleetRow): number {
-  const byRank = rowRank(a) - rowRank(b)
-  if (byRank !== 0) return byRank
-  return b.updatedAt - a.updatedAt
+function compareRows(
+  kind: FleetSectionKind,
+): (a: FleetRow, b: FleetRow) => number {
+  if (kind === "attention") {
+    return (a, b) =>
+      STATUS_RANK[a.status] - STATUS_RANK[b.status] ||
+      a.updatedAt - b.updatedAt
+  }
+  if (kind === "working") {
+    return (a, b) => b.elapsedMs - a.elapsedMs
+  }
+  return (a, b) => b.updatedAt - a.updatedAt
 }
 
-function compareGroups(a: FleetGroup, b: FleetGroup): number {
-  const byRank = rowRank(a.rows[0]) - rowRank(b.rows[0])
-  if (byRank !== 0) return byRank
-  return b.rows[0].updatedAt - a.rows[0].updatedAt
-}
-
-/**
- * Everything the fleet panel shows, derived from App state: per-project groups
- * of unarchived sessions, each row carrying the live step of a still-streaming
- * turn, plus header counts. Running rows measure elapsed from the streaming
- * turn's start; everything else from the session's last update.
- */
 export function buildFleet(
   sessions: SessionMeta[],
-  messagesBySession: Record<string, ChatMessage[]>,
   usage: Record<string, SessionUsage>,
   queued: Record<string, QueuedMessage[]>,
+  seen: AttentionSeen,
   now: number,
 ): Fleet {
-  const byProject = new Map<string, FleetRow[]>()
+  const byKind = new Map<FleetSectionKind, FleetRow[]>()
   const counts: FleetCounts = {
+    attention: 0,
     working: 0,
-    waiting: 0,
-    error: 0,
+    review: 0,
     idle: 0,
     settled: 0,
   }
@@ -97,45 +107,50 @@ export function buildFleet(
   for (const session of sessions) {
     if (session.archived) continue
     total += 1
-    const live = liveTurn(session, messagesBySession[session.id] ?? [])
-    const settled = session.settledAt !== undefined
+    const kind = fleetSection(session, seen)
+    const live = session.status === "running" ? (session.live ?? null) : null
     const row: FleetRow = {
       id: session.id,
       title: session.title,
+      project: session.project,
       provider: session.provider,
       model: session.model ?? null,
       status: session.status,
-      step: live?.step ?? null,
-      updatedAt: session.updatedAt,
-      elapsedMs: Math.max(0, now - (live?.since ?? session.updatedAt)),
+      live,
+      updatedAt: activityStamp(session),
+      elapsedMs: Math.max(0, now - (live?.startedAt ?? activityStamp(session))),
       costUsd: usage[session.id]?.costUsd ?? null,
       queuedCount: queued[session.id]?.length ?? 0,
-      settled,
+      settled: session.settledAt !== undefined,
       attention: needsAction(session),
     }
-    if (settled) counts.settled += 1
-    else if (session.status === "running") counts.working += 1
-    else if (session.status === "waiting_input") counts.waiting += 1
-    else if (session.status === "error") counts.error += 1
-    else counts.idle += 1
-    const rows = byProject.get(session.project)
+    counts[kind] += 1
+    const rows = byKind.get(kind)
     if (rows) rows.push(row)
-    else byProject.set(session.project, [row])
+    else byKind.set(kind, [row])
   }
-  const groups = [...byProject.entries()].map(([project, rows]) => ({
-    project,
-    rows: rows.sort(compareRows),
-  }))
-  groups.sort(compareGroups)
-  return { groups, counts, total }
+  const sections: FleetSection[] = []
+  for (const kind of SECTION_ORDER) {
+    const rows = byKind.get(kind)
+    if (!rows) continue
+    sections.push({
+      kind,
+      title: SECTION_TITLES[kind],
+      rows: rows.sort(compareRows(kind)),
+    })
+  }
+  return { sections, counts, total }
 }
 
-/** Header line like "2 working · 1 waiting · 4 settled"; empty buckets vanish. */
 export function fleetSummary(counts: FleetCounts): string {
   const parts: string[] = []
+  if (counts.attention > 0) {
+    parts.push(
+      `${counts.attention} ${counts.attention === 1 ? "needs" : "need"} attention`,
+    )
+  }
   if (counts.working > 0) parts.push(`${counts.working} working`)
-  if (counts.waiting > 0) parts.push(`${counts.waiting} waiting`)
-  if (counts.error > 0) parts.push(`${counts.error} failed`)
+  if (counts.review > 0) parts.push(`${counts.review} to review`)
   if (counts.idle > 0) parts.push(`${counts.idle} idle`)
   if (counts.settled > 0) parts.push(`${counts.settled} settled`)
   return parts.join(" · ")

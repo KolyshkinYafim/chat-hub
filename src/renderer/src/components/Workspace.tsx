@@ -22,6 +22,7 @@ import type {
   ProviderStatus,
 } from "@shared/settings-types"
 import type { ProjectScript } from "@shared/scripts"
+import type { AttentionSeen } from "../lib/attention"
 import type { SurfaceKind } from "../lib/surface-bridge"
 import {
   browserOwnerPane,
@@ -53,6 +54,7 @@ type Props = {
   layout: PaneLayout
   sessions: SessionMeta[]
   messagesBySession: Record<string, ChatMessage[]>
+  attentionSeen: AttentionSeen
   usageBySession: Record<string, SessionUsage>
   limitsBySession: Record<string, ProviderRateLimits>
   queuedBySession: Record<string, QueuedMessage[]>
@@ -129,6 +131,7 @@ export function Workspace({
   layout,
   sessions,
   messagesBySession,
+  attentionSeen,
   usageBySession,
   limitsBySession,
   queuedBySession,
@@ -362,8 +365,8 @@ export function Workspace({
         diffFocus={sessionId ? (diffFocusBySession[sessionId] ?? null) : null}
         filesFocus={sessionId ? (filesFocusBySession[sessionId] ?? null) : null}
         sessions={sessions}
-        messagesBySession={messagesBySession}
         usageBySession={usageBySession}
+        attentionSeen={attentionSeen}
         queuedBySession={queuedBySession}
         actions={actions}
         containerProps={tiled ? undefined : containerProps}

@@ -8,7 +8,7 @@ import {
   type TranscriptHit,
 } from "@shared/search"
 import { formatRelative, statusLabel } from "../lib/format"
-import { livePhase } from "../lib/live-step"
+import { sessionPhase } from "../lib/live-step"
 import { PROJECT_MIME, SESSION_MIME } from "../lib/pane-layout"
 import { needsAction } from "@shared/attention"
 import { type AttentionSeen } from "../lib/attention"
@@ -366,7 +366,7 @@ export function Sidebar({
               status={s.status}
               showLabel
               attention={needsAction(s)}
-              phase={livePhase(messagesBySession[s.id], s.status)}
+              phase={sessionPhase(s, messagesBySession[s.id])}
             />
           ) : null}
           {editing ? (

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { toolUseBlock } from "../src/main/adapters/stream-parse"
-import { buildFleet, fleetSummary } from "@renderer/lib/fleet"
-import type { ChatMessage, SessionMeta } from "@shared/types"
+import { buildFleet, fleetSection, fleetSummary } from "@renderer/lib/fleet"
+import type { SessionLiveActivity, SessionMeta } from "@shared/types"
 
 const NOW = 1_750_000_000_000
 
@@ -22,74 +21,131 @@ function session(over: Partial<SessionMeta> = {}): SessionMeta {
   }
 }
 
-function streamingTurn(sessionId: string, content: string): ChatMessage {
+function live(over: Partial<SessionLiveActivity> = {}): SessionLiveActivity {
   return {
-    id: `m-${sessionId}`,
-    sessionId,
-    role: "assistant",
-    content,
-    createdAt: NOW - 5_000,
-    streaming: true,
+    phase: "tool",
+    stepLabel: "Shell",
+    stepDetail: "pnpm test",
+    since: NOW - 5_000,
+    startedAt: NOW - 20_000,
+    ...over,
   }
 }
 
-function rowIds(sessions: SessionMeta[]) {
-  const fleet = buildFleet(sessions, {}, {}, {}, NOW)
-  return fleet.groups.flatMap((g) => g.rows.map((r) => r.id))
+function sectionKinds(sessions: SessionMeta[], seen = {}) {
+  return buildFleet(sessions, {}, {}, seen, NOW).sections.map((s) => s.kind)
 }
 
-describe("buildFleet", () => {
-  it("groups sessions by project", () => {
-    const a = session({ project: "alpha" })
-    const b = session({ project: "beta" })
-    const a2 = session({ project: "alpha" })
-    const fleet = buildFleet([a, b, a2], {}, {}, {}, NOW)
-    expect(fleet.groups.map((g) => g.project).sort()).toEqual(["alpha", "beta"])
-    const alpha = fleet.groups.find((g) => g.project === "alpha")
-    expect(alpha?.rows.map((r) => r.id).sort()).toEqual([a.id, a2.id].sort())
+function rowsOf(sessions: SessionMeta[], kind: string, seen = {}) {
+  return (
+    buildFleet(sessions, {}, {}, seen, NOW).sections.find(
+      (s) => s.kind === kind,
+    )?.rows ?? []
+  )
+}
+
+describe("fleetSection", () => {
+  it("puts waiting and failed sessions under needs attention", () => {
+    expect(fleetSection(session({ status: "waiting_input" }), {})).toBe(
+      "attention",
+    )
+    expect(fleetSection(session({ status: "error" }), {})).toBe("attention")
   })
 
-  it("orders running before waiting, error, idle, and settled", () => {
+  it("puts running sessions under working", () => {
+    expect(fleetSection(session({ status: "running" }), {})).toBe("working")
+  })
+
+  it("puts an unseen done session under to review", () => {
+    const s = session({ status: "done", activityAt: NOW - 1_000 })
+    expect(fleetSection(s, {})).toBe("review")
+  })
+
+  it("moves a seen done session to idle", () => {
+    const s = session({ status: "done", activityAt: NOW - 1_000 })
+    expect(fleetSection(s, { [s.id]: NOW })).toBe("idle")
+  })
+
+  it("keeps settled sessions out of review even when done", () => {
+    const s = session({
+      status: "done",
+      activityAt: NOW - 1_000,
+      settledAt: NOW - 500,
+    })
+    expect(fleetSection(s, {})).toBe("settled")
+  })
+})
+
+describe("buildFleet", () => {
+  it("orders sections attention, working, review, idle, settled", () => {
     const settled = session({ status: "done", settledAt: NOW - 1_000 })
     const idle = session({ status: "idle" })
-    const errored = session({ status: "error" })
-    const waiting = session({ status: "waiting_input" })
+    const done = session({ status: "done", activityAt: NOW - 1_000 })
     const running = session({ status: "running" })
-    expect(rowIds([settled, idle, errored, waiting, running])).toEqual([
-      running.id,
-      waiting.id,
-      errored.id,
-      idle.id,
-      settled.id,
+    const waiting = session({ status: "waiting_input" })
+    expect(sectionKinds([settled, idle, done, running, waiting])).toEqual([
+      "attention",
+      "working",
+      "review",
+      "idle",
+      "settled",
     ])
   })
 
-  it("breaks ties within a rank by recency", () => {
-    const older = session({ updatedAt: NOW - 90_000 })
-    const newer = session({ updatedAt: NOW - 10_000 })
-    expect(rowIds([older, newer])).toEqual([newer.id, older.id])
+  it("omits empty sections", () => {
+    expect(sectionKinds([session({ status: "running" })])).toEqual(["working"])
   })
 
-  it("gives a running row the step of its streaming turn", () => {
-    const s = session({ status: "running" })
-    const messages = {
-      [s.id]: [streamingTurn(s.id, toolUseBlock("Bash", { command: "pnpm test" }, "t1"))],
-    }
-    const [row] = buildFleet([s], messages, {}, {}, NOW).groups[0].rows
-    expect(row.step?.kind).toBe("tool")
-    expect(row.step?.label).toBe("Bash")
-    expect(row.step?.detail).toBe("pnpm test")
-    expect(row.elapsedMs).toBe(5_000)
+  it("ranks waiting before failed inside needs attention, oldest first", () => {
+    const failed = session({ status: "error", activityAt: NOW - 1_000 })
+    const waitingNew = session({
+      status: "waiting_input",
+      activityAt: NOW - 2_000,
+    })
+    const waitingOld = session({
+      status: "waiting_input",
+      activityAt: NOW - 9_000,
+    })
+    expect(
+      rowsOf([failed, waitingNew, waitingOld], "attention").map((r) => r.id),
+    ).toEqual([waitingOld.id, waitingNew.id, failed.id])
   })
 
-  it("leaves idle rows without a step even when a stale stream lingers", () => {
-    const s = session({ status: "idle" })
-    const messages = {
-      [s.id]: [streamingTurn(s.id, toolUseBlock("Bash", { command: "ls" }, "t1"))],
-    }
-    const [row] = buildFleet([s], messages, {}, {}, NOW).groups[0].rows
-    expect(row.step).toBeNull()
-    expect(row.elapsedMs).toBe(60_000)
+  it("gives working rows the meta live step and elapsed from turn start", () => {
+    const s = session({ status: "running", live: live() })
+    const [row] = rowsOf([s], "working")
+    expect(row.live?.phase).toBe("tool")
+    expect(row.live?.stepLabel).toBe("Shell")
+    expect(row.live?.stepDetail).toBe("pnpm test")
+    expect(row.elapsedMs).toBe(20_000)
+  })
+
+  it("shows working rows without meta as live-less rather than faking a step", () => {
+    const s = session({ status: "running", activityAt: NOW - 40_000 })
+    const [row] = rowsOf([s], "working")
+    expect(row.live).toBeNull()
+    expect(row.elapsedMs).toBe(40_000)
+  })
+
+  it("orders working rows longest-running first", () => {
+    const young = session({
+      status: "running",
+      live: live({ startedAt: NOW - 5_000 }),
+    })
+    const old = session({
+      status: "running",
+      live: live({ startedAt: NOW - 90_000 }),
+    })
+    expect(rowsOf([young, old], "working").map((r) => r.id)).toEqual([
+      old.id,
+      young.id,
+    ])
+  })
+
+  it("ignores stale meta live on a session that is no longer running", () => {
+    const s = session({ status: "idle", live: live() })
+    const [row] = rowsOf([s], "idle")
+    expect(row.live).toBeNull()
   })
 
   it("excludes archived sessions entirely", () => {
@@ -97,19 +153,9 @@ describe("buildFleet", () => {
     const gone = session({ archived: true })
     const fleet = buildFleet([kept, gone], {}, {}, {}, NOW)
     expect(fleet.total).toBe(1)
-    expect(fleet.groups[0].rows.map((r) => r.id)).toEqual([kept.id])
-  })
-
-  it("sinks settled rows to the bottom regardless of freshness", () => {
-    const settled = session({
-      status: "done",
-      settledAt: NOW - 500,
-      updatedAt: NOW - 1_000,
-    })
-    const idle = session({ status: "idle", updatedAt: NOW - 300_000 })
-    expect(rowIds([settled, idle])).toEqual([idle.id, settled.id])
-    const rows = buildFleet([settled, idle], {}, {}, {}, NOW).groups[0].rows
-    expect(rows[1].settled).toBe(true)
+    expect(fleet.sections.flatMap((s) => s.rows.map((r) => r.id))).toEqual([
+      kept.id,
+    ])
   })
 
   it("flags only unsettled waiting and error rows for the pulse", () => {
@@ -117,14 +163,16 @@ describe("buildFleet", () => {
     const failed = session({ status: "error" })
     const settledFail = session({ status: "error", settledAt: NOW - 500 })
     const running = session({ status: "running" })
-    const rows = buildFleet(
+    const fleet = buildFleet(
       [waiting, failed, settledFail, running],
       {},
       {},
       {},
       NOW,
-    ).groups[0].rows
-    const byId = new Map(rows.map((r) => [r.id, r.attention]))
+    )
+    const byId = new Map(
+      fleet.sections.flatMap((s) => s.rows.map((r) => [r.id, r.attention])),
+    )
     expect(byId.get(waiting.id)).toBe(true)
     expect(byId.get(failed.id)).toBe(true)
     expect(byId.get(settledFail.id)).toBe(false)
@@ -139,7 +187,7 @@ describe("buildFleet", () => {
         { id: "q2", sessionId: s.id, text: "then", createdAt: NOW },
       ],
     }
-    const [row] = buildFleet([s], {}, {}, queued, NOW).groups[0].rows
+    const [row] = buildFleet([s], {}, queued, {}, NOW).sections[0].rows
     expect(row.queuedCount).toBe(2)
   })
 
@@ -147,29 +195,51 @@ describe("buildFleet", () => {
     const priced = session()
     const free = session()
     const usage = { [priced.id]: { turns: 3, costUsd: 1.234 } }
-    const rows = buildFleet([priced, free], {}, usage, {}, NOW).groups[0].rows
+    const rows = buildFleet([priced, free], usage, {}, {}, NOW).sections[0].rows
     expect(rows.find((r) => r.id === priced.id)?.costUsd).toBe(1.234)
     expect(rows.find((r) => r.id === free.id)?.costUsd).toBeNull()
   })
 
-  it("floats the project with the most urgent row to the top", () => {
-    const idleAlpha = session({ project: "alpha", status: "idle" })
-    const runningBeta = session({ project: "beta", status: "running" })
-    const fleet = buildFleet([idleAlpha, runningBeta], {}, {}, {}, NOW)
-    expect(fleet.groups.map((g) => g.project)).toEqual(["beta", "alpha"])
+  it("tallies section counts", () => {
+    const fleet = buildFleet(
+      [
+        session({ status: "running" }),
+        session({ status: "waiting_input" }),
+        session({ status: "done", activityAt: NOW - 1_000 }),
+        session({ status: "idle" }),
+        session({ status: "idle", settledAt: NOW - 500 }),
+      ],
+      {},
+      {},
+      {},
+      NOW,
+    )
+    expect(fleet.counts).toEqual({
+      attention: 1,
+      working: 1,
+      review: 1,
+      idle: 1,
+      settled: 1,
+    })
   })
 })
 
 describe("fleetSummary", () => {
   it("names only the nonzero buckets", () => {
     expect(
-      fleetSummary({ working: 2, waiting: 1, error: 0, idle: 0, settled: 4 }),
-    ).toBe("2 working · 1 waiting · 4 settled")
+      fleetSummary({ attention: 1, working: 2, review: 3, idle: 0, settled: 4 }),
+    ).toBe("1 needs attention · 2 working · 3 to review · 4 settled")
+  })
+
+  it("pluralizes needs attention", () => {
+    expect(
+      fleetSummary({ attention: 2, working: 0, review: 0, idle: 0, settled: 0 }),
+    ).toBe("2 need attention")
   })
 
   it("goes quiet when everything is zero", () => {
     expect(
-      fleetSummary({ working: 0, waiting: 0, error: 0, idle: 0, settled: 0 }),
+      fleetSummary({ attention: 0, working: 0, review: 0, idle: 0, settled: 0 }),
     ).toBe("")
   })
 })
