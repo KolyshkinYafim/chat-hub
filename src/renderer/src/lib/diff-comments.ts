@@ -48,7 +48,11 @@ export function pruneDiffComments(liveSessionIds: ReadonlySet<string>): void {
 
 const MARKER: Record<DiffLineKind, string> = { add: "+", del: "-", ctx: " " }
 
-/** One composer-ready message from a batch of line comments, or null for none. */
+const oneLine = (text: string): string => text.replace(/\s*\r?\n\s*/g, " ")
+
+const tidyNote = (text: string): string =>
+  text.replace(/\r/g, "").trim().replace(/\n\s*\n+/g, "\n")
+
 export function buildReviewMessage(
   comments: readonly DiffComment[],
 ): string | null {
@@ -57,7 +61,8 @@ export function buildReviewMessage(
     a.file === b.file ? a.line - b.line : a.file < b.file ? -1 : 1,
   )
   const entries = ordered.map(
-    (c) => `${c.file}:${c.line}\n> ${MARKER[c.kind]} ${c.lineText}\n${c.text}`,
+    (c) =>
+      `${c.file}:${c.line}\n> ${MARKER[c.kind]} ${oneLine(c.lineText)}\n${tidyNote(c.text)}`,
   )
-  return `Review comments on the current diff:\n\n${entries.join("\n\n")}`
+  return `Address these review comments:\n\n${entries.join("\n\n")}`
 }

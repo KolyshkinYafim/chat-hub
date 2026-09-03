@@ -114,7 +114,7 @@ describe("buildReviewMessage", () => {
     })
     expect(buildReviewMessage([del, add])).toBe(
       [
-        "Review comments on the current diff:",
+        "Address these review comments:",
         "",
         "src/lib/jwt.ts:14",
         "> - if (claims.iat < Date.now() / 1000) return null",
@@ -137,7 +137,7 @@ describe("buildReviewMessage", () => {
     })
     expect(buildReviewMessage([ctx])).toBe(
       [
-        "Review comments on the current diff:",
+        "Address these review comments:",
         "",
         "src/app.ts:3",
         ">   const app = express()",
@@ -165,6 +165,55 @@ describe("buildReviewMessage", () => {
     const message = buildReviewMessage([first, second]) as string
     expect(message.indexOf("First thought.")).toBeLessThan(
       message.indexOf("Second thought."),
+    )
+  })
+
+  it("collapses newlines inside the quoted diff line", () => {
+    const weird = addComment(SESSION, {
+      file: "src/a.ts",
+      line: 1,
+      lineText: "const a = 1\r\n  const b = 2",
+      kind: "add",
+      text: "One line only.",
+    })
+    expect(buildReviewMessage([weird])).toBe(
+      [
+        "Address these review comments:",
+        "",
+        "src/a.ts:1",
+        "> + const a = 1 const b = 2",
+        "One line only.",
+      ].join("\n"),
+    )
+  })
+
+  it("keeps a note with blank lines inside a single entry", () => {
+    const sprawling = addComment(SESSION, {
+      file: "src/a.ts",
+      line: 1,
+      lineText: "const a = 1",
+      kind: "ctx",
+      text: "First paragraph.\n\n\nSecond paragraph.\r\n",
+    })
+    const other = addComment(SESSION, input({ file: "src/b.ts", line: 2 }))
+    const message = buildReviewMessage([sprawling, other]) as string
+    expect(message.split("\n\n")).toHaveLength(3)
+    expect(message).toContain("First paragraph.\nSecond paragraph.")
+  })
+
+  it("survives markers and separators inside user content", () => {
+    const tricky = addComment(SESSION, {
+      file: "src/weird name (v2).ts",
+      line: 7,
+      lineText: "@@ not a hunk header @@",
+      kind: "del",
+      text: "> quoted-looking note with `backticks` and +/- markers",
+    })
+    const message = buildReviewMessage([tricky]) as string
+    expect(message).toContain("src/weird name (v2).ts:7")
+    expect(message).toContain("> - @@ not a hunk header @@")
+    expect(message).toContain(
+      "> quoted-looking note with `backticks` and +/- markers",
     )
   })
 })

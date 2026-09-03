@@ -5272,8 +5272,20 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   letter-spacing: 0.01em;
 }
 
+.scm-pos {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
 .scm-close {
   margin-left: auto;
+}
+
+.scm:focus {
+  outline: none;
 }
 
 .scm-branch-row {
@@ -5575,6 +5587,31 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   font-size: 10px;
   color: var(--text-faint);
   white-space: nowrap;
+}
+
+.scm-viewed {
+  flex: none;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+}
+
+.scm-files li:hover .scm-viewed,
+.scm-files li.active .scm-viewed,
+.scm-viewed.on,
+.scm-viewed:focus-within {
+  opacity: 1;
+}
+
+.scm-viewed input {
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.scm-files li.viewed .scm-path,
+.scm-files li.viewed .scm-code {
+  color: var(--text-faint);
 }
 
 /* Sits on the @@ line inside the <pre>; keep it a quiet inline chip. */
