@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest"
 import type { SessionMeta } from "../src/shared/types"
 import { fuzzyScore } from "../src/renderer/src/lib/fuzzy"
 import {
+  AGENT_INBOX_KEY,
+  AGENT_INBOX_MATCH,
   buildPaletteEntries,
   NEW_WINDOW_KEY,
   NEXT_ATTENTION_KEY,
@@ -36,11 +38,12 @@ describe("buildPaletteEntries", () => {
   it("puts the commands after the sessions on an empty query", () => {
     const a = session({ title: "Fix webhook retries" })
     const b = session({ title: "Tune reward curve" })
-    const entries = buildPaletteEntries([a, b], "", 2)
+    const entries = buildPaletteEntries([a, b], "", 2, 2)
     expect(kinds(entries)).toEqual([
       b.id,
       a.id,
       NEXT_ATTENTION_KEY,
+      AGENT_INBOX_KEY,
       NEW_WINDOW_KEY,
     ])
   })
@@ -52,20 +55,18 @@ describe("buildPaletteEntries", () => {
     expect(entries[0]).toEqual({ kind: "session", session: newer })
   })
 
-  it("hides the attention command when nothing needs attention", () => {
+  it("hides next waiting when nothing needs attention but keeps the rest", () => {
     const entries = buildPaletteEntries([session()], "", 0)
     expect(kinds(entries)).not.toContain(NEXT_ATTENTION_KEY)
-  })
-
-  it("offers a new window even with nothing waiting", () => {
-    const entries = buildPaletteEntries([session()], "", 0)
+    expect(kinds(entries)).toContain(AGENT_INBOX_KEY)
     expect(kinds(entries)).toContain(NEW_WINDOW_KEY)
   })
 
   it("hides the commands when the query does not match them", () => {
     expect(fuzzyScore("fix webhook", NEXT_ATTENTION_MATCH)).toBeNull()
+    expect(fuzzyScore("fix webhook", AGENT_INBOX_MATCH)).toBeNull()
     const a = session({ title: "Fix webhook retries" })
-    const entries = buildPaletteEntries([a], "fix webhook", 3)
+    const entries = buildPaletteEntries([a], "fix webhook", 3, 3)
     expect(kinds(entries)).toEqual([a.id])
   })
 
@@ -85,10 +86,11 @@ describe("buildPaletteEntries", () => {
     expect(weakScore).not.toBeNull()
     expect(commandScore ?? 0).toBeGreaterThan(weakScore ?? 0)
     const entries = buildPaletteEntries([weak], "next waiting", 1)
-    expect(kinds(entries)).toEqual([NEXT_ATTENTION_KEY, weak.id])
+    expect(kinds(entries)[0]).toBe(NEXT_ATTENTION_KEY)
+    expect(kinds(entries)).toContain(weak.id)
   })
 
-  it("keeps an equally scoring session above the command", () => {
+  it("keeps an equally scoring session above next waiting", () => {
     const exact = session({ title: "Next waiting improvements" })
     const sessionScore = fuzzyScore(
       "next waiting",
@@ -100,12 +102,23 @@ describe("buildPaletteEntries", () => {
     expect(kinds(entries)).toEqual([exact.id, NEXT_ATTENTION_KEY])
   })
 
+  it("surfaces the inbox command for an inbox query", () => {
+    const a = session({ title: "Fix webhook retries" })
+    const entries = buildPaletteEntries([a], "inbox", 1, 4)
+    expect(kinds(entries)[0]).toBe(AGENT_INBOX_KEY)
+    const inbox = entries.find(
+      (entry) => entry.kind === "command" && entry.key === AGENT_INBOX_KEY,
+    )
+    expect(inbox?.kind === "command" && inbox.sub).toContain("4 waiting")
+  })
+
   it("caps session results while still listing the commands", () => {
     const many = Array.from({ length: 20 }, () => session())
-    const entries = buildPaletteEntries(many, "", 1)
-    expect(entries).toHaveLength(14)
-    expect(kinds(entries).slice(-2)).toEqual([
+    const entries = buildPaletteEntries(many, "", 1, 1)
+    expect(entries.filter((e) => e.kind === "session")).toHaveLength(12)
+    expect(kinds(entries).slice(-3)).toEqual([
       NEXT_ATTENTION_KEY,
+      AGENT_INBOX_KEY,
       NEW_WINDOW_KEY,
     ])
   })
@@ -114,7 +127,12 @@ describe("buildPaletteEntries", () => {
     const a = session()
     const entries = buildPaletteEntries([a], "", 1)
     const keys = entries.map(paletteKey)
-    expect(keys).toEqual([a.id, NEXT_ATTENTION_KEY, NEW_WINDOW_KEY])
+    expect(keys).toEqual([
+      a.id,
+      NEXT_ATTENTION_KEY,
+      AGENT_INBOX_KEY,
+      NEW_WINDOW_KEY,
+    ])
     expect(new Set(keys).size).toBe(keys.length)
   })
 })

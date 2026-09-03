@@ -95,8 +95,10 @@ import {
   saveSidebarWidth,
 } from "./lib/shell-size"
 import { useAttention } from "./lib/use-attention"
+import { buildInboxCards } from "./lib/inbox"
 import { isEditableTarget } from "./lib/editable-target"
 import { SettingsModal } from "./components/SettingsModal"
+import { AgentInbox } from "./components/AgentInbox"
 import {
   NewSessionDialog,
   type NewSessionDraft,
@@ -156,6 +158,8 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [inboxOpen, setInboxOpen] = useState(false)
+  const [inboxCleared, setInboxCleared] = useState(0)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [newSessionHint, setNewSessionHint] = useState<{
@@ -253,6 +257,15 @@ export default function App() {
     selectSessionRef.current(id)
   }, [])
   const attention = useAttention(sessions, layout, activeId, jumpToSession)
+  const inboxCards = useMemo(
+    () => buildInboxCards(sessions, permissions, inputRequests),
+    [sessions, permissions, inputRequests],
+  )
+  const openInbox = useCallback(() => setInboxOpen(true), [])
+  const closeInbox = useCallback(() => setInboxOpen(false), [])
+  const onInboxCleared = useCallback((count: number) => {
+    setInboxCleared((n) => n + count)
+  }, [])
 
   useEffect(() => {
     window.chatHub.reportAttentionCount(attention.queue.length)
@@ -1517,6 +1530,7 @@ export default function App() {
       onOpenDiff: openDiffForPath,
       onCreate: () => openNewSession(),
       onShowShortcuts: () => setShortcutsOpen(true),
+      onOpenInbox: openInbox,
       onGitChanged: refreshGit,
       onDockWidthChange: setDockWidth,
       onDockWidthCommit: saveDockWidth,
@@ -1544,6 +1558,7 @@ export default function App() {
       openDiffForPath,
       openEditor,
       openFolder,
+      openInbox,
       refreshGit,
       renameSession,
       runScript,
@@ -1597,6 +1612,7 @@ export default function App() {
     wizardOpen ||
     newSessionOpen ||
     paletteOpen ||
+    inboxOpen ||
     shortcutsOpen ||
     projectSearch !== null
 
@@ -1629,6 +1645,12 @@ export default function App() {
         if (anyOverlayOpen || isEditableTarget(e.target)) return
         e.preventDefault()
         attention.jumpNext()
+        return
+      }
+      if (!meta && e.altKey && e.shiftKey && e.code === "KeyI") {
+        if (anyOverlayOpen || isEditableTarget(e.target)) return
+        e.preventDefault()
+        setInboxOpen(true)
         return
       }
       // Pane walk. Every other binding below resolves against the focused
@@ -1842,6 +1864,7 @@ export default function App() {
         error={error}
         onboard={onboard}
         anyOverlayOpen={anyOverlayOpen}
+        inboxCount={inboxCards.length}
         browserClaim={browserClaim}
         actions={paneActions}
         onDrop={onWorkspaceDrop}
@@ -1915,10 +1938,23 @@ export default function App() {
           sessions={sessions}
           activeId={activeId}
           attentionCount={attention.queue.length}
+          inboxCount={inboxCards.length}
           onSelect={(id) => void selectSession(id)}
           onNextAttention={attention.jumpNext}
           onNewWindow={openInNewWindow}
+          onOpenInbox={openInbox}
           onClose={() => setPaletteOpen(false)}
+        />
+      ) : null}
+      {inboxOpen ? (
+        <AgentInbox
+          cards={inboxCards}
+          clearedToday={inboxCleared}
+          onAllow={(id) => void resolvePermission(id, true)}
+          onDeny={(id) => void resolvePermission(id, false)}
+          onOpenSession={(id) => void selectSession(id)}
+          onCleared={onInboxCleared}
+          onClose={closeInbox}
         />
       ) : null}
       {projectSearch && activeSession ? (

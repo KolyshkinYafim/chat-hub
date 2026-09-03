@@ -153,6 +153,8 @@ type Props = {
   onOpenDiff: (path: string) => void
   dockOpen: boolean
   onToggleDock: () => void
+  inboxCount: number
+  onOpenInbox: () => void
   /** An overlay owns Escape while open — the dictation cancel must not eat it. */
   anyOverlayOpen: boolean
 }
@@ -652,6 +654,8 @@ export function ChatView({
   onOpenDiff,
   dockOpen,
   onToggleDock,
+  inboxCount,
+  onOpenInbox,
   anyOverlayOpen,
 }: Props) {
   const [draft, setDraft] = useState("")
@@ -1284,6 +1288,8 @@ export function ChatView({
         git={git}
         dockOpen={dockOpen}
         scripts={scripts}
+        inboxCount={inboxCount}
+        onOpenInbox={onOpenInbox}
         onRunScript={onRunScript}
         onSaveScripts={onSaveScripts}
         onToggleDock={onToggleDock}

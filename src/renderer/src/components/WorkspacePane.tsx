@@ -71,6 +71,7 @@ export type PaneActions = {
   onOpenDiff: (paneId: string, sessionId: string, path: string) => void
   onCreate: () => void
   onShowShortcuts: () => void
+  onOpenInbox: () => void
   onGitChanged: () => void
   onDockWidthChange: (width: number) => void
   onDockWidthCommit: (width: number) => void
@@ -111,6 +112,7 @@ type Props = {
   error: string | null
   onboard: OnboardNotice | null
   anyOverlayOpen: boolean
+  inboxCount: number
   dockWidth: number
   /** What the sidebar occupies, so the dock's own clamp can see it. */
   sidebarWidth: number
@@ -161,6 +163,7 @@ function PaneView({
   error,
   onboard,
   anyOverlayOpen,
+  inboxCount,
   dockWidth,
   sidebarWidth,
   gitRefresh,
@@ -280,6 +283,8 @@ function PaneView({
       }
       dockOpen={dockOpen}
       onToggleDock={() => actions.onToggleDock(paneId)}
+      inboxCount={inboxCount}
+      onOpenInbox={actions.onOpenInbox}
     />
   )
 
