@@ -108,6 +108,8 @@ import {
 } from "./components/NewSessionDialog"
 import { FirstRunWizard } from "./components/FirstRunWizard"
 import { CommandPalette } from "./components/CommandPalette"
+import { SessionSwitcher } from "./components/SessionSwitcher"
+import { mruOrder, shouldOpenSwitcher } from "./lib/session-switcher"
 import {
   ProjectSearch,
   type ProjectSearchMode,
@@ -163,6 +165,9 @@ export default function App() {
   const [wizardOpen, setWizardOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [inboxOpen, setInboxOpen] = useState(false)
+  const [switcherSessions, setSwitcherSessions] = useState<
+    SessionMeta[] | null
+  >(null)
   const [inboxCleared, setInboxCleared] = useState(0)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
@@ -1677,6 +1682,17 @@ export default function App() {
     })
   }
 
+  const commitSwitcher = useCallback((id: string) => {
+    setSwitcherSessions(null)
+    if (sessionsRef.current.some((s) => s.id === id)) {
+      selectSessionRef.current(id)
+    }
+  }, [])
+
+  const cancelSwitcher = useCallback(() => setSwitcherSessions(null), [])
+
+  const switcherOpen = switcherSessions !== null
+
   const anyOverlayOpen =
     settingsOpen ||
     wizardOpen ||
@@ -1684,12 +1700,23 @@ export default function App() {
     paletteOpen ||
     inboxOpen ||
     shortcutsOpen ||
+    switcherOpen ||
     projectSearch !== null
 
   useEffect(() => {
     // Re-registered whenever the state it reads changes, so a binding never
     // fires against a stale session or an overlay that has since closed.
     const onKey = (e: KeyboardEvent) => {
+      if (switcherOpen) return
+      if (e.ctrlKey && !e.metaKey && !e.altKey && e.key === "Tab") {
+        e.preventDefault()
+        if (anyOverlayOpen) return
+        if (isEditableTarget(e.target) && e.isComposing) return
+        const ordered = mruOrder(sessionsRef.current, recentSessions)
+        if (!shouldOpenSwitcher(ordered.length)) return
+        setSwitcherSessions(ordered)
+        return
+      }
       const meta = e.metaKey || e.ctrlKey
       if (meta && e.shiftKey && !e.altKey && e.key.toLowerCase() === "n") {
         e.preventDefault()
@@ -1801,6 +1828,8 @@ export default function App() {
     activeSession?.status,
     attention,
     pane.id,
+    recentSessions,
+    switcherOpen,
     scriptsByCwd,
     runScript,
     abortSession,
@@ -2032,6 +2061,14 @@ export default function App() {
           onOpenSession={(id) => void selectSession(id)}
           onCleared={onInboxCleared}
           onClose={closeInbox}
+        />
+      ) : null}
+      {switcherSessions ? (
+        <SessionSwitcher
+          sessions={switcherSessions}
+          activeId={activeId}
+          onCommit={commitSwitcher}
+          onCancel={cancelSwitcher}
         />
       ) : null}
       {projectSearch && activeSession ? (

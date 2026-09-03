@@ -4576,6 +4576,31 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   color: var(--text-faint);
 }
 
+.switcher-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.switcher-query {
+  font-size: 14px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcher-hint {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
 .inbox-entry {
   position: relative;
   flex: none;
