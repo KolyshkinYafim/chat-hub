@@ -1552,6 +1552,29 @@ export function SettingsModal({
 
                         {open ? (
                           <div className="provider-t3-body">
+                            {s.id === "ollama" ? (
+                              <label className="form-field">
+                                <span>Server URL</span>
+                                <input
+                                  className="text-input"
+                                  defaultValue={cfg.baseUrl ?? ""}
+                                  placeholder="http://127.0.0.1:11434"
+                                  key={`${s.id}-url-${cfg.baseUrl ?? ""}`}
+                                  onBlur={(e) => {
+                                    const v = e.target.value.trim()
+                                    if (v !== (cfg.baseUrl ?? "")) {
+                                      void patchProvider(s.id, {
+                                        baseUrl: v || "",
+                                      })
+                                    }
+                                  }}
+                                />
+                                <span className="field-hint">
+                                  Address of the Ollama server; leave empty for
+                                  the local default.
+                                </span>
+                              </label>
+                            ) : (
                             <label className="form-field">
                               <span>Binary path</span>
                               <input
@@ -1574,6 +1597,7 @@ export function SettingsModal({
                                 Path to the CLI binary used by this provider.
                               </span>
                             </label>
+                            )}
 
                             {s.models.length > 0 ? (
                               <div className="models-block">
@@ -1824,14 +1848,16 @@ export function SettingsModal({
                         </div>
                       ))}
 
-                      <button
-                        type="button"
-                        className="add-instance-btn"
-                        disabled={busyId === s.id}
-                        onClick={() => void addInstanceFor(s.id, s.label)}
-                      >
-                        ＋ Add instance (shadow home for a second account)
-                      </button>
+                      {s.id !== "ollama" ? (
+                        <button
+                          type="button"
+                          className="add-instance-btn"
+                          disabled={busyId === s.id}
+                          onClick={() => void addInstanceFor(s.id, s.label)}
+                        >
+                          ＋ Add instance (shadow home for a second account)
+                        </button>
+                      ) : null}
                       </Fragment>
                     )
                   })}

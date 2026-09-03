@@ -23,6 +23,11 @@ export type AdapterStartOpts = {
 
 export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
 
+export type ConversationTurn = {
+  role: "system" | "user" | "assistant"
+  content: string
+}
+
 export type AdapterSendOpts = {
   permissionMode?: PermissionMode
   model?: string
@@ -33,6 +38,8 @@ export type AdapterSendOpts = {
   attachments?: string[]
   /** Binary path override from Settings (falls back to PATH detection). */
   binaryPath?: string
+  baseUrl?: string
+  history?: ConversationTurn[]
   /** Extra environment (decrypted API keys, home overrides) for the CLI. */
   env?: Record<string, string>
 }
@@ -86,6 +93,7 @@ export type AdapterCallbacks = {
 export interface AgentAdapter {
   readonly id: ProviderId
   readonly available: boolean
+  readonly wantsHistory?: boolean
   start(opts: AdapterStartOpts, cb: AdapterCallbacks): Promise<void>
   send(
     sessionId: string,

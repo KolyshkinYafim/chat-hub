@@ -5,12 +5,14 @@ import { ClaudeAdapter } from "./claude"
 import { GrokAdapter } from "./grok"
 import { OpenCodeAdapter } from "./opencode"
 import { CodexAdapter } from "./codex"
+import { OllamaAdapter } from "./ollama"
 
 const mock = new MockAdapter()
 const claude = new ClaudeAdapter()
 const grok = new GrokAdapter()
 const opencode = new OpenCodeAdapter()
 const codex = new CodexAdapter()
+const ollama = new OllamaAdapter()
 
 const adapters: Record<ProviderId, AgentAdapter & { refresh?: () => void }> = {
   mock,
@@ -18,6 +20,7 @@ const adapters: Record<ProviderId, AgentAdapter & { refresh?: () => void }> = {
   grok,
   opencode,
   codex,
+  ollama,
 }
 
 export function getAdapter(id: ProviderId): AgentAdapter {
@@ -68,6 +71,12 @@ export function listProviderInfo(): ProviderInfo[] {
       description: codex.available
         ? "Codex app-server · resumable threads · structured tools"
         : "Install Codex CLI (`codex` on PATH)",
+    },
+    {
+      id: "ollama",
+      label: "Ollama",
+      available: ollama.available,
+      description: "Local models via the Ollama server",
     },
     {
       id: "mock",

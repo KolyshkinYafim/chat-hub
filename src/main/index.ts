@@ -133,6 +133,7 @@ const REAL_PROVIDER_IDS: ProviderId[] = [
   "grok",
   "opencode",
   "codex",
+  "ollama",
   "mock",
 ]
 
@@ -146,6 +147,7 @@ function buildProbeInputs(settings: SettingsStore): ProbeInput[] {
       instanceId: id,
       isExtra: false,
       binaryPath: cfg.binaryPath,
+      baseUrl: cfg.baseUrl,
       defaultModel: cfg.defaultModel,
       enabled: cfg.enabled,
       // Decrypted names only: a sealed key that no longer opens (repackaged app,
@@ -1336,6 +1338,7 @@ export function registerIpc(
       await settings.setProviderConfig(id as ProviderId, {
         binaryPath:
           typeof p.binaryPath === "string" ? p.binaryPath : undefined,
+        baseUrl: typeof p.baseUrl === "string" ? p.baseUrl : undefined,
         defaultModel:
           typeof p.defaultModel === "string" ? p.defaultModel : undefined,
         enabled: typeof p.enabled === "boolean" ? p.enabled : undefined,
@@ -1357,6 +1360,7 @@ export function registerIpc(
       provider: r.provider,
       instanceId: r.instanceId,
       binaryPath: r.binaryPath,
+      baseUrl: r.baseUrl,
       env: r.env,
       homeDir: r.homeDir,
     })

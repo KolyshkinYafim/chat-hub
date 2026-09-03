@@ -14,7 +14,11 @@ import type {
 import { normalizeProject } from "@shared/project"
 import { getAdapter } from "./adapters"
 import { resolveBinaryForSpawn } from "./provider-probe"
-import type { AdapterCallbacks, EffortLevel } from "./adapters/types"
+import type {
+  AdapterCallbacks,
+  ConversationTurn,
+  EffortLevel,
+} from "./adapters/types"
 import type { EventBus } from "./event-bus"
 import type { SessionMonitorBridge } from "./bridge"
 import type { NotificationService } from "./notifications"
@@ -1061,6 +1065,10 @@ export class SessionManager {
         systemPrompt,
         attachments: opts?.attachments,
         binaryPath: resolved?.binaryPath,
+        baseUrl: resolved?.baseUrl,
+        history: adapter.wantsHistory
+          ? this.conversationBefore(sessionId, userMessageId)
+          : undefined,
         env: Object.keys(env).length > 0 ? env : undefined,
       })
       .then(() => {
@@ -1089,6 +1097,24 @@ export class SessionManager {
         })
         this.dropQueued(sessionId, "the turn failed")
       })
+  }
+
+  private conversationBefore(
+    sessionId: string,
+    userMessageId?: string,
+  ): ConversationTurn[] {
+    const list = this.messages.get(sessionId) ?? []
+    const currentIndex = userMessageId
+      ? list.findIndex((m) => m.id === userMessageId)
+      : -1
+    const prior = currentIndex === -1 ? list.slice(0, -1) : list.slice(0, currentIndex)
+    const turns: ConversationTurn[] = []
+    for (const message of prior) {
+      if (message.role !== "user" && message.role !== "assistant") continue
+      if (!message.content.trim()) continue
+      turns.push({ role: message.role, content: message.content })
+    }
+    return turns
   }
 
   /**
