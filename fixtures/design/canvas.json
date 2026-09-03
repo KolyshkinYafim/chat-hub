@@ -1,0 +1,6 @@
+{
+  "artboards": [
+    { "file": "login.dc.html", "x": 0, "y": 0, "w": 420, "h": 560, "name": "Login" },
+    { "file": "dashboard.dc.html", "x": 500, "y": 0, "w": 720, "h": 560, "name": "Dashboard" }
+  ]
+}

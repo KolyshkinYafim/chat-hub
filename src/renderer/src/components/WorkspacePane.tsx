@@ -138,6 +138,7 @@ type Props = {
     directory: boolean
     at: number
   } | null
+  designFocus: { path: string; at: number } | null
   /** Whole-app state the fleet surface lists; only read when that tab is open. */
   sessions: SessionMeta[]
   usageBySession: Record<string, SessionUsage>
@@ -184,6 +185,7 @@ function PaneView({
   gitRefresh,
   diffFocus,
   filesFocus,
+  designFocus,
   sessions,
   usageBySession,
   attentionSeen,
@@ -364,6 +366,7 @@ function PaneView({
         gitRefreshKey={gitRefresh}
         diffFocus={diffFocus}
         filesFocus={filesFocus}
+        designFocus={designFocus}
         hookRuns={hookRuns}
         agentActions={agentActions}
         sessions={sessions}

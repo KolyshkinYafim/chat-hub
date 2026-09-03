@@ -22,6 +22,7 @@ import { SurfaceIcon } from "./SurfaceIcon"
 import { BoardSurface } from "./BoardSurface"
 import { BrowserSurface } from "./BrowserSurface"
 import { ContextSurface } from "./ContextSurface"
+import { DesignSurface } from "./DesignSurface"
 import { DiffSurface } from "./DiffSurface"
 import { FilesSurface } from "./FilesSurface"
 import { FleetSurface } from "./FleetSurface"
@@ -39,6 +40,7 @@ type Props = {
   diffFocus: { path: string; at: number } | null
   /** File (and optional line) project search asked the Files panel to show. */
   filesFocus: { path: string; line: number | null; at: number } | null
+  designFocus: { path: string; at: number } | null
   /** Project hooks that have fired for this session (terminal banner). */
   hookRuns?: HookRun[]
   /** Tool calls from the transcript for the Diff audit trail. */
@@ -72,6 +74,7 @@ export function SurfaceDock({
   gitRefreshKey,
   diffFocus,
   filesFocus,
+  designFocus,
   hookRuns = [],
   agentActions = [],
   sessions,
@@ -196,6 +199,13 @@ export function SurfaceDock({
         ) : null}
         {kind === "files" ? (
           <FilesSurface key={session.id} cwd={session.cwd} focus={filesFocus} />
+        ) : null}
+        {kind === "design" ? (
+          <DesignSurface
+            key={session.id}
+            cwd={session.cwd}
+            focus={designFocus}
+          />
         ) : null}
         {kind === "history" ? (
           <HistorySurface

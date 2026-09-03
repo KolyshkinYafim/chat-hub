@@ -222,6 +222,9 @@ export default function App() {
       }
     >
   >({})
+  const [designFocusBySession, setDesignFocusBySession] = useState<
+    Record<string, { path: string; at: number }>
+  >({})
   const [projectSearch, setProjectSearch] = useState<ProjectSearchMode | null>(
     null,
   )
@@ -1008,6 +1011,12 @@ export default function App() {
             directory: request.directory,
             at: request.at,
           },
+        }))
+      }
+      if (request.path !== null && surface === "design") {
+        setDesignFocusBySession((curr) => ({
+          ...curr,
+          [request.sessionId]: { path: request.path as string, at: request.at },
         }))
       }
       if (surface === "browser") setBrowserClaim(target.id)
@@ -2016,6 +2025,7 @@ export default function App() {
         surfaceBySession={surfaceBySession}
         diffFocusBySession={diffFocusBySession}
         filesFocusBySession={filesFocusBySession}
+        designFocusBySession={designFocusBySession}
         gitByCwd={gitByCwd}
         scriptsByCwd={scriptsByCwd}
         overflowHasMore={overflowHasMore}

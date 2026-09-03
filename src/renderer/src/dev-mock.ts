@@ -1004,6 +1004,7 @@ function fixtureEntry<T>(table: Record<string, T>, name: string): T | null {
 const mockDirs: Record<string, string[]> = {
   "": [
     FIXTURE_DIR,
+    "design",
     "notes",
     "src",
     "tests",
@@ -1012,6 +1013,12 @@ const mockDirs: Record<string, string[]> = {
     "package.json",
   ],
   [FIXTURE_DIR]: fixtureNames,
+  design: [
+    "canvas.json",
+    "dashboard.dc.html",
+    "login.dc.html",
+    "settings.dc.html",
+  ],
   notes: ["scratch.md"],
   src: ["middleware", "routes", "index.ts"],
   "src/middleware": ["auth.ts"],
@@ -1034,6 +1041,18 @@ const mockFiles: Record<string, MockFile> = {
       (_, i) => `[2026-07-22T15:${String(i % 60).padStart(2, "0")}:12Z] worker=${i % 4} retry scheduled in ${2 ** (i % 6)}s`,
     ).join("\n"),
     truncated: true,
+  },
+  "design/canvas.json": {
+    text: '{\n  "artboards": [\n    { "file": "login.dc.html", "x": 0, "y": 0, "w": 420, "h": 560, "name": "Login" },\n    { "file": "dashboard.dc.html", "x": 500, "y": 0, "w": 720, "h": 560, "name": "Dashboard" }\n  ]\n}\n',
+  },
+  "design/login.dc.html": {
+    text: '<!doctype html><html><head><style>body{margin:0;font-family:sans-serif;background:#f4f5f9;display:flex;align-items:center;justify-content:center;height:100vh}.card{width:280px;background:#fff;border-radius:14px;padding:28px;box-shadow:0 8px 30px rgba(20,30,60,.12)}h1{margin:0 0 18px;font-size:20px;color:#1c2333}.f{height:38px;border:1px solid #d6d9e2;border-radius:8px;margin-bottom:12px;padding:0 12px;display:flex;align-items:center;color:#8b90a0;font-size:13px}.cta{height:40px;border-radius:8px;background:#4f6bff;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600}</style></head><body><div class="card"><h1>Sign in</h1><div class="f">Email</div><div class="f">Password</div><div class="cta">Continue</div></div></body></html>',
+  },
+  "design/dashboard.dc.html": {
+    text: '<!doctype html><html><head><style>body{margin:0;font-family:sans-serif;background:#0f1220;color:#e8eaf2;padding:24px}h1{margin:0 0 20px;font-size:18px}.row{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.s{background:#1a1f33;border:1px solid #2a3050;border-radius:12px;padding:16px}.s b{display:block;font-size:22px}.s span{font-size:12px;color:#9aa1ba}.chart{margin-top:14px;height:160px;border-radius:12px;background:linear-gradient(180deg,#232a48,#161b30);border:1px solid #2a3050}</style></head><body><h1>Fleet overview</h1><div class="row"><div class="s"><b>12</b><span>Active sessions</span></div><div class="s"><b>3</b><span>Waiting on you</span></div><div class="s"><b>98%</b><span>Green checks</span></div></div><div class="chart"></div></body></html>',
+  },
+  "design/settings.dc.html": {
+    text: '<!doctype html><html><head><style>body{margin:0;font-family:sans-serif;background:#fbfbfd;color:#202538;padding:24px 28px}h1{margin:0 0 18px;font-size:18px}.i{display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid #e7e9f0;font-size:14px}.t{width:38px;height:22px;border-radius:11px;background:#4f6bff}.t.off{background:#cdd1dd}</style></head><body><h1>Notifications</h1><div class="i">Attention badge <span class="t"></span></div><div class="i">Sound on mention <span class="t off"></span></div><div class="i">Daily digest <span class="t"></span></div></body></html>',
   },
   "notes/scratch.md": {
     text: "- expiry check reads the wrong claim\n- webhook retries: cap at 5\n- ask about the reward curve past level 30\n",

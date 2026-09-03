@@ -11,6 +11,7 @@ const PATHS: Record<SurfaceKind, string> = {
   history: "M8 1.9a6.1 6.1 0 1 1-6.1 6.1M1.9 3.2v2.6h2.6M8 4.7v3.4l2.3 1.4",
   fleet:
     "M3.3 4.2h.01M3.3 8h.01M3.3 11.8h.01M6.2 4.2h6.5M6.2 8h6.5M6.2 11.8h4",
+  design: "M4.7 1.5v13M11.3 1.5v13M1.5 4.7h13M1.5 11.3h13",
 }
 
 export function SurfaceIcon({ kind }: { kind: SurfaceKind }) {

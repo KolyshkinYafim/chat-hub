@@ -67,6 +67,7 @@ type Props = {
     string,
     { path: string; line: number | null; directory: boolean; at: number }
   >
+  designFocusBySession: Record<string, { path: string; at: number }>
   gitByCwd: Record<string, GitCheckoutInfo | null>
   scriptsByCwd: Record<string, ProjectScript[]>
   overflowHasMore: Record<string, boolean>
@@ -141,6 +142,7 @@ export function Workspace({
   surfaceBySession,
   diffFocusBySession,
   filesFocusBySession,
+  designFocusBySession,
   gitByCwd,
   scriptsByCwd,
   overflowHasMore,
@@ -364,6 +366,9 @@ export function Workspace({
         gitRefresh={gitRefresh}
         diffFocus={sessionId ? (diffFocusBySession[sessionId] ?? null) : null}
         filesFocus={sessionId ? (filesFocusBySession[sessionId] ?? null) : null}
+        designFocus={
+          sessionId ? (designFocusBySession[sessionId] ?? null) : null
+        }
         sessions={sessions}
         usageBySession={usageBySession}
         attentionSeen={attentionSeen}
