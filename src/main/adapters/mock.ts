@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import type { TurnPlanStep } from "@shared/types"
 import type {
   AgentAdapter,
   AdapterCallbacks,
@@ -91,6 +92,151 @@ export class MockAdapter implements AgentAdapter {
     })
   }
 
+  private async showcase(
+    sessionId: string,
+    cb: AdapterCallbacks,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const messageId = randomUUID()
+    cb.onMessage({
+      id: messageId,
+      sessionId,
+      role: "assistant",
+      content: "",
+      createdAt: Date.now(),
+      streaming: true,
+    })
+    const stream = async (text: string) => {
+      for (const token of text.match(/\S+\s*|\n+/g) ?? [text]) {
+        if (signal.aborted) return
+        cb.onDelta(sessionId, messageId, token)
+        await sleep(24)
+      }
+    }
+    const steps: TurnPlanStep[] = [
+      { text: "Scan webhook retry paths", status: "pending" },
+      { text: "Patch the backoff curve", status: "pending" },
+      { text: "Run the test suite", status: "pending" },
+      { text: "Summarize the change", status: "pending" },
+    ]
+    const plan = (
+      status: "running" | "completed",
+      patch: Record<number, "pending" | "running" | "completed">,
+    ) => {
+      for (const [index, next] of Object.entries(patch)) {
+        steps[Number(index)] = { ...steps[Number(index)], status: next }
+      }
+      cb.onTurnItem(sessionId, messageId, {
+        id: "plan-1",
+        kind: "plan",
+        status,
+        text: "Fix webhook retries",
+        steps: [...steps],
+      })
+    }
+
+    await stream("## Working the task\n\nLaying out a plan first.\n\n")
+    plan("running", { 0: "running" })
+    await sleep(1600)
+
+    cb.onTurnItem(sessionId, messageId, {
+      id: "cmd-1",
+      kind: "command",
+      status: "running",
+      command: 'rg "retry" src/webhooks -n',
+    })
+    await sleep(1900)
+    cb.onTurnItem(sessionId, messageId, {
+      id: "cmd-1",
+      kind: "command",
+      status: "completed",
+      command: 'rg "retry" src/webhooks -n',
+      output: "src/webhooks/backoff.ts:12: retries: attempt * 2\nsrc/webhooks/deliver.ts:44: if (retries > MAX_RETRIES) drop(event)",
+      exitCode: 0,
+      durationMs: 1840,
+    })
+    plan("running", { 0: "completed", 1: "running" })
+    await stream("Retry math lives in `backoff.ts`. Switching it to exponential with jitter.\n\n")
+    await sleep(1200)
+
+    cb.onTurnItem(sessionId, messageId, {
+      id: "edit-1",
+      kind: "file_change",
+      status: "completed",
+      changes: [
+        {
+          path: "src/webhooks/backoff.ts",
+          diff: "@@ -10,7 +10,8 @@\n-  return attempt * 2\n+  const base = 2 ** attempt\n+  return base + Math.random() * base",
+        },
+      ],
+    })
+    plan("running", { 1: "completed", 2: "running" })
+    await sleep(1400)
+
+    let allowed = true
+    if (cb.onPermissionRequest) {
+      const decision = await cb.onPermissionRequest({
+        requestId: randomUUID(),
+        sessionId,
+        agentSessionId: sessionId,
+        source: "mock",
+        summary: "Run `pnpm test` to verify the backoff change",
+        toolName: "Bash",
+      })
+      allowed = decision === "allow"
+    }
+    if (signal.aborted) {
+      cb.onStreamDone(sessionId, messageId)
+      return
+    }
+    if (allowed) {
+      cb.onTurnItem(sessionId, messageId, {
+        id: "cmd-2",
+        kind: "command",
+        status: "running",
+        command: "pnpm test",
+      })
+      await sleep(2600)
+      cb.onTurnItem(sessionId, messageId, {
+        id: "cmd-2",
+        kind: "command",
+        status: "completed",
+        command: "pnpm test",
+        output: "Tests  42 passed (42)",
+        exitCode: 0,
+        durationMs: 2540,
+      })
+      await stream("Suite is green: **42 passed**.\n\n")
+    } else {
+      await stream("Skipping the test run — you denied it. The patch stays staged for review.\n\n")
+    }
+    plan("running", { 2: "completed", 3: "running" })
+    await sleep(900)
+    await stream("### Summary\n\n- Exponential backoff with jitter in `backoff.ts`\n- Delivery drop threshold untouched\n- Ready to commit\n")
+    plan("completed", { 3: "completed" })
+
+    cb.onUsage?.(
+      sessionId,
+      {
+        inputTokens: 5124,
+        outputTokens: 892,
+        costUsd: 0.06,
+        durationMs: 14200,
+        contextWindow: 200_000,
+      },
+      messageId,
+    )
+    cb.onStreamDone(sessionId, messageId)
+    cb.onSessionEvent({
+      type: "session.message",
+      id: sessionId,
+      role: "assistant",
+      preview: "Fixed webhook retries: exponential backoff with jitter, 42 tests green.",
+    })
+    cb.onSessionEvent({ type: "session.status", id: sessionId, status: "done" })
+    cb.onSessionEvent({ type: "session.ended", id: sessionId, reason: "done" })
+  }
+
   async send(
     sessionId: string,
     message: string,
@@ -100,6 +246,31 @@ export class MockAdapter implements AgentAdapter {
     this.aborts.get(sessionId)?.abort()
     const controller = new AbortController()
     this.aborts.set(sessionId, controller)
+
+    if (/showcase/i.test(message)) {
+      cb.onSessionEvent({
+        type: "session.status",
+        id: sessionId,
+        status: "running",
+      })
+      try {
+        await this.showcase(sessionId, cb, controller.signal)
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          cb.onSessionEvent({
+            type: "session.status",
+            id: sessionId,
+            status: "error",
+          })
+          console.error("[mock-adapter]", err)
+        }
+      } finally {
+        if (this.aborts.get(sessionId) === controller) {
+          this.aborts.delete(sessionId)
+        }
+      }
+      return
+    }
 
     const turn = this.turns.get(sessionId) ?? 0
     this.turns.set(sessionId, turn + 1)

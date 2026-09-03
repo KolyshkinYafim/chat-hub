@@ -163,7 +163,42 @@ await undo.click()
 await spotlight(page, page.locator(".session-row", { hasText: "Ship the boot skeleton" }))
 await page.waitForTimeout(HOLD)
 
-await banner(page, "Готово: 8 из 8 сценариев прошли. Закрываюсь через 6 секунд")
+await banner(page, "Шаг 9 · АГЕНТ ЗА РАБОТОЙ: план, todo-галочки, тулы, пермишены")
+await page.locator(".session-row", { hasText: "Tune reward curve" }).click()
+const composer2 = page.locator("textarea").first()
+await composer2.click()
+await composer2.pressSequentially("showcase: почини ретраи вебхуков", {
+  delay: TYPE_DELAY,
+})
+await page.waitForTimeout(1000)
+await composer2.press("Enter")
+
+await banner(page, "Шаг 9 · Появился план из 4 задач — смотри, как агент их закрывает")
+await page.locator(".turn.turn-assistant").last().waitFor({ timeout: 20_000 })
+await page.waitForTimeout(6000)
+
+await banner(page, "Шаг 10 · Агент просит разрешение на pnpm test — отвечаю из инбокса")
+await page.locator(".permission-banner").waitFor({ timeout: 30_000 })
+await spotlight(page, page.locator(".permission-banner"))
+await page.waitForTimeout(1200)
+await page.keyboard.press("Alt+Shift+KeyI")
+await page.waitForTimeout(2400)
+const allowBtn = page.getByRole("button", { name: "Allow", exact: true }).first()
+await spotlight(page, allowBtn)
+await allowBtn.click()
+await page.waitForTimeout(1500)
+await page.keyboard.press("Escape")
+
+await banner(page, "Шаг 11 · Тесты бегут, план закрывается, внизу — цена хода")
+await page
+  .locator(".turn.turn-assistant", { hasText: "42 passed" })
+  .waitFor({ timeout: 30_000 })
+await page.waitForTimeout(2500)
+const costMeta = page.locator(".turn-cost").last()
+if (await costMeta.count()) await spotlight(page, costMeta)
+await page.waitForTimeout(HOLD)
+
+await banner(page, "Готово: 11 из 11 сценариев прошли. Закрываюсь через 6 секунд")
 await page.waitForTimeout(6000)
 await app.close()
 console.log("\n✔ Демо-тур завершён без ошибок")
