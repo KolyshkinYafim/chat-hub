@@ -15,6 +15,7 @@ export type WindowState = {
   bounds: WindowBounds
   maximized: boolean
   cockpit?: boolean
+  focused?: boolean
 }
 
 export const DEFAULT_WINDOW_WIDTH = 1280
@@ -45,6 +46,7 @@ export function parseWindowState(raw: unknown): WindowState | null {
     bounds?: unknown
     maximized?: unknown
     cockpit?: unknown
+    focused?: unknown
   }
   if (!outer.bounds || typeof outer.bounds !== "object") return null
   const b = outer.bounds as Record<string, unknown>
@@ -64,6 +66,7 @@ export function parseWindowState(raw: unknown): WindowState | null {
     },
     maximized: outer.maximized === true,
     ...(typeof outer.cockpit === "boolean" ? { cockpit: outer.cockpit } : {}),
+    ...(outer.focused === true ? { focused: true } : {}),
   }
 }
 

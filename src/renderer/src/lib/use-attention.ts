@@ -8,6 +8,7 @@ import {
   isUnseenDone,
   markSeen,
   nextAttention,
+  mergeSeen,
   parseAttentionSeen,
   pruneSeen,
   type AttentionSeen,
@@ -42,7 +43,7 @@ export function useAttention(
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key !== SEEN_KEY) return
-      setSeen(parseAttentionSeen(e.newValue))
+      setSeen((curr) => mergeSeen(curr, parseAttentionSeen(e.newValue)))
     }
     window.addEventListener("storage", onStorage)
     return () => window.removeEventListener("storage", onStorage)

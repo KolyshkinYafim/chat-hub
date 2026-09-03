@@ -48,6 +48,7 @@ import {
 import {
   evictableTranscripts,
   retainedTranscripts,
+  RUNNING_HOLD,
   touchRecent,
   withoutKeys,
 } from "./lib/transcript-cache"
@@ -692,13 +693,24 @@ export default function App() {
     messagesBySessionRef.current = messagesBySession
   }, [messagesBySession])
 
-  const runningIds = useMemo(
+  const fleetOpen = useMemo(
     () =>
-      sessions
-        .filter((s) => s.status === "running" && !s.archived)
-        .map((s) => s.id),
-    [sessions],
+      layout.panes.some(
+        (pane) =>
+          pane.dockOpen &&
+          pane.sessionId !== null &&
+          surfaceBySession[pane.sessionId] === "fleet",
+      ),
+    [layout.panes, surfaceBySession],
   )
+
+  const heldRunningIds = useMemo(() => {
+    if (!fleetOpen) return [] as string[]
+    return sessions
+      .filter((s) => s.status === "running" && !s.archived)
+      .map((s) => s.id)
+      .slice(0, RUNNING_HOLD)
+  }, [fleetOpen, sessions])
 
   useEffect(() => {
     const keep = new Set([
@@ -706,7 +718,7 @@ export default function App() {
         layout.panes.map((item) => item.sessionId),
         recentSessions,
       ),
-      ...runningIds,
+      ...heldRunningIds,
     ])
     const drop = new Set(
       evictableTranscripts(attachedRef.current, keep).filter(
@@ -714,13 +726,13 @@ export default function App() {
       ),
     )
     detachTranscripts(drop)
-  }, [layout.panes, recentSessions, runningIds, detachTranscripts])
+  }, [layout.panes, recentSessions, heldRunningIds, detachTranscripts])
 
   useEffect(() => {
-    for (const id of runningIds) {
+    for (const id of heldRunningIds) {
       if (!attachedRef.current.has(id)) void ensureTranscript(id)
     }
-  }, [runningIds, ensureTranscript])
+  }, [heldRunningIds, ensureTranscript])
 
   useEffect(() => {
     surfaceBySessionRef.current = surfaceBySession

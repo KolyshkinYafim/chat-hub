@@ -234,14 +234,14 @@ function focusSessionNow(sessionId: string | null): void {
   })
 }
 
-let pendingFocus: { sessionId: string; timer: NodeJS.Timeout } | null = null
+let pendingFocus: { sessionIds: string[]; timer: NodeJS.Timeout } | null = null
 
 function flushPendingFocus(): void {
   if (!pendingFocus) return
-  const { sessionId, timer } = pendingFocus
+  const { sessionIds, timer } = pendingFocus
   clearTimeout(timer)
   pendingFocus = null
-  focusSessionNow(sessionId)
+  for (const sessionId of sessionIds) focusSessionNow(sessionId)
 }
 
 function focusSession(sessionId: string | null): void {
@@ -252,10 +252,17 @@ function focusSession(sessionId: string | null): void {
     live.some((hub) => hub.attached === null) &&
     !live.some((hub) => hub.sessions.has(sessionId))
   ) {
-    if (pendingFocus) clearTimeout(pendingFocus.timer)
-    pendingFocus = {
-      sessionId,
-      timer: setTimeout(flushPendingFocus, 3000),
+    if (pendingFocus) {
+      clearTimeout(pendingFocus.timer)
+      if (!pendingFocus.sessionIds.includes(sessionId)) {
+        pendingFocus.sessionIds.push(sessionId)
+      }
+      pendingFocus.timer = setTimeout(flushPendingFocus, 3000)
+    } else {
+      pendingFocus = {
+        sessionIds: [sessionId],
+        timer: setTimeout(flushPendingFocus, 3000),
+      }
     }
     return
   }
@@ -342,7 +349,7 @@ function registerWindowIpc(): void {
       ])
       if (
         pendingFocus &&
-        (hub.sessions.has(pendingFocus.sessionId) ||
+        (pendingFocus.sessionIds.some((id) => hub.sessions.has(id)) ||
           liveWindows().every((live) => live.attached !== null))
       ) {
         flushPendingFocus()
@@ -625,6 +632,7 @@ function rememberWindows(): void {
     bounds: hub.window.getNormalBounds(),
     maximized: hub.window.isMaximized(),
     cockpit: hub.cockpit.enabled,
+    focused: hub.id === windows.mostRecentId(),
   }))
   if (open.length === 0) return
   void store.setWindowStates(open).catch(() => {
@@ -632,10 +640,12 @@ function rememberWindows(): void {
 }
 
 function openRememberedWindows(): HubWindow[] {
-  const opened = windowsToReopen(settingsStore?.windowStates ?? null).map(
-    ({ windowId, state }) => createWindow({ windowId, state }),
+  const openings = windowsToReopen(settingsStore?.windowStates ?? null)
+  const opened = openings.map(({ windowId, state }) =>
+    createWindow({ windowId, state }),
   )
-  const front = opened[opened.length - 1]
+  const focusedAt = openings.findIndex(({ state }) => state?.focused === true)
+  const front = opened[focusedAt === -1 ? opened.length - 1 : focusedAt]
   if (front) showWindow(front)
   return opened
 }
