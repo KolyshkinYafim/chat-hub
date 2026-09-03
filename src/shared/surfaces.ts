@@ -11,6 +11,7 @@ export type SurfaceKind =
   | "board"
   | "context"
   | "fleet"
+  | "design"
 
 export const BOARD_TODO_STATUSES = [
   "pending",
@@ -32,6 +33,7 @@ export const SURFACE_KINDS: readonly SurfaceKind[] = [
   "diff",
   "history",
   "fleet",
+  "design",
 ]
 
 export const SURFACE_LABEL: Record<SurfaceKind, string> = {
@@ -43,6 +45,7 @@ export const SURFACE_LABEL: Record<SurfaceKind, string> = {
   diff: "Diff",
   history: "History",
   fleet: "Agents",
+  design: "Design",
 }
 
 /** One line on what each surface is for — the chooser tile and the dock header. */
@@ -55,6 +58,7 @@ export const SURFACE_HINT: Record<SurfaceKind, string> = {
   diff: "Review changes in this thread.",
   history: "Walk recent commits and their diffs.",
   fleet: "Every session at a glance.",
+  design: "View design artboards on a pan and zoom canvas.",
 }
 
 export function isSurfaceKind(value: unknown): value is SurfaceKind {

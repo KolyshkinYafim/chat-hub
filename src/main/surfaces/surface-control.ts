@@ -34,7 +34,7 @@ export type SurfaceControlDeps = {
 const UNKNOWN_SESSION =
   "This session is not open in Chat Hub, so its panels cannot be driven."
 
-const PATH_SURFACES = new Set<SurfaceKind>(["diff", "files"])
+const PATH_SURFACES = new Set<SurfaceKind>(["diff", "files", "design"])
 
 const KIND_LIST = SURFACE_KINDS.join(", ")
 
@@ -281,7 +281,7 @@ export class SurfaceControl {
     if (raw === undefined || raw === null || raw === "") return null
     if (!PATH_SURFACES.has(surface)) {
       throw new Error(
-        `The ${SURFACE_LABEL[surface]} surface takes no path — drop "path", or open diff or files instead.`,
+        `The ${SURFACE_LABEL[surface]} surface takes no path — drop "path", or open diff, files or design instead.`,
       )
     }
     const contained = resolveContainedPath(session.cwd, raw)
@@ -292,6 +292,11 @@ export class SurfaceControl {
     if (directory && surface === "diff") {
       throw new Error(
         `Diff shows one file at a time, and ${contained.relativePath} is a folder.`,
+      )
+    }
+    if (!directory && surface === "design") {
+      throw new Error(
+        `Design shows a folder of .dc.html artboards, and ${contained.relativePath} is a file.`,
       )
     }
     return { path: contained.relativePath, directory }

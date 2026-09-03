@@ -54,7 +54,7 @@ export type SurfaceOpenRequest = {
   sessionId: string
   /** `null` closes the dock and leaves the session's chosen surface alone. */
   surface: SurfaceKind | null
-  /** Workspace-relative target for the diff and files surfaces. */
+  /** Workspace-relative target for the diff, files and design surfaces. */
   path: string | null
   /** `path` is a folder to expand, not a file to open (files surface only). */
   directory: boolean

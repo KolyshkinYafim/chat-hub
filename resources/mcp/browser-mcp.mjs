@@ -34,6 +34,7 @@ export const SURFACE_KINDS = [
   "diff",
   "history",
   "fleet",
+  "design",
 ]
 
 export function renderSnapshot(snapshot) {
@@ -300,7 +301,7 @@ const TOOLS = [
         path: {
           type: "string",
           description:
-            "Project-relative file for diff, or file or folder for files. Rejected for the other surfaces.",
+            "Project-relative file for diff, file or folder for files, or a folder of .dc.html artboards for design. Rejected for the other surfaces.",
         },
         line: {
           type: "number",
