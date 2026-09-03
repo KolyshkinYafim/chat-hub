@@ -18,6 +18,7 @@ import type {
   ProviderId,
   ProviderInfo,
   ProviderRateLimits,
+  QueueMoveDirection,
   QueuedMessage,
   SessionMeta,
   SessionUsage,
@@ -115,6 +116,8 @@ import {
   type ProjectSearchMode,
 } from "./components/ProjectSearch"
 import { ShortcutsOverlay } from "./components/ShortcutsOverlay"
+import { Toasts } from "./components/Toasts"
+import { dismissToast, pushToast, type Toast } from "./lib/toasts"
 
 /**
  * The auth nag lives in the renderer: settings has no field for it, and a
@@ -178,6 +181,8 @@ export default function App() {
     paneId?: string
   }>({})
   const [error, setError] = useState<string | null>(null)
+  const [toasts, setToasts] = useState<Toast[]>([])
+  const toastIdRef = useRef(0)
   const [busy, setBusy] = useState(false)
   const [sendingIds, setSendingIds] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -1065,12 +1070,29 @@ export default function App() {
     [setDockFor],
   )
 
+  const dismissToastById = useCallback((id: number) => {
+    setToasts((curr) => dismissToast(curr, id))
+  }, [])
+
+  const showToast = useCallback(
+    (text: string, actionLabel?: string, onAction?: () => void) => {
+      const id = ++toastIdRef.current
+      setToasts((curr) => pushToast(curr, { id, text, actionLabel, onAction }))
+    },
+    [],
+  )
+
   function setSessionArchived(id: string, archive: boolean) {
     void window.chatHub
       .setSessionArchived(id, archive)
-      .then((next) =>
-        setSessions((curr) => curr.map((s) => (s.id === next.id ? next : s))),
-      )
+      .then((next) => {
+        setSessions((curr) => curr.map((s) => (s.id === next.id ? next : s)))
+        if (archive) {
+          showToast(`Archived "${next.title}"`, "Undo", () =>
+            setSessionArchived(id, false),
+          )
+        }
+      })
       .catch((err) => {
         setError(err instanceof Error ? err.message : String(err))
       })
@@ -1449,6 +1471,34 @@ export default function App() {
       })
   }, [])
 
+  const editQueued = useCallback(
+    (sessionId: string, queuedId: string, text: string) => {
+      void window.chatHub
+        .editQueued(sessionId, queuedId, text)
+        .then((queued) =>
+          setQueuedBySession((curr) => ({ ...curr, [sessionId]: queued })),
+        )
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : String(err))
+        })
+    },
+    [],
+  )
+
+  const reorderQueued = useCallback(
+    (sessionId: string, queuedId: string, direction: QueueMoveDirection) => {
+      void window.chatHub
+        .reorderQueued(sessionId, queuedId, direction)
+        .then((queued) =>
+          setQueuedBySession((curr) => ({ ...curr, [sessionId]: queued })),
+        )
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : String(err))
+        })
+    },
+    [],
+  )
+
   const renameSession = useCallback((sessionId: string) => {
     const session = sessionsRef.current.find((s) => s.id === sessionId)
     if (!session) return
@@ -1588,6 +1638,8 @@ export default function App() {
       onSend: sendMessage,
       onAbort: abortSession,
       onCancelQueued: cancelQueued,
+      onEditQueued: editQueued,
+      onReorderQueued: reorderQueued,
       onRenameSession: renameSession,
       onUnsettle: (id) => setSessionSettled(id, false),
       onModelChange: changeModel,
@@ -1629,6 +1681,7 @@ export default function App() {
       claimBrowser,
       clearHighlight,
       closePaneById,
+      editQueued,
       focusPaneById,
       openDiffForPath,
       openEditor,
@@ -1636,6 +1689,7 @@ export default function App() {
       openInbox,
       refreshGit,
       renameSession,
+      reorderQueued,
       runScript,
       saveScripts,
       sendMessage,
@@ -2094,6 +2148,7 @@ export default function App() {
         onClose={closeNewSession}
         onCreate={createSessionFromDraft}
       />
+      <Toasts toasts={toasts} onDismiss={dismissToastById} />
     </div>
   )
 }

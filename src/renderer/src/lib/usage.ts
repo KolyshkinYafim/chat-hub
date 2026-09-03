@@ -1,5 +1,9 @@
 import type { SessionUsage, TurnUsage } from "@shared/types"
-import { formatTokens } from "@shared/context-window"
+import {
+  contextUsedTokens,
+  contextWindowFor,
+  formatTokens,
+} from "@shared/context-window"
 
 export { formatTokens }
 
@@ -25,6 +29,27 @@ export function formatUsage(usage: TurnUsage): string | null {
   if (usage.costUsd !== undefined) parts.push(formatUsd(usage.costUsd))
   const tokens = totalTokens(usage)
   if (tokens !== null) parts.push(`${formatTokens(tokens)} tok`)
+  return parts.length > 0 ? parts.join(" · ") : null
+}
+
+export function formatTurnMeta(
+  usage: TurnUsage,
+  model?: string,
+  sessionWindow?: number,
+): string | null {
+  const parts: string[] = []
+  if (usage.inputTokens !== undefined) {
+    parts.push(`${formatTokens(usage.inputTokens)} in`)
+  }
+  if (usage.outputTokens !== undefined) {
+    parts.push(`${formatTokens(usage.outputTokens)} out`)
+  }
+  if (usage.costUsd !== undefined) parts.push(formatUsd(usage.costUsd))
+  const used = contextUsedTokens(usage)
+  const window = contextWindowFor(model, usage.contextWindow ?? sessionWindow)
+  if (used !== null && window !== null && window > 0) {
+    parts.push(`${Math.round(Math.min(1, used / window) * 100)}% ctx`)
+  }
   return parts.length > 0 ? parts.join(" · ") : null
 }
 

@@ -4,6 +4,7 @@ import type {
   CreateSessionInput,
   ProviderId,
   ProviderRateLimits,
+  QueueMoveDirection,
   QueuedMessage,
   SessionMeta,
   SessionSnapshot,
@@ -1309,6 +1310,51 @@ export class SessionManager {
       else this.queued.set(sessionId, next)
       if (next.length !== queue.length) this.emitQueue(sessionId)
     }
+    return this.listQueued(sessionId)
+  }
+
+  editQueued(
+    sessionId: string,
+    queuedId: string,
+    text: string,
+  ): QueuedMessage[] {
+    const content = text.trim()
+    const queue = this.queued.get(sessionId)
+    const entry = queue?.find((q) => q.id === queuedId)
+    if (!entry || !content || content === entry.content) {
+      return this.listQueued(sessionId)
+    }
+    entry.content = content
+    const list = this.messages.get(sessionId)
+    const idx = entry.userMessageId
+      ? (list?.findIndex((m) => m.id === entry.userMessageId) ?? -1)
+      : -1
+    if (list && idx !== -1) {
+      list[idx] = { ...list[idx], content }
+      this.bus.emit({
+        type: "messages.replaced",
+        sessionId,
+        messages: [...list],
+      })
+      this.scheduleSave()
+    }
+    this.emitQueue(sessionId)
+    return this.listQueued(sessionId)
+  }
+
+  reorderQueued(
+    sessionId: string,
+    queuedId: string,
+    direction: QueueMoveDirection,
+  ): QueuedMessage[] {
+    const queue = this.queued.get(sessionId)
+    const from = queue?.findIndex((q) => q.id === queuedId) ?? -1
+    if (!queue || from === -1) return this.listQueued(sessionId)
+    const to = direction === "up" ? from - 1 : from + 1
+    if (to < 0 || to >= queue.length) return this.listQueued(sessionId)
+    const [entry] = queue.splice(from, 1)
+    queue.splice(to, 0, entry)
+    this.emitQueue(sessionId)
     return this.listQueued(sessionId)
   }
 

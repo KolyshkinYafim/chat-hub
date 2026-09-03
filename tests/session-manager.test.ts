@@ -417,6 +417,105 @@ describe("queue surface", () => {
     expect(sm.getSnapshot().queued).toEqual({})
   })
 
+  it("edits a queued message and dispatches the edited text", async () => {
+    const { sm, dir } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.sendMessage(session.id, "first")
+    await sm.sendMessage(session.id, "second")
+
+    const [q] = sm.listQueued(session.id)
+    const next = sm.editQueued(session.id, q.id, "second, edited")
+    expect(next.map((x) => x.text)).toEqual(["second, edited"])
+    expect(
+      sm.getMessages(session.id)
+        .filter((m) => m.role === "user")
+        .map((m) => m.content),
+    ).toEqual(["first", "second, edited"])
+
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(state.sent).toEqual(["first", "second, edited"]),
+    )
+  })
+
+  it("keeps the original text when the edit is blank", async () => {
+    const { sm, dir } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.sendMessage(session.id, "first")
+    await sm.sendMessage(session.id, "second")
+
+    const [q] = sm.listQueued(session.id)
+    expect(sm.editQueued(session.id, q.id, "   ").map((x) => x.text)).toEqual([
+      "second",
+    ])
+  })
+
+  it("returns the fresh queue when an edit loses the race to the dequeue", async () => {
+    const { sm, dir } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.sendMessage(session.id, "first")
+    await sm.sendMessage(session.id, "second")
+    await sm.sendMessage(session.id, "third")
+
+    const [dequeued] = sm.listQueued(session.id)
+    state.pending?.resolve()
+    await vi.waitFor(() => expect(state.sent).toEqual(["first", "second"]))
+
+    const fresh = sm.editQueued(session.id, dequeued.id, "too late")
+    expect(fresh.map((x) => x.text)).toEqual(["third"])
+    expect(
+      sm.getMessages(session.id)
+        .filter((m) => m.role === "user")
+        .map((m) => m.content),
+    ).toEqual(["first", "second", "third"])
+
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(state.sent).toEqual(["first", "second", "third"]),
+    )
+  })
+
+  it("reorders queued messages and dispatches them in the new order", async () => {
+    const { sm, dir, events } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.sendMessage(session.id, "first")
+    await sm.sendMessage(session.id, "second")
+    await sm.sendMessage(session.id, "third")
+
+    const third = sm.listQueued(session.id)[1]
+    const next = sm.reorderQueued(session.id, third.id, "up")
+    expect(next.map((x) => x.text)).toEqual(["third", "second"])
+    const queueEvents = events.filter((e) => e.type === "queue.changed")
+    expect(queueEvents.at(-1)).toMatchObject({
+      queued: [{ text: "third" }, { text: "second" }],
+    })
+
+    state.pending?.resolve()
+    await vi.waitFor(() => expect(state.sent).toEqual(["first", "third"]))
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(state.sent).toEqual(["first", "third", "second"]),
+    )
+  })
+
+  it("no-ops a reorder past the queue boundary or for a gone id", async () => {
+    const { sm, dir } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.sendMessage(session.id, "first")
+    await sm.sendMessage(session.id, "second")
+
+    const [q] = sm.listQueued(session.id)
+    expect(sm.reorderQueued(session.id, q.id, "up").map((x) => x.text)).toEqual([
+      "second",
+    ])
+    expect(
+      sm.reorderQueued(session.id, q.id, "down").map((x) => x.text),
+    ).toEqual(["second"])
+    expect(
+      sm.reorderQueued(session.id, "missing", "up").map((x) => x.text),
+    ).toEqual(["second"])
+  })
+
   it("drops the queue on Stop rather than firing it at a turn the user killed", async () => {
     const { sm, dir } = await makeManager()
     const session = await sm.createSession({ provider: "mock", cwd: dir })

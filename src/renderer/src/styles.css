@@ -4631,6 +4631,32 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   white-space: nowrap;
 }
 
+.queued-text-edit {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: text;
+}
+
+.queued-text-edit:hover {
+  color: var(--text);
+}
+
+.queued-edit {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  font: inherit;
+  color: var(--text);
+  padding: 0;
+}
+
 .send-btn.queueing {
   background: var(--accent);
   font-size: 14px;
@@ -5167,6 +5193,8 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
 /* ——— Cost & tokens ——— */
 
 .turn-cost {
+  margin-left: auto;
+  font-family: var(--mono);
   font-size: 10.5px;
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
@@ -7285,7 +7313,8 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   .permission-banner,
   .grok-trust-banner,
   .agent-input-card,
-  .queued-chip {
+  .queued-chip,
+  .toast {
     animation: rise-in 140ms ease-out both;
   }
 
@@ -10009,4 +10038,50 @@ ol.activity-agent-steps li {
   color: var(--text-faint);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.toast-stack {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 2500;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.toast-text {
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toast-action {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toast-action:hover {
+  text-decoration: underline;
 }
