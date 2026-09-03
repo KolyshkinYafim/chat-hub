@@ -74,7 +74,14 @@ export class SettingsStore {
   }
 
   async setWindowState(state: WindowState): Promise<void> {
-    this.data = { ...this.data, window: state }
+    const prev = this.data.window
+    this.data = {
+      ...this.data,
+      window: {
+        ...state,
+        cockpit: state.cockpit ?? prev?.cockpit,
+      },
+    }
     await this.save()
   }
 

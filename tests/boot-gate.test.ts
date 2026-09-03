@@ -41,6 +41,10 @@ vi.mock("electron", () => ({
     on: () => {},
   },
   shell: {},
+  nativeTheme: {
+    prefersReducedTransparency: false,
+    on: () => {},
+  },
   nativeImage: {},
   safeStorage: {
     isEncryptionAvailable: () => false,

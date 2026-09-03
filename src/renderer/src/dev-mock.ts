@@ -1487,6 +1487,9 @@ function seedWorkspace(): void {
 export function installDevMock(): void {
   seedWorkspace()
   const api = {
+    cockpit: false,
+    setCockpit: async (enabled) => ({ enabled }),
+    onCockpitChanged: () => () => {},
     getSnapshot: async (sessionIds?: readonly string[]) => {
       if (!sessionIds) return snapshot
       const wanted = new Set(sessionIds)

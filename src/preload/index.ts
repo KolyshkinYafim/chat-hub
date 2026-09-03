@@ -67,8 +67,22 @@ const windowIntent = parseWindowIntent(
   (globalThis as { location?: { search?: string } }).location?.search ?? "",
 )
 
+const cockpit =
+  process.argv.includes("--chat-hub-cockpit=1") ||
+  process.argv.includes("--chat-hub-cockpit")
+
 const api = {
   windowIntent,
+  cockpit,
+  setCockpit: (enabled: boolean): Promise<{ enabled: boolean }> =>
+    ipcRenderer.invoke(IpcChannels.setWindowCockpit, enabled),
+  onCockpitChanged: (cb: (enabled: boolean) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, enabled: boolean) => cb(enabled)
+    ipcRenderer.on(IpcChannels.cockpitChanged, handler)
+    return () => {
+      ipcRenderer.removeListener(IpcChannels.cockpitChanged, handler)
+    }
+  },
   getSnapshot: (sessionIds?: readonly string[]): Promise<SessionSnapshot> =>
     ipcRenderer.invoke(IpcChannels.getSnapshot, sessionIds),
   listSessions: (): Promise<SessionMeta[]> =>

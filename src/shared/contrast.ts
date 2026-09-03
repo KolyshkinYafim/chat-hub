@@ -7,6 +7,7 @@
 
 /** WCAG AA for body text under 18pt. */
 export const AA_TEXT = 4.5
+export const AA_LARGE = 3
 /** WCAG AA for icons, borders and other non-text UI. */
 export const AA_UI = 3
 
@@ -35,6 +36,37 @@ export function parseColorChannels(value: string): [number, number, number] | nu
     return [v, v, v]
   }
   return null
+}
+
+export function parseColorAlpha(value: string): number | null {
+  if (!parseColorChannels(value)) return null
+  const hex = value.match(/^#([0-9a-fA-F]{3,8})$/)
+  if (hex) {
+    let h = hex[1]
+    if (h.length <= 4) h = [...h].map((c) => c + c).join("")
+    if (h.length === 8) return parseInt(h.slice(6, 8), 16) / 255
+    return 1
+  }
+  const rgb = value.match(
+    /^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(0|1|0?\.\d{1,4}))?\s*\)$/,
+  )
+  if (rgb) return rgb[1] === undefined ? 1 : Number(rgb[1])
+  const hsl = value.match(
+    /^hsla?\(\s*\d{1,3}(?:deg)?\s*,\s*\d{1,3}%\s*,\s*\d{1,3}%(?:\s*,\s*(0|1|0?\.\d{1,4}))?\s*\)$/,
+  )
+  if (hsl) return hsl[1] === undefined ? 1 : Number(hsl[1])
+  return 1
+}
+
+export function compositeOver(fg: string, backdrop: string): string | null {
+  const fc = parseColorChannels(fg)
+  const bc = parseColorChannels(backdrop)
+  if (!fc || !bc) return null
+  const a = parseColorAlpha(fg) ?? 1
+  const r = Math.round(fc[0] * a + bc[0] * (1 - a))
+  const g = Math.round(fc[1] * a + bc[1] * (1 - a))
+  const b = Math.round(fc[2] * a + bc[2] * (1 - a))
+  return `rgb(${r}, ${g}, ${b})`
 }
 
 function toLinear(channel: number): number {

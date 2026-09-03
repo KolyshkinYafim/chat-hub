@@ -327,6 +327,27 @@ describe("shell state", () => {
     await s.setGeneralConfig({ themeId: "dawn" })
     expect(s.windowState?.bounds.width).toBe(1000)
   })
+
+  it("preserves the per-window cockpit flag across geometry writes", async () => {
+    const { s } = await store()
+    await s.setWindowState({
+      bounds: { x: 1, y: 2, width: 1000, height: 700 },
+      maximized: false,
+      cockpit: true,
+    })
+    await s.setWindowState({
+      bounds: { x: 8, y: 9, width: 1100, height: 800 },
+      maximized: true,
+    })
+    expect(s.windowState?.cockpit).toBe(true)
+    expect(s.windowState?.bounds.width).toBe(1100)
+    await s.setWindowState({
+      bounds: { x: 8, y: 9, width: 1100, height: 800 },
+      maximized: false,
+      cockpit: false,
+    })
+    expect(s.windowState?.cockpit).toBe(false)
+  })
 })
 
 describe("the window set", () => {

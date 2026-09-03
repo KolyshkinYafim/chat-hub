@@ -37,7 +37,11 @@ export function PdfPreview({ src, onOpenExternally }: Props) {
 
   return (
     <div className="file-pdf">
-      <webview src={src} className="file-pdf-view" />
+      <webview
+        src={src}
+        webpreferences="transparent=no"
+        className="file-pdf-view"
+      />
     </div>
   )
 }

@@ -13,6 +13,7 @@ export type WorkArea = WindowBounds
 export type WindowState = {
   bounds: WindowBounds
   maximized: boolean
+  cockpit?: boolean
 }
 
 export const DEFAULT_WINDOW_WIDTH = 1280
@@ -39,7 +40,11 @@ const FALLBACK_AREA: WorkArea = {
 /** Reads back geometry written by an older (or hand-edited) settings.json. */
 export function parseWindowState(raw: unknown): WindowState | null {
   if (!raw || typeof raw !== "object") return null
-  const outer = raw as { bounds?: unknown; maximized?: unknown }
+  const outer = raw as {
+    bounds?: unknown
+    maximized?: unknown
+    cockpit?: unknown
+  }
   if (!outer.bounds || typeof outer.bounds !== "object") return null
   const b = outer.bounds as Record<string, unknown>
   const nums = [b.x, b.y, b.width, b.height]
@@ -57,6 +62,7 @@ export function parseWindowState(raw: unknown): WindowState | null {
       height,
     },
     maximized: outer.maximized === true,
+    ...(typeof outer.cockpit === "boolean" ? { cockpit: outer.cockpit } : {}),
   }
 }
 

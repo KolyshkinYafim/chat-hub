@@ -31,6 +31,7 @@ import type {
 } from "@shared/settings-types"
 import { DEFAULT_MODES } from "@shared/settings-types"
 import { resolveTheme } from "@shared/theme"
+import { readCockpitWindow } from "./lib/cockpit"
 import { applyTheme } from "./lib/theme-apply"
 import { projectFromCwd } from "@shared/project"
 import { clearMigratedArchive, readArchivedForMigration } from "./lib/archive"
@@ -123,6 +124,7 @@ const SCRIPT_PREVIEW_SWITCH_MS = 800
 export default function App() {
   const windowIntent = window.chatHub.windowIntent
   const windowId = windowIntent.windowId
+  const [cockpit, setCockpit] = useState(() => readCockpitWindow().enabled)
   const [booted, setBooted] = useState(false)
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [messagesBySession, setMessagesBySession] = useState<
@@ -515,6 +517,20 @@ export default function App() {
         break
     }
   }, [detachTranscripts, editTranscript])
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("cockpit", cockpit)
+  }, [cockpit])
+
+  useEffect(() => {
+    return window.chatHub.onCockpitChanged((enabled) => {
+      setCockpit(enabled)
+      document.documentElement.classList.toggle("cockpit", enabled)
+      void window.chatHub.getSettings().then((s) => {
+        applyTheme(resolveTheme(s.general.themeId, s.general.customThemes))
+      })
+    })
+  }, [])
 
   useEffect(() => {
     const unsub = window.chatHub.onHubEvent(applyEvent)
@@ -1778,7 +1794,9 @@ export default function App() {
   if (!booted) {
     return (
       <div
-        className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""}`}
+        className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""} ${
+          cockpit ? "is-cockpit" : ""
+        }`}
         style={{ "--sidebar-w": `${sidebarWidth}px` } as CSSProperties}
       />
     )
@@ -1787,8 +1805,8 @@ export default function App() {
   return (
     <div
       className={`app ${sidebarCollapsed ? "sidebar-is-collapsed" : ""} ${
-        tiled ? "is-tiled" : showDock ? "dock-is-open" : ""
-      }`}
+        tiled ? "is-tiled" : showDock && !cockpit ? "dock-is-open" : ""
+      } ${cockpit ? "is-cockpit" : ""}`}
       style={
         {
           "--sidebar-w": `${sidebarWidth}px`,
@@ -1868,6 +1886,7 @@ export default function App() {
         browserClaim={browserClaim}
         actions={paneActions}
         onDrop={onWorkspaceDrop}
+        cockpit={cockpit}
       />
       {settingsOpen ? (
         <SettingsModal
@@ -1900,6 +1919,10 @@ export default function App() {
             activeSession?.cwd ?? projects[0]?.cwd ?? null
           }
           sessions={sessions}
+          cockpit={cockpit}
+          onCockpitChange={(enabled) => {
+            void window.chatHub.setCockpit(enabled)
+          }}
         />
       ) : null}
       {wizardOpen ? (

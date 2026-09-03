@@ -19,6 +19,8 @@ vi.mock("electron", () => ({
   app: {
     name: "Chat Hub",
     getPath: () => electron.logsPath,
+    relaunch: vi.fn(),
+    exit: vi.fn(),
   },
   Menu: {
     buildFromTemplate: (template: MenuItemConstructorOptions[]) => ({
@@ -151,6 +153,9 @@ describe("Developer menu", () => {
       "CommandOrControl+Shift+R",
     )
     expect(item(developer, "Reveal Main Log")).toBeDefined()
+    expect(
+      developer.find((entry) => entry.label === "Toggle cockpit (restart)"),
+    ).toBeUndefined()
   })
 
   it("carries the native zoom accelerators without shadowing the existing ones", () => {

@@ -82,7 +82,9 @@ import {
 } from "@shared/window-bounds"
 import { windowQuery } from "@shared/window-identity"
 import { pickWindowForSession, WindowRegistry } from "./window-registry"
+import { parseCockpitFlags, type CockpitWindow } from "@shared/cockpit"
 import { resolveTheme, themeBackground } from "@shared/theme"
+import { applyCockpitChrome, watchReducedTransparency } from "./cockpit-window"
 import { DEFAULT_ZOOM_LEVEL } from "@shared/zoom"
 import {
   appendMcpPathsToGitignore,
@@ -163,6 +165,7 @@ type HubWindow = {
   window: BrowserWindow
   zoom: ZoomController
   sessions: Set<string>
+  cockpit: CockpitWindow
 }
 
 const windows = new WindowRegistry<HubWindow>()
@@ -392,29 +395,61 @@ function cascadeFrom(previous: BrowserWindow | null): WindowState | null {
   }
 }
 
+function currentThemeBackground(): string {
+  return themeBackground(
+    resolveTheme(
+      settingsStore?.general.themeId,
+      settingsStore?.general.customThemes,
+    ),
+  )
+}
+
+function cockpitFlagsFor(saved: WindowState | null): CockpitWindow {
+  return parseCockpitFlags(process.argv, process.env, saved?.cockpit)
+}
+
+function applyHubCockpit(hub: HubWindow): void {
+  applyCockpitChrome(
+    hub.window,
+    hub.cockpit.enabled && !hub.window.isFullScreen(),
+    hub.cockpit.vibrancy,
+    currentThemeBackground(),
+  )
+}
+
 function createWindow(options: CreateWindowOptions = {}): HubWindow {
   const id = options.windowId ?? windows.nextId()
   const saved =
     options.state ?? cascadeFrom(windows.mostRecent()?.window ?? null)
+  const cockpit = cockpitFlagsFor(saved)
+  const themeBg = currentThemeBackground()
+  const glass = cockpit.enabled && process.platform === "darwin"
   const window = new BrowserWindow({
     ...openingBounds(saved),
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
     title: "Chat Hub",
-    backgroundColor: themeBackground(
-      resolveTheme(
-        settingsStore?.general.themeId,
-        settingsStore?.general.customThemes,
-      ),
-    ),
+    backgroundColor: glass ? "#00000000" : themeBg,
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 16 },
+    ...(glass
+      ? {
+          vibrancy: cockpit.vibrancy,
+          visualEffectState: "active" as const,
+        }
+      : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
       webviewTag: true,
+      additionalArguments: cockpit.enabled
+        ? [
+            "--chat-hub-cockpit=1",
+            `--chat-hub-cockpit-vibrancy=${cockpit.vibrancy}`,
+          ]
+        : [],
     },
   })
 
@@ -430,8 +465,15 @@ function createWindow(options: CreateWindowOptions = {}): HubWindow {
     },
   )
 
-  const hub: HubWindow = { id, window, zoom, sessions: new Set() }
+  const hub: HubWindow = { id, window, zoom, sessions: new Set(), cockpit }
   windows.add(id, hub)
+
+  applyHubCockpit(hub)
+  watchReducedTransparency(() => {
+    for (const live of liveWindows()) applyHubCockpit(live)
+  })
+  window.on("enter-full-screen", () => applyHubCockpit(hub))
+  window.on("leave-full-screen", () => applyHubCockpit(hub))
 
   if (store) {
     trackWindowState(window, () => rememberWindows())
@@ -476,11 +518,20 @@ function createWindow(options: CreateWindowOptions = {}): HubWindow {
     }
   })
 
-  const query = windowQuery({
-    windowId: id,
-    fresh: options.fresh === true,
-    sessionId: options.sessionId ?? null,
-  })
+  if (cockpit.enabled) bootMark(`cockpit.${cockpit.vibrancy}`)
+
+  const params = new URLSearchParams(
+    windowQuery({
+      windowId: id,
+      fresh: options.fresh === true,
+      sessionId: options.sessionId ?? null,
+    }).slice(1),
+  )
+  if (cockpit.enabled) {
+    params.set("cockpit", "1")
+    params.set("vibrancy", cockpit.vibrancy)
+  }
+  const query = `?${params.toString()}`
   if (process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(`${process.env.ELECTRON_RENDERER_URL}${query}`)
   } else {
@@ -508,6 +559,7 @@ function rememberWindows(): void {
     windowId: hub.id,
     bounds: hub.window.getNormalBounds(),
     maximized: hub.window.isMaximized(),
+    cockpit: hub.cockpit.enabled,
   }))
   if (open.length === 0) return
   void store.setWindowStates(open).catch(() => {
@@ -981,6 +1033,19 @@ export function registerIpc(
   ipcMain.handle(IpcChannels.setGeneralConfig, async (_e, patch: unknown) => {
     const next = await settings.setGeneralConfig(sanitizeGeneralPatch(patch))
     return { general: next.general }
+  })
+
+  ipcMain.handle(IpcChannels.setWindowCockpit, async (e, enabled: unknown) => {
+    const on = enabled === true
+    const hub = liveWindows().find(
+      (entry) => entry.window.webContents === e.sender,
+    )
+    if (!hub) return { enabled: false }
+    hub.cockpit = { ...hub.cockpit, enabled: on }
+    applyHubCockpit(hub)
+    rememberWindows()
+    hub.window.webContents.send(IpcChannels.cockpitChanged, on)
+    return { enabled: on }
   })
 
   ipcMain.handle(IpcChannels.getDataPaths, (): DataPaths => {
