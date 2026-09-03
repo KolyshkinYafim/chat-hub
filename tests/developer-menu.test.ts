@@ -259,6 +259,49 @@ describe("Developer menu", () => {
   })
 })
 
+describe("platform templates", () => {
+  it("leads with the app menu and mac Window roles on darwin", () => {
+    const host = fakeContents()
+    const window = fakeWindow(host.contents)
+    const log = createMainLog(join(electron.logsPath, "menu.log"))
+    const template = buildDeveloperMenuTemplate(
+      () => window,
+      log,
+      undefined,
+      undefined,
+      "darwin",
+    )
+    expect(template[0]?.label).toBe("Chat Hub")
+    const windowMenu = submenu(template, "Window")
+    expect(windowMenu.map((entry) => entry.role)).toEqual([
+      "minimize",
+      "zoom",
+      "front",
+    ])
+    const file = submenu(template, "File")
+    expect(file.some((entry) => entry.role === "quit")).toBe(false)
+  })
+
+  it("drops mac-only roles and adds Quit to File on linux", () => {
+    const host = fakeContents()
+    const window = fakeWindow(host.contents)
+    const log = createMainLog(join(electron.logsPath, "menu.log"))
+    const template = buildDeveloperMenuTemplate(
+      () => window,
+      log,
+      undefined,
+      undefined,
+      "linux",
+    )
+    expect(template[0]?.label).toBe("File")
+    const windowMenu = submenu(template, "Window")
+    expect(windowMenu.map((entry) => entry.role)).toEqual(["minimize"])
+    const file = submenu(template, "File")
+    expect(file.some((entry) => entry.role === "close")).toBe(true)
+    expect(file.some((entry) => entry.role === "quit")).toBe(true)
+  })
+})
+
 describe("main log", () => {
   it("redacts common secret forms", () => {
     const text = redactSensitive(

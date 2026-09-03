@@ -37,4 +37,11 @@ mac:
 dmg:
   title: Chat Hub
 
-# Windows/Linux left unconfigured — mac-first for now.
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Development
+  executableName: chat-hub
+  synopsis: Multi-chat cockpit for AI coding agents
+  maintainer: Yafim TechLead <yafim@teambox.email>

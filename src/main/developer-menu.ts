@@ -118,6 +118,7 @@ export function buildDeveloperMenuTemplate(
   log: MainLog,
   zoom?: ZoomActions,
   newWindow?: () => void,
+  platform: NodeJS.Platform = process.platform,
 ): MenuItemConstructorOptions[] {
   const developer: MenuItemConstructorOptions = {
     label: "Developer",
@@ -176,6 +177,12 @@ export function buildDeveloperMenuTemplate(
         ]
       : []),
     { role: "close" },
+    ...(platform === "darwin"
+      ? []
+      : [
+          { type: "separator" } satisfies MenuItemConstructorOptions,
+          { role: "quit" } satisfies MenuItemConstructorOptions,
+        ]),
   ]
 
   const common: MenuItemConstructorOptions[] = [
@@ -196,11 +203,14 @@ export function buildDeveloperMenuTemplate(
     developer,
     {
       label: "Window",
-      submenu: [{ role: "minimize" }, { role: "zoom" }, { role: "front" }],
+      submenu:
+        platform === "darwin"
+          ? [{ role: "minimize" }, { role: "zoom" }, { role: "front" }]
+          : [{ role: "minimize" }],
     },
   ]
 
-  if (process.platform !== "darwin") return common
+  if (platform !== "darwin") return common
   return [
     {
       label: app.name,

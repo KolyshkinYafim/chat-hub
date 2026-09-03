@@ -58,4 +58,13 @@
   } catch (err2) {
     void err2
   }
+  try {
+    var hub = typeof window !== "undefined" ? window.chatHub : null
+    var platform = hub && hub.platform
+    if (typeof platform === "string" && /^[a-z0-9]{1,16}$/.test(platform)) {
+      root.classList.add("platform-" + platform)
+    }
+  } catch (err3) {
+    void err3
+  }
 })()

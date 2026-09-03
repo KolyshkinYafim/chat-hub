@@ -5,6 +5,7 @@ import type { AttentionSeen } from "../../lib/attention"
 import { formatElapsed } from "../../lib/live-step"
 import { formatRelative } from "../../lib/format"
 import { formatUsd } from "../../lib/usage"
+import { keyHint } from "../../lib/key-hint"
 import { StatusDot } from "../StatusDot"
 
 type Props = {
@@ -42,7 +43,7 @@ export function FleetSurface({
       <div className="fleet-empty">
         No sessions yet — agents you start will line up here.
         <span className="empty-hint">
-          <span className="kbd">⌘N</span> new session
+          <span className="kbd">{keyHint("⌘N")}</span> new session
         </span>
       </div>
     )

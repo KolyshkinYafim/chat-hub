@@ -82,6 +82,7 @@ import {
 } from "@shared/window-bounds"
 import { windowQuery } from "@shared/window-identity"
 import { pickWindowForSession, WindowRegistry } from "./window-registry"
+import { titleBarOptions } from "./window-chrome"
 import { parseCockpitFlags, type CockpitWindow } from "@shared/cockpit"
 import { resolveTheme, themeBackground } from "@shared/theme"
 import {
@@ -547,8 +548,7 @@ function createWindow(options: CreateWindowOptions = {}): HubWindow {
     minHeight: MIN_WINDOW_HEIGHT,
     title: "Chat Hub",
     backgroundColor: glass ? "#00000000" : themeBg,
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 16, y: 16 },
+    ...titleBarOptions(),
     ...(glass
       ? {
           vibrancy: cockpit.vibrancy,
