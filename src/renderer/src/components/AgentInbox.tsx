@@ -6,9 +6,7 @@ import {
   type InboxCard,
   type InboxCursor,
 } from "../lib/inbox"
-
-const FOCUSABLE =
-  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+import { useOverlay } from "../lib/use-overlay"
 
 const KIND_LABEL: Record<InboxCard["kind"], string> = {
   permission: "permission",
@@ -83,60 +81,25 @@ export function AgentInbox({
     target?.focus()
   }, [active, keys])
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      const root = panelRef.current
-      if (!root) return
-      if (event.key === "Escape") {
-        event.preventDefault()
-        event.stopPropagation()
-        onClose()
-        return
-      }
-      if (event.key === "Tab") {
-        const nodes = focusables(root)
-        if (nodes.length === 0) {
-          event.preventDefault()
-          return
-        }
-        const first = nodes[0]
-        const last = nodes[nodes.length - 1]
-        const current = document.activeElement
-        if (
-          event.shiftKey &&
-          (current === first || !root.contains(current))
-        ) {
-          event.preventDefault()
-          last?.focus()
-        } else if (
-          !event.shiftKey &&
-          (current === last || !root.contains(current))
-        ) {
-          event.preventDefault()
-          first?.focus()
-        }
-        return
-      }
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        if (keys.length === 0) return
-        event.preventDefault()
-        const delta = event.key === "ArrowDown" ? 1 : -1
-        const next = Math.min(Math.max(active + delta, 0), keys.length - 1)
-        setCursor({ key: keys[next] ?? null, index: next })
-        return
-      }
-      if (event.key !== "Enter" || !focused) return
-      if (event.target instanceof HTMLButtonElement) return
-      event.preventDefault()
-      runPrimary(focused)
-    }
-    window.addEventListener("keydown", onKey, true)
-    return () => window.removeEventListener("keydown", onKey, true)
-  }, [active, focused, keys, onClose, runPrimary])
-
   function moveTo(index: number) {
     setCursor({ key: keys[index] ?? null, index })
   }
+
+  useOverlay({
+    onClose,
+    trapRef: panelRef,
+    cursor: {
+      count: keys.length,
+      active,
+      onMove: moveTo,
+      onCommit: (event) => {
+        if (!focused) return
+        if (event.target instanceof HTMLButtonElement) return
+        event.preventDefault()
+        runPrimary(focused)
+      },
+    },
+  })
 
   return (
     <div className="modal-backdrop" onClick={onClose} role="presentation">
@@ -246,11 +209,5 @@ export function AgentInbox({
         </div>
       </div>
     </div>
-  )
-}
-
-function focusables(root: HTMLElement): HTMLElement[] {
-  return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
-    (el) => !el.hasAttribute("disabled"),
   )
 }
