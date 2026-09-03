@@ -75,6 +75,12 @@ export function NewSessionDialog({
     [statuses],
   )
 
+  /** The fallback list, used before any probe has landed. */
+  const enabledAgents = useMemo(
+    () => providers.filter((p) => enabledProviderIds.includes(p.id)),
+    [providers, enabledProviderIds],
+  )
+
   const agentChips = useMemo(() => {
     if (agents.length > 0) {
       return agents.map((s) => ({
@@ -97,11 +103,6 @@ export function NewSessionDialog({
       hint: p.description,
     }))
   }, [agents, enabledAgents])
-  /** The fallback list, used before any probe has landed. */
-  const enabledAgents = useMemo(
-    () => providers.filter((p) => enabledProviderIds.includes(p.id)),
-    [providers, enabledProviderIds],
-  )
   const status = useMemo(
     () =>
       statuses.find((s) => s.instanceId === instanceId) ??
