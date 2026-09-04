@@ -87,6 +87,7 @@ export function AgentInbox({
 
   useOverlay({
     onClose,
+    scopeRef: panelRef,
     trapRef: panelRef,
     cursor: {
       count: keys.length,

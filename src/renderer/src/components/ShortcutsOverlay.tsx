@@ -83,7 +83,7 @@ const GROUPS: Group[] = [
 
 /** Discoverability for the keymap — the bindings are useless if unlisted. */
 export function ShortcutsOverlay({ onClose }: Props) {
-  useOverlay({ onClose })
+  useOverlay({ onClose, exclusive: false })
 
   return (
     <div className="modal-backdrop" onClick={onClose} role="presentation">

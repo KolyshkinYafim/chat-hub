@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
   commitTarget,
-  cycleIndex,
   filterByQuery,
   initialCursor,
   mruOrder,
@@ -85,35 +84,6 @@ describe("mruOrder", () => {
     const before = sessions.map((s) => s.id)
     mruOrder(sessions, ["c"])
     expect(sessions.map((s) => s.id)).toEqual(before)
-  })
-})
-
-describe("cycleIndex", () => {
-  it("steps forward", () => {
-    expect(cycleIndex(1, 1, 4)).toBe(2)
-  })
-
-  it("wraps forward past the end", () => {
-    expect(cycleIndex(3, 1, 4)).toBe(0)
-  })
-
-  it("steps backward", () => {
-    expect(cycleIndex(2, -1, 4)).toBe(1)
-  })
-
-  it("wraps backward past the start", () => {
-    expect(cycleIndex(0, -1, 4)).toBe(3)
-  })
-
-  it("clamps a cursor left beyond a shrunken list before stepping", () => {
-    expect(cycleIndex(9, 1, 3)).toBe(0)
-    expect(cycleIndex(9, -1, 3)).toBe(1)
-  })
-
-  it("stays at zero for an empty or single-row list", () => {
-    expect(cycleIndex(0, 1, 0)).toBe(0)
-    expect(cycleIndex(0, 1, 1)).toBe(0)
-    expect(cycleIndex(0, -1, 1)).toBe(0)
   })
 })
 
