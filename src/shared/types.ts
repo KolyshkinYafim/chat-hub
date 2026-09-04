@@ -621,7 +621,12 @@ export type GitWorkingCopy = {
  */
 export type GitHunkSummary = Record<
   string,
-  { staged: number; unstaged: number }
+  {
+    staged: number
+    unstaged: number
+    stagedHash?: string
+    unstagedHash?: string
+  }
 >
 
 export type GitBranchList = {

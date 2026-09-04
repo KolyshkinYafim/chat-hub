@@ -441,6 +441,9 @@ export function SourceControl({
     )
     void Promise.all(
       rows.map(async (row) => {
+        const entry = hunkSummary?.[row.file.path]
+        const known = row.staged ? entry?.stagedHash : entry?.unstagedHash
+        if (known !== undefined) return [rowKey(row), known] as const
         const text = await fetchRowDiff(row).catch(() => null)
         return [rowKey(row), text === null ? "" : hashDiff(text)] as const
       }),
@@ -455,7 +458,7 @@ export function SourceControl({
     return () => {
       cancelled = true
     }
-  }, [staged, unstaged, fetchRowDiff, sessionId, diffEpoch])
+  }, [staged, unstaged, hunkSummary, fetchRowDiff, sessionId, diffEpoch])
 
   async function toggleViewed(row: Row, on: boolean) {
     const key = rowKey(row)
