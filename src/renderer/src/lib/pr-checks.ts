@@ -36,7 +36,12 @@ export function hasFailingChecks(
   session: SessionMeta,
   prByCwd: PrStatusByCwd,
 ): boolean {
-  return attentionEligible(session) && failingChecks(prByCwd[session.cwd]).length > 0
+  const status = prByCwd[session.cwd]
+  return (
+    attentionEligible(session) &&
+    status?.acknowledged !== true &&
+    failingChecks(status).length > 0
+  )
 }
 
 export function capLogTail(log: string, maxChars = LOG_TAIL_CHARS): string {

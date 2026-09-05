@@ -46,6 +46,7 @@ export const IpcChannels = {
   gitPrStatus: "git:pr-status",
   gitPrStatuses: "git:pr-statuses",
   gitCheckLog: "git:check-log",
+  gitChecksAcknowledge: "git:checks-acknowledge",
   attentionCount: "attention:count",
   windowSessions: "window:sessions",
   windowOpen: "window:open",

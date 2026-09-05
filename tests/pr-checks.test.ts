@@ -206,6 +206,12 @@ describe("attention on failing checks", () => {
     expect(attentionQueue([session()], {}, byCwd).map((s) => s.id)).toEqual(["s1"])
   })
 
+  it("stays quiet once the failing set was acknowledged", () => {
+    const acked = { "/repo": { ...byCwd["/repo"], acknowledged: true as const } }
+    expect(hasFailingChecks(session(), acked)).toBe(false)
+    expect(buildInboxCards([session()], [], [], acked)).toEqual([])
+  })
+
   it("ignores other folders, archived and settled sessions and green PRs", () => {
     expect(hasFailingChecks(session({ cwd: "/elsewhere" }), byCwd)).toBe(false)
     expect(hasFailingChecks(session({ archived: true }), byCwd)).toBe(false)

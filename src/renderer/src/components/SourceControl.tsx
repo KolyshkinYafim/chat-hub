@@ -664,7 +664,11 @@ export function SourceControl({
         pr,
         window.chatHub.gitCheckLog,
       )
-      if (prompt) await onSend(prompt)
+      if (prompt) {
+        await onSend(prompt)
+        const acknowledged = await window.chatHub.gitChecksAcknowledge(repoCwd)
+        if (acknowledged && liveRef.current) setPr(acknowledged)
+      }
     } catch (err) {
       setNotice(err instanceof Error ? err.message : String(err))
     } finally {

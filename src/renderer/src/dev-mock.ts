@@ -1817,6 +1817,7 @@ export function installDevMock(): void {
     gitCreatePr: async () => ({ ok: true, output: "https://github.com/example/chat-hub/pull/1" }),
     gitPrStatus: async () => mockPrStatus,
     gitPrStatuses: async () => ({}),
+    gitChecksAcknowledge: async () => null,
     gitCheckLog: async (_cwd, runId) =>
       [
         `typecheck\tRun pnpm typecheck\t2026-09-05T10:00:00Z src/lib/jwt.ts(14,9): error TS2339: Property 'iat' does not exist on type 'Claims'.`,

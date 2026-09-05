@@ -701,6 +701,7 @@ export type GitPrUnavailable = "missing" | "unauthenticated" | "error"
 export type GitPrStatus = {
   pr: GitPullRequest | null
   unavailable?: GitPrUnavailable
+  acknowledged?: true
 }
 
 /** One checkout registered in a repository's worktree administrative file. */

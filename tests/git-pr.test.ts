@@ -253,6 +253,31 @@ describe("PrStatusWatcher", () => {
     return { watcher, emitted }
   }
 
+  it("keeps an acknowledgement until the failing set changes", async () => {
+    const failing = (...names: string[]): GitPrStatus => ({
+      pr: {
+        ...open.pr!,
+        checks: names.map((name) => ({ name, state: "failure" as const })),
+      },
+    })
+    let current = failing("lint")
+    const { watcher, emitted } = harness(async () => current, [])
+    expect(watcher.acknowledge("/r")).toBeNull()
+    await watcher.refresh("/r")
+    expect(watcher.acknowledge("/r")?.acknowledged).toBe(true)
+    expect(watcher.snapshot()["/r"].acknowledged).toBe(true)
+    expect(emitted.at(-1)?.[1].acknowledged).toBe(true)
+    expect((await watcher.refresh("/r")).acknowledged).toBe(true)
+    current = failing("lint", "test")
+    expect((await watcher.refresh("/r")).acknowledged).toBeUndefined()
+    current = failing("lint")
+    expect((await watcher.refresh("/r")).acknowledged).toBeUndefined()
+    watcher.acknowledge("/r")
+    current = open
+    expect((await watcher.refresh("/r")).acknowledged).toBeUndefined()
+    expect(watcher.acknowledge("/r")?.acknowledged).toBeUndefined()
+  })
+
   it("caches and emits every refresh, deduplicating concurrent ones", async () => {
     const fetch = vi.fn(async () => open)
     const { watcher, emitted } = harness(fetch, [])

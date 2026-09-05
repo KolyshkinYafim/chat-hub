@@ -265,6 +265,8 @@ const api = {
     ipcRenderer.invoke(IpcChannels.gitPrStatuses),
   gitCheckLog: (cwd: string, runId: string): Promise<string> =>
     ipcRenderer.invoke(IpcChannels.gitCheckLog, cwd, runId),
+  gitChecksAcknowledge: (cwd: string): Promise<GitPrStatus | null> =>
+    ipcRenderer.invoke(IpcChannels.gitChecksAcknowledge, cwd),
   getSettings: (): Promise<SettingsSnapshot> =>
     ipcRenderer.invoke(IpcChannels.getSettings),
   setPermissionMode: (

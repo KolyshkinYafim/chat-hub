@@ -1509,7 +1509,9 @@ export default function App() {
       prStatusByCwd[activeSession.cwd],
       window.chatHub.gitCheckLog,
     )
-    if (prompt) await sendMessage(activeSession.id, prompt)
+    if (!prompt) return
+    await sendMessage(activeSession.id, prompt)
+    await window.chatHub.gitChecksAcknowledge(activeSession.cwd)
   }, [activeSession, prStatusByCwd, sendMessage])
 
   const cancelQueued = useCallback((sessionId: string, queuedId: string) => {

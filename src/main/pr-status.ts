@@ -9,9 +9,20 @@ type Options = {
   intervalMs?: number
 }
 
+export function failingSignature(status: GitPrStatus): string | null {
+  const pr = status.pr
+  if (!pr) return null
+  const failing = pr.checks
+    .filter((check) => check.state === "failure")
+    .map((check) => check.name)
+    .sort()
+  return failing.length === 0 ? null : `${pr.number}:${failing.join("\u0000")}`
+}
+
 export class PrStatusWatcher {
   private readonly cache = new Map<string, GitPrStatus>()
   private readonly inflight = new Map<string, Promise<GitPrStatus>>()
+  private readonly acknowledged = new Map<string, string>()
   private timer: NodeJS.Timeout | null = null
   private ghMissing = false
 
@@ -25,9 +36,10 @@ export class PrStatusWatcher {
     const running = this.inflight.get(cwd)
     if (running) return running
     const run = this.opts.fetch(cwd).then(
-      (status) => {
+      (fetched) => {
         this.inflight.delete(cwd)
-        this.ghMissing = status.unavailable === "missing"
+        this.ghMissing = fetched.unavailable === "missing"
+        const status = this.withAcknowledgement(cwd, fetched)
         this.cache.set(cwd, status)
         this.opts.emit(cwd, status)
         return status
@@ -39,6 +51,30 @@ export class PrStatusWatcher {
     )
     this.inflight.set(cwd, run)
     return run
+  }
+
+  acknowledge(cwd: string): GitPrStatus | null {
+    const current = this.cache.get(cwd)
+    const signature = current ? failingSignature(current) : null
+    if (!current || signature === null) return current ?? null
+    this.acknowledged.set(cwd, signature)
+    const status: GitPrStatus = { ...current, acknowledged: true }
+    this.cache.set(cwd, status)
+    this.opts.emit(cwd, status)
+    return status
+  }
+
+  private withAcknowledgement(cwd: string, status: GitPrStatus): GitPrStatus {
+    const signature = failingSignature(status)
+    if (signature === null) {
+      this.acknowledged.delete(cwd)
+      return status
+    }
+    if (this.acknowledged.get(cwd) === signature) {
+      return { ...status, acknowledged: true }
+    }
+    this.acknowledged.delete(cwd)
+    return status
   }
 
   start(): void {
@@ -59,7 +95,9 @@ export class PrStatusWatcher {
   async tick(): Promise<void> {
     const live = new Set(this.opts.liveCwds())
     for (const cwd of [...this.cache.keys()]) {
-      if (!live.has(cwd)) this.cache.delete(cwd)
+      if (live.has(cwd)) continue
+      this.cache.delete(cwd)
+      this.acknowledged.delete(cwd)
     }
     if (this.ghMissing) return
     for (const cwd of live) {

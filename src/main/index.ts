@@ -1123,6 +1123,9 @@ export function registerIpc(
     prStatus.refresh(gitCwd(cwd)),
   )
   ipcMain.handle(IpcChannels.gitPrStatuses, () => prStatus.snapshot())
+  ipcMain.handle(IpcChannels.gitChecksAcknowledge, (_e, cwd: unknown) =>
+    prStatus.acknowledge(gitCwd(cwd)),
+  )
   ipcMain.handle(IpcChannels.gitCheckLog, (_e, cwd: unknown, runId: unknown) => {
     if (typeof runId !== "string") throw new Error("Invalid run id")
     return getCheckRunLog(gitCwd(cwd), runId)
