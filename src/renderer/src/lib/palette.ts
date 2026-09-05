@@ -8,6 +8,9 @@ export const AGENT_INBOX_MATCH =
   "agent inbox panel permission question failed"
 export const NEW_WINDOW_KEY = "command:new-window"
 export const NEW_WINDOW_MATCH = "new window open another window"
+export const SEND_FAILING_CHECKS_KEY = "command:send-failing-checks"
+export const SEND_FAILING_CHECKS_MATCH =
+  "send failing checks to agent ci fix pull request"
 
 const MAX_SESSION_RESULTS = 12
 
@@ -32,8 +35,21 @@ type CommandCandidate = { match: string; entry: PaletteCommand }
 function commandCandidates(
   attentionCount: number,
   inboxCount: number,
+  failingChecks: number,
 ): CommandCandidate[] {
   const out: CommandCandidate[] = []
+  if (failingChecks > 0) {
+    out.push({
+      match: SEND_FAILING_CHECKS_MATCH,
+      entry: {
+        kind: "command",
+        key: SEND_FAILING_CHECKS_KEY,
+        label: "Send failing checks to agent",
+        sub: `Hand the ${failingChecks === 1 ? "failing CI check" : `${failingChecks} failing CI checks`} and their logs to the current session`,
+        hint: "⌘⇧X",
+      },
+    })
+  }
   if (attentionCount > 0) {
     out.push({
       match: NEXT_ATTENTION_MATCH,
@@ -77,6 +93,7 @@ export function buildPaletteEntries(
   query: string,
   attentionCount: number,
   inboxCount = 0,
+  failingChecks = 0,
 ): PaletteEntry[] {
   const scored: { session: SessionMeta; score: number }[] = []
   for (const s of sessions) {
@@ -91,7 +108,11 @@ export function buildPaletteEntries(
   const ranked: { entry: PaletteEntry; score: number }[] = top.map(
     ({ session, score }) => ({ entry: { kind: "session", session }, score }),
   )
-  for (const candidate of commandCandidates(attentionCount, inboxCount)) {
+  for (const candidate of commandCandidates(
+    attentionCount,
+    inboxCount,
+    failingChecks,
+  )) {
     const score = fuzzyScore(query, candidate.match)
     if (score === null) continue
     ranked.push({ entry: candidate.entry, score })

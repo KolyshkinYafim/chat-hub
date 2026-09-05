@@ -100,6 +100,11 @@ import {
 } from "./lib/shell-size"
 import { useAttention } from "./lib/use-attention"
 import { buildInboxCards } from "./lib/inbox"
+import {
+  failingChecks,
+  failingChecksPrompt,
+  type PrStatusByCwd,
+} from "./lib/pr-checks"
 import { isEditableTarget } from "./lib/editable-target"
 import { SettingsModal } from "./components/SettingsModal"
 import { AgentInbox } from "./components/AgentInbox"
@@ -204,6 +209,7 @@ export default function App() {
   >(loadSurfaceBySession)
   const [autoOpenDock, setAutoOpenDock] = useState(loadAutoOpenDock)
   const [gitRefresh, setGitRefresh] = useState(0)
+  const [prStatusByCwd, setPrStatusByCwd] = useState<PrStatusByCwd>({})
   /** Pane that most recently asked for the single `<webview>` browser guest. */
   const [browserClaim, setBrowserClaim] = useState<string | null>(null)
   // `at` re-fires the focus even when the same path is clicked twice.
@@ -280,10 +286,16 @@ export default function App() {
   const jumpToSession = useCallback((id: string) => {
     selectSessionRef.current(id)
   }, [])
-  const attention = useAttention(sessions, layout, activeId, jumpToSession)
+  const attention = useAttention(
+    sessions,
+    layout,
+    activeId,
+    jumpToSession,
+    prStatusByCwd,
+  )
   const inboxCards = useMemo(
-    () => buildInboxCards(sessions, permissions, inputRequests),
-    [sessions, permissions, inputRequests],
+    () => buildInboxCards(sessions, permissions, inputRequests, prStatusByCwd),
+    [sessions, permissions, inputRequests, prStatusByCwd],
   )
   const openInbox = useCallback(() => setInboxOpen(true), [])
   const closeInbox = useCallback(() => setInboxOpen(false), [])
@@ -564,6 +576,9 @@ export default function App() {
         setProviderStatuses(event.statuses)
         setProviders((curr) => applyStatusesToProviders(curr, event.statuses))
         break
+      case "git.pr":
+        setPrStatusByCwd((curr) => ({ ...curr, [event.cwd]: event.status }))
+        break
       default:
         break
     }
@@ -585,6 +600,9 @@ export default function App() {
 
   useEffect(() => {
     const unsub = window.chatHub.onHubEvent(applyEvent)
+    void window.chatHub.gitPrStatuses().then((statuses) => {
+      setPrStatusByCwd((curr) => ({ ...statuses, ...curr }))
+    })
     const onScreen = layoutRef.current.panes
       .map((item) => item.sessionId)
       .filter((id): id is string => id !== null)
@@ -1480,6 +1498,20 @@ export default function App() {
     [effort, openLoginTerminal],
   )
 
+  const activeFailingChecks = activeSession
+    ? failingChecks(prStatusByCwd[activeSession.cwd]).length
+    : 0
+
+  const sendFailingChecks = useCallback(async () => {
+    if (!activeSession) return
+    const prompt = await failingChecksPrompt(
+      activeSession.cwd,
+      prStatusByCwd[activeSession.cwd],
+      window.chatHub.gitCheckLog,
+    )
+    if (prompt) await sendMessage(activeSession.id, prompt)
+  }, [activeSession, prStatusByCwd, sendMessage])
+
   const cancelQueued = useCallback((sessionId: string, queuedId: string) => {
     void window.chatHub
       .cancelQueued(sessionId, queuedId)
@@ -1797,6 +1829,11 @@ export default function App() {
         openInNewWindow()
         return
       }
+      if (meta && e.shiftKey && !e.altKey && e.key.toLowerCase() === "x") {
+        e.preventDefault()
+        if (activeFailingChecks > 0) void sendFailingChecks()
+        return
+      }
       if (meta && e.key === ",") {
         e.preventDefault()
         setSettingsOpen(true)
@@ -1911,6 +1948,8 @@ export default function App() {
     toggleDockFor,
     toggleDiffSurface,
     toggleHistorySurface,
+    activeFailingChecks,
+    sendFailingChecks,
   ])
 
   // Only the agent this Hub is set to use — a CLI the user installed but never
@@ -2125,10 +2164,12 @@ export default function App() {
           activeId={activeId}
           attentionCount={attention.queue.length}
           inboxCount={inboxCards.length}
+          failingChecks={activeFailingChecks}
           onSelect={(id) => void selectSession(id)}
           onNextAttention={attention.jumpNext}
           onNewWindow={openInNewWindow}
           onOpenInbox={openInbox}
+          onSendFailingChecks={() => void sendFailingChecks()}
           onClose={() => setPaletteOpen(false)}
         />
       ) : null}

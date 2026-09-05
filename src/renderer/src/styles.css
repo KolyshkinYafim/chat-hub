@@ -4982,7 +4982,8 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
-.inbox-kind.failed {
+.inbox-kind.failed,
+.inbox-kind.checks {
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 14%, transparent);
 }
@@ -5618,6 +5619,165 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
 
 .scm-notice {
   color: var(--text-secondary);
+}
+
+.scm-checks {
+  flex: none;
+  padding: 6px 0 2px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.scm-checks .scm-section-head {
+  padding-bottom: 4px;
+}
+
+.scm-checks .scm-section-head .icon-chip {
+  margin-left: auto;
+}
+
+.scm-checks .scm-hint {
+  padding-top: 2px;
+  padding-bottom: 8px;
+}
+
+.scm-pr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  padding: 0 16px 6px;
+  min-width: 0;
+}
+
+.scm-pr-title {
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 560;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scm-pr-title:hover {
+  color: var(--accent);
+}
+
+.scm-pill {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+}
+
+.scm-pill.ok {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+
+.scm-pill.warn {
+  color: var(--waiting);
+  background: color-mix(in srgb, var(--waiting) 14%, transparent);
+}
+
+.scm-pill.danger {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.scm-check-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 6px;
+  max-height: 168px;
+  overflow: auto;
+}
+
+.scm-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.scm-check:hover {
+  background: var(--bg-hover);
+}
+
+.scm-check.failure {
+  color: var(--text);
+}
+
+.scm-check-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.scm-check-dot.success {
+  background: var(--ok);
+}
+
+.scm-check-dot.failure {
+  background: var(--danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 22%, transparent);
+}
+
+.scm-check-dot.pending {
+  background: var(--working);
+  animation: orb-breathe 2.4s ease-in-out infinite;
+}
+
+.scm-check-dot.skipped {
+  background: transparent;
+  border: 1px solid var(--text-faint);
+}
+
+.scm-check-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scm-check-time {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.scm-check-link {
+  text-decoration: none;
+  opacity: 0;
+}
+
+.scm-check:hover .scm-check-link,
+.scm-check-link:focus-visible {
+  opacity: 1;
+}
+
+.scm-checks-send {
+  margin: 2px 16px 8px;
+  align-self: flex-start;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scm-check-dot.pending {
+    animation: none;
+  }
 }
 
 .scm-review-gate {

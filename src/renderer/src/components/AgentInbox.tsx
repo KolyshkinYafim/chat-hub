@@ -12,6 +12,7 @@ const KIND_LABEL: Record<InboxCard["kind"], string> = {
   permission: "permission",
   question: "question",
   failed: "failed",
+  checks: "ci failed",
 }
 
 type Props = {
@@ -128,7 +129,7 @@ export function AgentInbox({
             <div className="inbox-empty">
               <p>All clear</p>
               <span>
-                Permission asks, agent questions and failures land here.
+                Permission asks, agent questions, failures and failing CI checks land here.
               </span>
               <span className="empty-hint">
                 <span className="kbd">esc</span> close

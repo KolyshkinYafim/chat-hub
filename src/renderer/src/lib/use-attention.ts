@@ -14,6 +14,7 @@ import {
   type AttentionSeen,
 } from "./attention"
 import { useDampedOrder } from "./use-damped-order"
+import type { PrStatusByCwd } from "./pr-checks"
 
 const SEEN_KEY = "chat-hub.attention.seen"
 
@@ -24,6 +25,7 @@ export function useAttention(
   layout: PaneLayout,
   activeId: string | null,
   onJump: (id: string) => void,
+  prByCwd: PrStatusByCwd = {},
 ): {
   seen: AttentionSeen
   queue: SessionMeta[]
@@ -125,8 +127,8 @@ export function useAttention(
   }, [])
 
   const liveQueue = useMemo(
-    () => attentionQueue(sessions, seen),
-    [sessions, seen],
+    () => attentionQueue(sessions, seen, prByCwd),
+    [sessions, seen, prByCwd],
   )
   const liveIds = useMemo(() => liveQueue.map((s) => s.id), [liveQueue])
   const orderedIds = useDampedOrder(liveIds)
