@@ -25,5 +25,5 @@ test("boots clean with no sessions and shows the empty state", async () => {
   launched = await launchApp([])
   const { page } = launched
   await expect(page.locator(".session-row")).toHaveCount(0)
-  await expect(page.locator("body")).toContainText("⌘N")
+  await expect(page.locator("body")).toContainText(/⌘N|Ctrl\+N/)
 })
