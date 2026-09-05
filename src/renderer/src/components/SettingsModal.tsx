@@ -156,14 +156,26 @@ function statusPill(state: McpServerStatus["state"]): { text: string; cls: strin
   }
 }
 
-function presetAuthBadge(auth: McpPreset["auth"]): { text: string; cls: string } {
-  switch (auth) {
+function presetAuthBadge(preset: McpPreset): { text: string; cls: string } {
+  switch (preset.auth) {
     case "oauth":
       return { text: "OAuth", cls: "info" }
     case "token":
       return { text: "Token", cls: "warn" }
     default:
-      return { text: "Local", cls: "muted" }
+      return isLoopbackUrl(preset.url)
+        ? { text: "Local", cls: "muted" }
+        : { text: "No auth", cls: "muted" }
+  }
+}
+
+function isLoopbackUrl(url: string | undefined): boolean {
+  if (!url) return true
+  try {
+    const host = new URL(url).hostname
+    return host === "127.0.0.1" || host === "localhost" || host === "::1"
+  } catch {
+    return false
   }
 }
 
@@ -2046,7 +2058,7 @@ export function SettingsModal({
                     </div>
                     <div className="mcp-catalog">
                       {MCP_CATALOG.map((preset) => {
-                        const badge = presetAuthBadge(preset.auth)
+                        const badge = presetAuthBadge(preset)
                         const added = mcpServers.some((s) => s.id === preset.id)
                         return (
                           <div key={preset.id} className="mcp-preset">
