@@ -197,7 +197,7 @@ type ProbeOutcome = Pick<McpServerStatus, "state" | "detail">
 export async function probeHttp(url: string): Promise<ProbeOutcome> {
   const status = await postInitialize(url)
   if (status === null) return { state: "error", detail: mcpUnreachableDetail(url) }
-  if (status === 401 || status === 403) return { state: "error", detail: "Needs sign-in" }
+  if (status === 401 || status === 403) return { state: "unknown", detail: "Needs sign-in" }
   if (status >= 200 && status < 300) return { state: "ok", detail: url }
   return { state: "error", detail: `HTTP ${status}` }
 }

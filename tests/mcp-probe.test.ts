@@ -75,11 +75,11 @@ describe("probeHttp", () => {
 
   it("maps 401 and 403 to Needs sign-in", async () => {
     expect(await probeHttp(await fakeMcp(401))).toEqual({
-      state: "error",
+      state: "unknown",
       detail: "Needs sign-in",
     })
     expect(await probeHttp(await fakeMcp(403))).toEqual({
-      state: "error",
+      state: "unknown",
       detail: "Needs sign-in",
     })
   })
