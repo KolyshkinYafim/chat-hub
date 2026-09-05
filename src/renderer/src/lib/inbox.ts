@@ -5,8 +5,9 @@ import type {
   PermissionRequestInfo,
   SessionMeta,
 } from "@shared/types"
+import { failingChecks, hasFailingChecks, type PrStatusByCwd } from "./pr-checks"
 
-export type InboxKind = "permission" | "question" | "failed"
+export type InboxKind = "permission" | "question" | "failed" | "checks"
 
 export type InboxCard = {
   id: string
@@ -49,6 +50,7 @@ export function buildInboxCards(
   sessions: readonly SessionMeta[],
   permissions: readonly PermissionRequestInfo[],
   inputRequests: readonly AgentInputRequestInfo[],
+  prByCwd: PrStatusByCwd = {},
 ): InboxCard[] {
   const byId = new Map(sessions.map((session) => [session.id, session]))
   const cards: InboxCard[] = []
@@ -101,8 +103,27 @@ export function buildInboxCards(
     })
   }
 
+  for (const session of sessions) {
+    if (!hasFailingChecks(session, prByCwd)) continue
+    cards.push({
+      id: `checks:${session.id}`,
+      kind: "checks",
+      sessionId: session.id,
+      requestId: null,
+      title: session.title,
+      project: session.project,
+      at: activityStamp(session),
+      body: checksBody(failingChecks(prByCwd[session.cwd]).map((c) => c.name)),
+    })
+  }
+
   cards.sort((a, b) => b.at - a.at || a.id.localeCompare(b.id))
   return cards
+}
+
+function checksBody(names: readonly string[]): string {
+  const count = names.length === 1 ? "1 check failing" : `${names.length} checks failing`
+  return inboxOneLine(`${count} · ${names.join(", ")}`)
 }
 
 function questionBody(request: AgentInputRequestInfo): string {

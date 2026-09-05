@@ -7,6 +7,7 @@ import type {
   AgentInputRequestInfo,
   AgentTurnItem,
   ChatMessage,
+  GitPrStatus,
   HubEvent,
   MessageAttachment,
   PermissionRequestInfo,
@@ -1267,6 +1268,30 @@ let mockContext: ProjectContext = {
   })),
 }
 
+const mockPrStatus: GitPrStatus = {
+  pr: {
+    number: 42,
+    title: "Verify JWT claims before trusting them",
+    url: "https://github.com/example/chat-hub/pull/42",
+    branch: "fix/jwt-claims",
+    state: "OPEN",
+    isDraft: true,
+    reviewDecision: "REVIEW_REQUIRED",
+    mergeable: "MERGEABLE",
+    checks: [
+      { name: "CI / lint", state: "success", durationMs: 42_000 },
+      {
+        name: "CI / typecheck",
+        state: "failure",
+        durationMs: 61_000,
+        detailsUrl: "https://github.com/example/chat-hub/actions/runs/1234/job/5678",
+        runId: "1234",
+      },
+      { name: "CI / test", state: "pending" },
+    ],
+  },
+}
+
 function patchMockContext(patch: Partial<ProjectContext>): ProjectContext {
   mockContext = { ...mockContext, ...patch, updatedAt: Date.now() }
   return mockContext
@@ -1796,6 +1821,14 @@ export function installDevMock(): void {
     gitCommitStaged: async () => ({ ok: true, output: "[main abc1234] 1 file changed" }),
     gitPush: async () => ({ ok: true, output: "Everything up-to-date" }),
     gitCreatePr: async () => ({ ok: true, output: "https://github.com/example/chat-hub/pull/1" }),
+    gitPrStatus: async () => mockPrStatus,
+    gitPrStatuses: async () => ({}),
+    gitChecksAcknowledge: async () => null,
+    gitCheckLog: async (_cwd, runId) =>
+      [
+        `typecheck\tRun pnpm typecheck\t2026-09-05T10:00:00Z src/lib/jwt.ts(14,9): error TS2339: Property 'iat' does not exist on type 'Claims'.`,
+        `typecheck\tRun pnpm typecheck\t2026-09-05T10:00:01Z ##[error]Process completed with exit code 2. (run ${runId})`,
+      ].join("\n"),
     onHubEvent: (listener) => {
       hubListeners.add(listener)
       return () => hubListeners.delete(listener)

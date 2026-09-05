@@ -10,6 +10,9 @@ export const NEW_WINDOW_KEY = "command:new-window"
 export const NEW_WINDOW_MATCH = "new window open another window"
 export const COPY_LINK_KEY = "command:copy-link"
 export const COPY_LINK_MATCH = "copy link to session deep link chat-hub url"
+export const SEND_FAILING_CHECKS_KEY = "command:send-failing-checks"
+export const SEND_FAILING_CHECKS_MATCH =
+  "send failing checks to agent ci fix pull request"
 
 const MAX_SESSION_RESULTS = 12
 
@@ -35,8 +38,21 @@ function commandCandidates(
   attentionCount: number,
   inboxCount: number,
   hasActiveSession: boolean,
+  failingChecks: number,
 ): CommandCandidate[] {
   const out: CommandCandidate[] = []
+  if (failingChecks > 0) {
+    out.push({
+      match: SEND_FAILING_CHECKS_MATCH,
+      entry: {
+        kind: "command",
+        key: SEND_FAILING_CHECKS_KEY,
+        label: "Send failing checks to agent",
+        sub: `Hand the ${failingChecks === 1 ? "failing CI check" : `${failingChecks} failing CI checks`} and their logs to the current session`,
+        hint: "⌘⇧X",
+      },
+    })
+  }
   if (attentionCount > 0) {
     out.push({
       match: NEXT_ATTENTION_MATCH,
@@ -93,6 +109,7 @@ export function buildPaletteEntries(
   attentionCount: number,
   inboxCount = 0,
   hasActiveSession = false,
+  failingChecks = 0,
 ): PaletteEntry[] {
   const scored: { session: SessionMeta; score: number }[] = []
   for (const s of sessions) {
@@ -111,6 +128,7 @@ export function buildPaletteEntries(
     attentionCount,
     inboxCount,
     hasActiveSession,
+    failingChecks,
   )) {
     const score = fuzzyScore(query, candidate.match)
     if (score === null) continue

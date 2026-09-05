@@ -65,6 +65,7 @@ export function DiffSurface({
           refreshKey={refreshKey}
           focus={focus}
           actions={actions}
+          onSend={onSend}
           onClose={onClose}
           onChanged={onChanged}
         />

@@ -510,6 +510,7 @@ export type HubEvent =
       statuses: ProviderStatus[]
       cachedAt: number
     }
+  | { type: "git.pr"; cwd: string; status: GitPrStatus }
 
 export type CreateSessionInput = {
   provider: ProviderId
@@ -662,6 +663,46 @@ export type GitCommitDetail = {
 }
 
 export type GitRepository = { root: string; name: string; branch: string; dirty: boolean }
+
+export type GitCheckState = "pending" | "success" | "failure" | "skipped"
+
+export type GitCheck = {
+  name: string
+  state: GitCheckState
+  durationMs?: number
+  detailsUrl?: string
+  runId?: string
+}
+
+export type GitPrState = "OPEN" | "CLOSED" | "MERGED"
+
+export type GitReviewDecision =
+  | "APPROVED"
+  | "CHANGES_REQUESTED"
+  | "REVIEW_REQUIRED"
+  | null
+
+export type GitMergeable = "MERGEABLE" | "CONFLICTING" | "UNKNOWN"
+
+export type GitPullRequest = {
+  number: number
+  title: string
+  url: string
+  branch: string
+  state: GitPrState
+  isDraft: boolean
+  reviewDecision: GitReviewDecision
+  mergeable: GitMergeable
+  checks: GitCheck[]
+}
+
+export type GitPrUnavailable = "missing" | "unauthenticated" | "error"
+
+export type GitPrStatus = {
+  pr: GitPullRequest | null
+  unavailable?: GitPrUnavailable
+  acknowledged?: true
+}
 
 /** One checkout registered in a repository's worktree administrative file. */
 export type GitWorktreeInfo = {

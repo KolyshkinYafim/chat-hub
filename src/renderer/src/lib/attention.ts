@@ -5,6 +5,7 @@ import {
   needsAction,
   STATUS_RANK,
 } from "@shared/attention"
+import { hasFailingChecks, type PrStatusByCwd } from "./pr-checks"
 
 export type AttentionSeen = Readonly<Record<string, number>>
 
@@ -23,16 +24,22 @@ export function isUnseenDone(
 export function needsAttention(
   session: SessionMeta,
   seen: AttentionSeen,
+  prByCwd: PrStatusByCwd = {},
 ): boolean {
-  return needsAction(session) || isUnseenDone(session, seen)
+  return (
+    needsAction(session) ||
+    isUnseenDone(session, seen) ||
+    hasFailingChecks(session, prByCwd)
+  )
 }
 
 export function attentionQueue(
   sessions: readonly SessionMeta[],
   seen: AttentionSeen,
+  prByCwd: PrStatusByCwd = {},
 ): SessionMeta[] {
   return sessions
-    .filter((s) => needsAttention(s, seen))
+    .filter((s) => needsAttention(s, seen, prByCwd))
     .sort(
       (a, b) =>
         STATUS_RANK[a.status] - STATUS_RANK[b.status] ||

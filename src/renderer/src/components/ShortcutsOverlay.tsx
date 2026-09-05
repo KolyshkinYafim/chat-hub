@@ -49,6 +49,10 @@ const GROUPS: Group[] = [
       },
       { keys: "⌘G", what: "Diff panel — press again to close the panel" },
       { keys: "⌘Y", what: "History panel — press again to close the panel" },
+      {
+        keys: "⌘⇧X",
+        what: "Send failing checks to agent — the PR's failing CI logs, as one prompt",
+      },
       { keys: "⌘⌥1–9", what: "Run the project script bound to that digit" },
       { keys: "Esc", what: "Stop the running turn — when no dialog is open" },
     ],

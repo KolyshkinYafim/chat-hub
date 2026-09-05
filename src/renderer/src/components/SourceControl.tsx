@@ -7,7 +7,14 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react"
-import type { GitFileChange, GitHunkSummary, GitRepository, GitWorkingCopy, GitWorktreeInfo } from "@shared/types"
+import type {
+  GitFileChange,
+  GitHunkSummary,
+  GitPrStatus,
+  GitRepository,
+  GitWorkingCopy,
+  GitWorktreeInfo,
+} from "@shared/types"
 import {
   actionForPath,
   type AgentAction,
@@ -31,6 +38,14 @@ import {
 } from "../lib/diff-viewed"
 import { isEditableTarget } from "../lib/editable-target"
 import { matchPath } from "../lib/path-match"
+import {
+  CHECKS_POLL_INTERVAL_MS,
+  failingChecks,
+  failingChecksPrompt,
+  formatCheckDuration,
+  orderChecks,
+  prPills,
+} from "../lib/pr-checks"
 import { leftBehindWarning } from "../lib/publish-gate"
 
 type Props = {
@@ -42,6 +57,7 @@ type Props = {
   focus?: { path: string; at: number } | null
   /** Session tool trail — optional "why changed" hint per file when linkable. */
   actions?: AgentAction[]
+  onSend: (text: string) => Promise<void>
   onClose: () => void
   /** Lets the rest of the app re-read the branch/dirty chip after a write. */
   onChanged: () => void
@@ -306,6 +322,7 @@ export function SourceControl({
   refreshKey,
   focus,
   actions = [],
+  onSend,
   onClose,
   onChanged,
 }: Props) {
@@ -327,6 +344,8 @@ export function SourceControl({
   const [worktrees, setWorktrees] = useState<GitWorktreeInfo[]>([])
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [pr, setPr] = useState<GitPrStatus | null>(null)
+  const [sendingChecks, setSendingChecks] = useState(false)
   const [viewed, setViewed] = useState<ViewedMap>(() => loadViewed(sessionId))
   const liveRef = useRef(true)
   const viewedRef = useRef(viewed)
@@ -368,6 +387,28 @@ export function SourceControl({
     setPrTitle("")
     void reload()
   }, [reload, refreshKey])
+
+  const refreshPr = useCallback(async () => {
+    const status = await window.chatHub
+      .gitPrStatus(repoCwd)
+      .catch((): GitPrStatus => ({ pr: null, unavailable: "error" }))
+    if (liveRef.current) setPr(status)
+  }, [repoCwd])
+
+  useEffect(() => {
+    setPr(null)
+  }, [repoCwd])
+
+  useEffect(() => {
+    void refreshPr()
+  }, [refreshPr, refreshKey])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshPr()
+    }, CHECKS_POLL_INTERVAL_MS)
+    return () => window.clearInterval(timer)
+  }, [refreshPr])
 
   const staged = useMemo(() => stagedRows(copy.files), [copy.files])
   const unstaged = useMemo(() => unstagedRows(copy.files), [copy.files])
@@ -602,13 +643,118 @@ export function SourceControl({
 
   function push() {
     if (!reviewConfirmed) return
-    void run(() => window.chatHub.gitPush(cwd))
+    void run(() => window.chatHub.gitPush(cwd)).then(refreshPr)
   }
 
   function createPr() {
     if (!reviewConfirmed) return
     const title = prTitle.trim() || copy.branch
-    void run(() => window.chatHub.gitCreatePr(cwd, title, message.trim(), prDraft))
+    void run(() =>
+      window.chatHub.gitCreatePr(cwd, title, message.trim(), prDraft),
+    ).then(refreshPr)
+  }
+
+  async function sendFailingChecks() {
+    if (!pr) return
+    setSendingChecks(true)
+    setNotice(null)
+    try {
+      const prompt = await failingChecksPrompt(
+        repoCwd,
+        pr,
+        window.chatHub.gitCheckLog,
+      )
+      if (prompt) {
+        await onSend(prompt)
+        const acknowledged = await window.chatHub.gitChecksAcknowledge(repoCwd)
+        if (acknowledged && liveRef.current) setPr(acknowledged)
+      }
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err))
+    } finally {
+      if (liveRef.current) setSendingChecks(false)
+    }
+  }
+
+  function checksBody() {
+    if (pr === null) return <p className="scm-hint">Checking pull request…</p>
+    if (pr.unavailable === "missing") {
+      return <p className="scm-hint">Install gh to see PR checks</p>
+    }
+    if (pr.unavailable === "unauthenticated") {
+      return <p className="scm-hint">Run gh auth login to see PR checks</p>
+    }
+    if (pr.unavailable === "error") {
+      return <p className="scm-hint">PR status unavailable</p>
+    }
+    if (!pr.pr) return <p className="scm-hint">No pull request for this branch</p>
+    const failing = failingChecks(pr)
+    return (
+      <>
+        <div className="scm-pr">
+          <a
+            className="scm-pr-title"
+            href={pr.pr.url}
+            target="_blank"
+            rel="noreferrer"
+            title={pr.pr.url}
+          >
+            #{pr.pr.number} {pr.pr.title}
+          </a>
+          {prPills(pr.pr).map((pill) => (
+            <span key={pill.label} className={`scm-pill ${pill.tone}`}>
+              {pill.label}
+            </span>
+          ))}
+        </div>
+        {pr.pr.checks.length === 0 ? (
+          <p className="scm-hint">No checks reported yet.</p>
+        ) : (
+          <ul className="scm-check-list">
+            {orderChecks(pr.pr.checks).map((check) => (
+              <li
+                key={`${check.name}:${check.detailsUrl ?? ""}`}
+                className={`scm-check ${check.state}`}
+              >
+                <span className={`scm-check-dot ${check.state}`} title={check.state} />
+                <span className="scm-check-name" title={check.name}>
+                  {check.name}
+                </span>
+                {check.durationMs === undefined ? null : (
+                  <span className="scm-check-time">
+                    {formatCheckDuration(check.durationMs)}
+                  </span>
+                )}
+                {check.detailsUrl ? (
+                  <a
+                    className="scm-act scm-check-link"
+                    href={check.detailsUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Open on GitHub"
+                  >
+                    ↗
+                  </a>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+        {failing.length > 0 ? (
+          <button
+            type="button"
+            className="tb-btn danger scm-checks-send"
+            disabled={sendingChecks}
+            title="Queue the failing logs into this session as one prompt (⌘⇧X)"
+            onClick={() => void sendFailingChecks()}
+          >
+            {sendingChecks
+              ? "Sending…"
+              : `Send failing check${failing.length === 1 ? "" : "s"} to agent`}
+          </button>
+        ) : null}
+      </>
+    )
   }
 
   function removeWorktree(worktree: GitWorktreeInfo) {
@@ -783,6 +929,23 @@ export function SourceControl({
           </div>
 
           {notice ? <div className="scm-notice">{notice}</div> : null}
+
+          <div className="scm-checks">
+            <div className="scm-section-head">
+              <span>Checks</span>
+              {pr?.pr ? (
+                <button
+                  type="button"
+                  className="icon-chip xs ghost"
+                  title="Refresh checks"
+                  onClick={() => void refreshPr()}
+                >
+                  ↻
+                </button>
+              ) : null}
+            </div>
+            {checksBody()}
+          </div>
 
           <div className="scm-review-gate">
             <label>

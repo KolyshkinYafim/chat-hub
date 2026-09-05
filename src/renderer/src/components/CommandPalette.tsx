@@ -5,6 +5,7 @@ import {
   buildPaletteEntries,
   COPY_LINK_KEY,
   NEW_WINDOW_KEY,
+  SEND_FAILING_CHECKS_KEY,
   paletteKey,
   resolvePaletteCursor,
   type PaletteCursor,
@@ -19,11 +20,13 @@ type Props = {
   activeId: string | null
   attentionCount: number
   inboxCount: number
+  failingChecks: number
   onSelect: (id: string) => void
   onNextAttention: () => void
   onNewWindow: (sessionId?: string) => void
   onOpenInbox: () => void
   onCopyLink: () => void
+  onSendFailingChecks: () => void
   onClose: () => void
 }
 
@@ -33,11 +36,13 @@ export function CommandPalette({
   activeId,
   attentionCount,
   inboxCount,
+  failingChecks,
   onSelect,
   onNextAttention,
   onNewWindow,
   onOpenInbox,
   onCopyLink,
+  onSendFailingChecks,
   onClose,
 }: Props) {
   const [query, setQuery] = useState("")
@@ -51,8 +56,9 @@ export function CommandPalette({
         attentionCount,
         inboxCount,
         activeId !== null,
+        failingChecks,
       ),
-    [sessions, query, attentionCount, inboxCount, activeId],
+    [sessions, query, attentionCount, inboxCount, activeId, failingChecks],
   )
   const keys = useMemo(() => entries.map(paletteKey), [entries])
   const active = resolvePaletteCursor(keys, cursor)
@@ -66,6 +72,7 @@ export function CommandPalette({
       if (entry.key === NEW_WINDOW_KEY) onNewWindow()
       else if (entry.key === AGENT_INBOX_KEY) onOpenInbox()
       else if (entry.key === COPY_LINK_KEY) onCopyLink()
+      else if (entry.key === SEND_FAILING_CHECKS_KEY) onSendFailingChecks()
       else onNextAttention()
     } else if (newWindow) {
       onNewWindow(entry.session.id)
