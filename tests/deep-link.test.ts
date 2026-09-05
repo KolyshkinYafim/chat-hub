@@ -8,7 +8,9 @@ import {
 } from "@shared/deep-link"
 import { HUB_OPS, type HubRequest, type HubResponse } from "@shared/hub-control"
 import {
+  DEEP_LINK_PROMPT_PREVIEW_CHARS,
   DeepLinkDispatcher,
+  deepLinkPromptPreview,
   hubRequestFor,
   type DeepLinkDeps,
   type DeepLinkNewSession,
@@ -253,5 +255,17 @@ describe("DeepLinkDispatcher", () => {
     h.dispatcher.open("chat-hub://surface/terminal?session=s-1")
     await settled()
     expect(h.requests.map((r) => r.op)).toEqual([HUB_OPS.openSurface])
+  })
+})
+
+describe("deepLinkPromptPreview", () => {
+  it("flattens whitespace and keeps short prompts whole", () => {
+    expect(deepLinkPromptPreview("  fix\n\nthe   build ")).toBe("fix the build")
+  })
+
+  it("caps long prompts with an ellipsis", () => {
+    const preview = deepLinkPromptPreview("x".repeat(1000))
+    expect(preview).toHaveLength(DEEP_LINK_PROMPT_PREVIEW_CHARS)
+    expect(preview.endsWith("…")).toBe(true)
   })
 })

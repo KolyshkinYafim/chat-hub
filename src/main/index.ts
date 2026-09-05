@@ -131,7 +131,11 @@ import { HubControl } from "./hub-control"
 import { SURFACE_OPS } from "@shared/surface-control"
 import { DEEP_LINK_SCHEME, deepLinkFromArgv } from "@shared/deep-link"
 import type { HubResponse } from "@shared/hub-control"
-import { DeepLinkDispatcher, type DeepLinkNewSession } from "./deep-links"
+import {
+  DeepLinkDispatcher,
+  deepLinkPromptPreview,
+  type DeepLinkNewSession,
+} from "./deep-links"
 import { AutomationServer, generateAutomationToken } from "./automation-server"
 
 const REAL_PROVIDER_IDS: ProviderId[] = [
@@ -407,6 +411,9 @@ async function newSessionFromDeepLink(
       error: "No project folder in the link and no previous session to inherit one from.",
     }
   }
+  if (input.prompt && !(await confirmDeepLinkPrompt(cwd, input.prompt))) {
+    return { id, ok: false, error: "Declined by the user." }
+  }
   try {
     const session = await createPinnedSession(sm, projects, settings, {
       provider: settings.general.defaultProvider ?? "claude",
@@ -423,6 +430,18 @@ async function newSessionFromDeepLink(
   } catch (err) {
     return { id, ok: false, error: err instanceof Error ? err.message : String(err) }
   }
+}
+
+async function confirmDeepLinkPrompt(cwd: string, prompt: string): Promise<boolean> {
+  const { response } = await dialog.showMessageBox({
+    type: "question",
+    buttons: ["Start session", "Cancel"],
+    defaultId: 0,
+    cancelId: 1,
+    message: "A link wants to start an agent session",
+    detail: `Folder: ${cwd}\n\nPrompt:\n${deepLinkPromptPreview(prompt)}`,
+  })
+  return response === 0
 }
 
 const browserService = new BrowserService(

@@ -21,6 +21,15 @@ export function automationRequest(
   return { id: randomUUID(), sessionId: "", op, params }
 }
 
+export const DEEP_LINK_PROMPT_PREVIEW_CHARS = 400
+
+export function deepLinkPromptPreview(prompt: string): string {
+  const flat = prompt.replace(/\s+/g, " ").trim()
+  return flat.length > DEEP_LINK_PROMPT_PREVIEW_CHARS
+    ? `${flat.slice(0, DEEP_LINK_PROMPT_PREVIEW_CHARS - 1)}…`
+    : flat
+}
+
 export type HubDeepLinkCommand = Exclude<DeepLinkCommand, { kind: "new" }>
 
 export function hubRequestFor(command: HubDeepLinkCommand): HubRequest {
