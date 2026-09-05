@@ -11,9 +11,11 @@ import {
   getHunkSummary,
   hunkText,
   parseFilePatch,
+  splitDiffBlocks,
   stageFileHunk,
   unstageFileHunk,
 } from "../src/main/git"
+import { hashDiff } from "../src/shared/diff-hash"
 
 const exec = promisify(execFile)
 
@@ -248,6 +250,60 @@ describe("countHunksByFile", () => {
   })
 })
 
+describe("splitDiffBlocks", () => {
+  const BLOCK_EDIT = [
+    "diff --git a/src/app.ts b/src/app.ts",
+    "index 111..222 100644",
+    "--- a/src/app.ts",
+    "+++ b/src/app.ts",
+    "@@ -1,3 +1,3 @@",
+    "-const a = 1",
+    "+const a = 2",
+    " const b = 3",
+    "@@ -10,2 +10,2 @@",
+    " keep",
+    "--- tricky",
+    "+ tail",
+    "",
+  ].join("\n")
+  const BLOCK_RENAME = [
+    "diff --git a/old.txt b/new.txt",
+    "similarity index 90%",
+    "rename from old.txt",
+    "rename to new.txt",
+    "index 333..444 100644",
+    "--- a/old.txt",
+    "+++ b/new.txt",
+    "@@ -1 +1 @@",
+    "-t1",
+    "+t2",
+    "",
+  ].join("\n")
+  const BLOCK_BINARY =
+    "diff --git a/logo.png b/logo.png\nBinary files a/logo.png and b/logo.png differ\n"
+
+  it("splits per-file blocks verbatim, counting hunks and flagging renames", () => {
+    const blocks = splitDiffBlocks(BLOCK_EDIT + BLOCK_RENAME + BLOCK_BINARY)
+    expect(blocks.map((b) => b.path)).toEqual(["src/app.ts", "new.txt"])
+    expect(blocks[0]).toEqual({
+      path: "src/app.ts",
+      text: BLOCK_EDIT,
+      hunks: 2,
+      moved: false,
+    })
+    expect(blocks[1]).toEqual({
+      path: "new.txt",
+      text: BLOCK_RENAME,
+      hunks: 1,
+      moved: true,
+    })
+  })
+
+  it("returns nothing for empty input", () => {
+    expect(splitDiffBlocks("")).toEqual([])
+  })
+})
+
 async function initRepo(): Promise<string> {
   const repo = await mkdtemp(join(tmpdir(), "chat-hub-hunk-repo-"))
   await exec("git", ["init", "-q"], { cwd: repo })
@@ -290,7 +346,12 @@ describe("per-hunk staging against a real repository", () => {
     expect(res).toMatchObject({ ok: true })
 
     expect(await getHunkSummary(repo)).toEqual({
-      "notes.txt": { staged: 1, unstaged: 1 },
+      "notes.txt": {
+        staged: 1,
+        unstaged: 1,
+        stagedHash: hashDiff(await getFileDiff(repo, "notes.txt", true)),
+        unstagedHash: hashDiff(await getFileDiff(repo, "notes.txt", false)),
+      },
     })
 
     await exec("git", ["commit", "-qm", "first hunk"], { cwd: repo })
@@ -366,7 +427,12 @@ describe("per-hunk staging against a real repository", () => {
     expect(res).toMatchObject({ ok: true })
 
     expect(await getHunkSummary(repo)).toEqual({
-      "notes.txt": { staged: 1, unstaged: 1 },
+      "notes.txt": {
+        staged: 1,
+        unstaged: 1,
+        stagedHash: hashDiff(await getFileDiff(repo, "notes.txt", true)),
+        unstagedHash: hashDiff(await getFileDiff(repo, "notes.txt", false)),
+      },
     })
     const left = parseFilePatch(await getFileDiff(repo, "notes.txt", true))
     expect(left.hunks).toHaveLength(1)
@@ -447,7 +513,12 @@ describe("per-hunk staging against a real repository", () => {
     )
     expect(res).toMatchObject({ ok: true })
     expect(await getHunkSummary(repo)).toEqual({
-      "notes.txt": { staged: 1, unstaged: 1 },
+      "notes.txt": {
+        staged: 1,
+        unstaged: 1,
+        stagedHash: hashDiff(await getFileDiff(repo, "notes.txt", true)),
+        unstagedHash: hashDiff(await getFileDiff(repo, "notes.txt", false)),
+      },
     })
   })
 
@@ -470,6 +541,39 @@ describe("per-hunk staging against a real repository", () => {
 })
 
 describe("getHunkSummary", () => {
+  it("hashes each side identically to the single-path diff, quoting included", async () => {
+    const repo = await initRepo()
+    await commitFile(repo, "grøn notes.txt", BASE, "base")
+    await writeFile(
+      join(repo, "grøn notes.txt"),
+      BASE.replace("line02", "line02 changed"),
+    )
+    await exec("git", ["add", "grøn notes.txt"], { cwd: repo })
+    await writeFile(
+      join(repo, "grøn notes.txt"),
+      BASE.replace("line02", "line02 changed").replace("line11", "line11 changed"),
+    )
+
+    const summary = await getHunkSummary(repo)
+    expect(summary["grøn notes.txt"]).toEqual({
+      staged: 1,
+      unstaged: 1,
+      stagedHash: hashDiff(await getFileDiff(repo, "grøn notes.txt", true)),
+      unstagedHash: hashDiff(await getFileDiff(repo, "grøn notes.txt", false)),
+    })
+  })
+
+  it("keeps counts but omits hashes for a rename, whose single-path diff differs", async () => {
+    const repo = await initRepo()
+    await commitFile(repo, "old.txt", BASE, "base")
+    await exec("git", ["mv", "old.txt", "new.txt"], { cwd: repo })
+    await writeFile(join(repo, "new.txt"), BASE.replace("line02", "line02 changed"))
+    await exec("git", ["add", "new.txt"], { cwd: repo })
+
+    const summary = await getHunkSummary(repo)
+    expect(summary["new.txt"]).toEqual({ staged: 1, unstaged: 0 })
+  })
+
   it("rejects when the diff cannot be read, never resolving empty", async () => {
     // The counts back the publish-gate warning; a failure that resolved to {}
     // would be indistinguishable from "everything is staged".

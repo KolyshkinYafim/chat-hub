@@ -3,6 +3,7 @@ import { promisify } from "node:util"
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, join, sep } from "node:path"
 import { homedir, tmpdir } from "node:os"
+import { hashDiff } from "@shared/diff-hash"
 import type {
   GitBranchList,
   GitCommitDetail,
@@ -300,8 +301,20 @@ export async function getFileDiff(
 ): Promise<string> {
   assertPathspec(path)
   const args = untracked
-    ? [...DIFF_SHAPE, "diff", ...DIFF_FLAGS, "--no-index", "--", "/dev/null", path]
+    ? [
+        "-c",
+        "core.quotepath=false",
+        ...DIFF_SHAPE,
+        "diff",
+        ...DIFF_FLAGS,
+        "--no-index",
+        "--",
+        "/dev/null",
+        path,
+      ]
     : [
+        "-c",
+        "core.quotepath=false",
         ...DIFF_SHAPE,
         "diff",
         ...DIFF_FLAGS,
@@ -407,44 +420,79 @@ export function buildHunkPatch(
  * outside hunk bodies — a deleted line reading `-- x` prints as `--- x` and
  * must not be mistaken for a file header.
  */
-export function countHunksByFile(diffText: string): Map<string, number> {
-  const counts = new Map<string, number>()
+export type DiffBlock = {
+  path: string
+  text: string
+  hunks: number
+  moved: boolean
+}
+
+function diffHeaderPath(line: string, prefix: "a/" | "b/"): string | null {
+  let raw = line.slice(4)
+  if (raw.endsWith("\t")) raw = raw.slice(0, -1)
+  if (raw.startsWith('"') && raw.endsWith('"')) {
+    raw = raw
+      .slice(1, -1)
+      .replace(/\\([\\"tn])/g, (_, ch: string) =>
+        ch === "t" ? "\t" : ch === "n" ? "\n" : ch,
+      )
+  }
+  if (raw === "/dev/null") return null
+  return raw.startsWith(prefix) ? raw.slice(2) : raw
+}
+
+export function splitDiffBlocks(diffText: string): DiffBlock[] {
+  const lines = diffText.split("\n")
+  if (lines[lines.length - 1] === "") lines.pop()
+  const blocks: DiffBlock[] = []
+  let blockLines: string[] = []
   let oldPath: string | null = null
   let path: string | null = null
+  let hunks = 0
+  let moved = false
   let inHunk = false
-  const headerPath = (line: string, prefix: "a/" | "b/"): string | null => {
-    let raw = line.slice(4)
-    if (raw.startsWith('"') && raw.endsWith('"')) {
-      raw = raw
-        .slice(1, -1)
-        .replace(/\\([\\"tn])/g, (_, ch: string) =>
-          ch === "t" ? "\t" : ch === "n" ? "\n" : ch,
-        )
+  const flush = (): void => {
+    if (path !== null) {
+      blocks.push({ path, text: blockLines.join("\n") + "\n", hunks, moved })
     }
-    if (raw === "/dev/null") return null
-    return raw.startsWith(prefix) ? raw.slice(2) : raw
+    blockLines = []
+    oldPath = null
+    path = null
+    hunks = 0
+    moved = false
+    inHunk = false
   }
-  for (const line of diffText.split("\n")) {
-    if (line.startsWith("diff --git ")) {
-      oldPath = null
-      path = null
-      inHunk = false
-      continue
-    }
+  for (const line of lines) {
+    if (line.startsWith("diff --git ")) flush()
+    blockLines.push(line)
     if (HUNK_HEADER.test(line)) {
       inHunk = true
-      if (path) counts.set(path, (counts.get(path) ?? 0) + 1)
+      hunks += 1
       continue
     }
     if (inHunk) continue
+    if (line.startsWith("rename from ") || line.startsWith("copy from ")) {
+      moved = true
+      continue
+    }
     if (line.startsWith("--- ")) {
-      oldPath = headerPath(line, "a/")
+      oldPath = diffHeaderPath(line, "a/")
       continue
     }
     if (line.startsWith("+++ ")) {
       // A deletion diffs to /dev/null; the old side still names the file.
-      path = headerPath(line, "b/") ?? oldPath
+      path = diffHeaderPath(line, "b/") ?? oldPath
     }
+  }
+  flush()
+  return blocks
+}
+
+export function countHunksByFile(diffText: string): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const block of splitDiffBlocks(diffText)) {
+    if (block.hunks === 0) continue
+    counts.set(block.path, (counts.get(block.path) ?? 0) + block.hunks)
   }
   return counts
 }
@@ -464,12 +512,18 @@ export async function getHunkSummary(cwd: string): Promise<GitHunkSummary> {
     ).then((res) => res.stdout)
   const [worktree, index] = await Promise.all([diffOut([]), diffOut(["--cached"])])
   const summary: GitHunkSummary = {}
-  for (const [path, count] of countHunksByFile(worktree)) {
-    ;(summary[path] ??= { staged: 0, unstaged: 0 }).unstaged = count
+  const record = (diffText: string, staged: boolean): void => {
+    for (const block of splitDiffBlocks(diffText)) {
+      if (block.hunks === 0) continue
+      const entry = (summary[block.path] ??= { staged: 0, unstaged: 0 })
+      entry[staged ? "staged" : "unstaged"] += block.hunks
+      if (!block.moved) {
+        entry[staged ? "stagedHash" : "unstagedHash"] = hashDiff(block.text)
+      }
+    }
   }
-  for (const [path, count] of countHunksByFile(index)) {
-    ;(summary[path] ??= { staged: 0, unstaged: 0 }).staged = count
-  }
+  record(worktree, false)
+  record(index, true)
   return summary
 }
 
