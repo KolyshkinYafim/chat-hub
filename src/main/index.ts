@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from "electro
 import { join } from "node:path"
 import { realpathSync, statSync } from "node:fs"
 import { IpcChannels } from "@shared/ipc"
+import { attentionEligible } from "@shared/attention"
 import type { CreateSessionInput, ProviderId } from "@shared/types"
 import { PROVIDERS } from "@shared/types"
 import { listProviderInfo } from "./adapters"
@@ -24,6 +25,8 @@ import {
   gitCommitStaged,
   gitPush,
   gitCreatePr,
+  getPrForBranch,
+  getCheckRunLog,
   listSessionWorktrees,
   pruneSessionWorktrees,
   removeSessionWorktree,
@@ -115,6 +118,7 @@ import {
 import { inspectAttachmentPaths } from "./attachments"
 import { ProviderStatusCacheStore } from "./provider-status-cache"
 import { ProviderStatusRefresher } from "./provider-status-refresh"
+import { PrStatusWatcher } from "./pr-status"
 import { chatHubBrowserSocketPath } from "@shared/bridge-path"
 import { BrowserControl } from "./surfaces/browser-control"
 import { SurfaceControl } from "./surfaces/surface-control"
@@ -190,6 +194,7 @@ let manager: SessionManager | null = null
 let commandBridge: MonitorCommandBridge | null = null
 let permissions: PermissionBroker | null = null
 let dockBadge: DockBadge | null = null
+let prStatusWatcher: PrStatusWatcher | null = null
 // createWindow also runs from `activate` and the monitor bridge, long after
 // bootstrap handed the store around, so the window path reads it from here.
 let settingsStore: SettingsStore | null = null
@@ -713,6 +718,7 @@ export function registerIpc(
   userData: string,
   usageLedger: UsageLedger,
   providerStatuses: ProviderStatusRefresher,
+  prStatus: PrStatusWatcher,
   ready: Promise<void>,
 ): void {
   ipcMain.handle(IpcChannels.getSnapshot, async (_e, sessionIds: unknown) => {
@@ -1113,6 +1119,14 @@ export function registerIpc(
   ipcMain.handle(IpcChannels.gitPush, (_e, cwd: unknown) =>
     gitPush(gitCwd(cwd)),
   )
+  ipcMain.handle(IpcChannels.gitPrStatus, (_e, cwd: unknown) =>
+    prStatus.refresh(gitCwd(cwd)),
+  )
+  ipcMain.handle(IpcChannels.gitPrStatuses, () => prStatus.snapshot())
+  ipcMain.handle(IpcChannels.gitCheckLog, (_e, cwd: unknown, runId: unknown) => {
+    if (typeof runId !== "string") throw new Error("Invalid run id")
+    return getCheckRunLog(gitCwd(cwd), runId)
+  })
   ipcMain.handle(
     IpcChannels.gitCreatePr,
     (_e, cwd: unknown, title: unknown, body: unknown, draft: unknown) => {
@@ -2028,6 +2042,13 @@ async function bootstrap(): Promise<void> {
     },
   })
 
+  const prStatus = new PrStatusWatcher({
+    fetch: getPrForBranch,
+    liveCwds: () =>
+      [...new Set(sm.listSessions().filter(attentionEligible).map((s) => s.cwd))],
+    emit: (cwd, status) => bus.emit({ type: "git.pr", cwd, status }),
+  })
+  prStatusWatcher = prStatus
   registerIpc(
     sm,
     bridge,
@@ -2036,6 +2057,7 @@ async function bootstrap(): Promise<void> {
     userData,
     usageLedger,
     providerStatuses,
+    prStatus,
     ready,
   )
   registerSurfaceIpc(terminals, (webContentsId) => {
@@ -2051,6 +2073,7 @@ async function bootstrap(): Promise<void> {
   bootMark("ready.resolved")
 
   dockBadge = wireDockBadge(bus, () => sm.listSessions())
+  prStatus.start()
 
   await browserService.start()
 
@@ -2085,6 +2108,7 @@ function boot(): void {
 
 function onBeforeQuit(e: { preventDefault: () => void }): void {
   commandBridge?.stop()
+  prStatusWatcher?.stop()
   terminals.killAll()
   // Dropping the socket makes every waiting hook fail open rather than sit on a
   // decision that can no longer arrive.

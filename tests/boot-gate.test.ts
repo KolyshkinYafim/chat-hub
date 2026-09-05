@@ -70,6 +70,7 @@ const { ProviderStatusCacheStore } = await import(
 const { ProviderStatusRefresher } = await import(
   "../src/main/provider-status-refresh"
 )
+const { PrStatusWatcher } = await import("../src/main/pr-status")
 
 function deferred() {
   let resolve!: () => void
@@ -107,8 +108,23 @@ async function fixture(ready: Promise<void>) {
     cache: new ProviderStatusCacheStore(join(dir, "provider-status-cache.json")),
     emit: () => {},
   })
+  const prStatus = new PrStatusWatcher({
+    fetch: async () => ({ pr: null }),
+    liveCwds: () => [],
+    emit: () => {},
+  })
   handlers.clear()
-  registerIpc(sm, bridge, settings, projects, dir, usageLedger, refresher, ready)
+  registerIpc(
+    sm,
+    bridge,
+    settings,
+    projects,
+    dir,
+    usageLedger,
+    refresher,
+    prStatus,
+    ready,
+  )
   return { dir, sm, projects, persistence }
 }
 

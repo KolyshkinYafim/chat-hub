@@ -8,6 +8,7 @@ import type {
   GitCommitDetail,
   GitHunkSummary,
   GitLogEntry,
+  GitPrStatus,
   GitWorkingCopy,
   GitRepository,
   GitWorktreeInfo,
@@ -258,6 +259,12 @@ const api = {
     ipcRenderer.invoke(IpcChannels.gitRemoveWorktree, repoCwd, worktreePath),
   gitPruneWorktrees: (repoCwd: string): Promise<{ ok: boolean; output: string }> =>
     ipcRenderer.invoke(IpcChannels.gitPruneWorktrees, repoCwd),
+  gitPrStatus: (cwd: string): Promise<GitPrStatus> =>
+    ipcRenderer.invoke(IpcChannels.gitPrStatus, cwd),
+  gitPrStatuses: (): Promise<Record<string, GitPrStatus>> =>
+    ipcRenderer.invoke(IpcChannels.gitPrStatuses),
+  gitCheckLog: (cwd: string, runId: string): Promise<string> =>
+    ipcRenderer.invoke(IpcChannels.gitCheckLog, cwd, runId),
   getSettings: (): Promise<SettingsSnapshot> =>
     ipcRenderer.invoke(IpcChannels.getSettings),
   setPermissionMode: (

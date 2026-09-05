@@ -6,11 +6,18 @@ import { homedir, tmpdir } from "node:os"
 import { hashDiff } from "@shared/diff-hash"
 import type {
   GitBranchList,
+  GitCheck,
+  GitCheckState,
   GitCommitDetail,
   GitCommitFileStat,
   GitFileChange,
   GitHunkSummary,
   GitLogEntry,
+  GitMergeable,
+  GitPrState,
+  GitPrStatus,
+  GitPullRequest,
+  GitReviewDecision,
   GitWorkingCopy,
   GitWorktreeInfo,
   GitRepository,
@@ -917,4 +924,155 @@ export async function buildPrBody(cwd: string): Promise<string> {
     "",
     `\`${workingTree}\``,
   ].join("\n")
+}
+
+const PR_VIEW_FIELDS =
+  "number,title,url,headRefName,state,isDraft,reviewDecision,mergeable,statusCheckRollup"
+
+type RollupItem = {
+  __typename?: string
+  name?: string
+  context?: string
+  workflowName?: string
+  status?: string
+  conclusion?: string
+  state?: string
+  startedAt?: string
+  completedAt?: string
+  detailsUrl?: string
+  targetUrl?: string
+}
+
+type PrViewJson = {
+  number: number
+  title: string
+  url: string
+  headRefName?: string
+  state: string
+  isDraft: boolean
+  reviewDecision: string
+  mergeable: string
+  statusCheckRollup?: RollupItem[]
+}
+
+const PR_STATES: readonly GitPrState[] = ["OPEN", "CLOSED", "MERGED"]
+const REVIEW_DECISIONS: readonly NonNullable<GitReviewDecision>[] = [
+  "APPROVED",
+  "CHANGES_REQUESTED",
+  "REVIEW_REQUIRED",
+]
+const MERGEABLE: readonly GitMergeable[] = ["MERGEABLE", "CONFLICTING", "UNKNOWN"]
+const ACTIONS_RUN_URL = /\/actions\/runs\/(\d+)/
+const ANSI_SEQUENCE = /\x1b\[[0-?]*[ -/]*[@-~]/g
+
+export const LOG_TAIL_LINES = 200
+
+function pick<T extends string>(options: readonly T[], value: unknown, fallback: T): T {
+  return options.includes(value as T) ? (value as T) : fallback
+}
+
+function checkState(item: RollupItem): GitCheckState {
+  if (item.__typename === "StatusContext") {
+    if (item.state === "SUCCESS") return "success"
+    if (item.state === "FAILURE" || item.state === "ERROR") return "failure"
+    return "pending"
+  }
+  if (item.status !== "COMPLETED") return "pending"
+  if (item.conclusion === "SUCCESS" || item.conclusion === "NEUTRAL") return "success"
+  if (item.conclusion === "SKIPPED") return "skipped"
+  return "failure"
+}
+
+function checkDuration(item: RollupItem): number | undefined {
+  const started = Date.parse(item.startedAt ?? "")
+  const completed = Date.parse(item.completedAt ?? "")
+  if (!Number.isFinite(started) || !Number.isFinite(completed)) return undefined
+  return completed >= started ? completed - started : undefined
+}
+
+function parseCheck(item: RollupItem): GitCheck {
+  const bareName = item.name || item.context || "check"
+  const url = item.detailsUrl || item.targetUrl
+  const durationMs = checkDuration(item)
+  const runId = url ? ACTIONS_RUN_URL.exec(url)?.[1] : undefined
+  return {
+    name: item.workflowName ? `${item.workflowName} / ${bareName}` : bareName,
+    state: checkState(item),
+    ...(durationMs === undefined ? {} : { durationMs }),
+    ...(url ? { detailsUrl: url } : {}),
+    ...(runId ? { runId } : {}),
+  }
+}
+
+export function parsePrView(stdout: string): GitPullRequest {
+  const raw = JSON.parse(stdout) as PrViewJson
+  if (typeof raw.number !== "number" || typeof raw.url !== "string") {
+    throw new Error("gh pr view returned no pull request")
+  }
+  return {
+    number: raw.number,
+    title: typeof raw.title === "string" ? raw.title : "",
+    url: raw.url,
+    branch: typeof raw.headRefName === "string" ? raw.headRefName : "",
+    state: pick(PR_STATES, raw.state, "OPEN"),
+    isDraft: raw.isDraft === true,
+    reviewDecision:
+      REVIEW_DECISIONS.find((decision) => decision === raw.reviewDecision) ?? null,
+    mergeable: pick(MERGEABLE, raw.mergeable, "UNKNOWN"),
+    checks: (raw.statusCheckRollup ?? []).map(parseCheck),
+  }
+}
+
+export function prStatusFromFailure(err: {
+  code?: string
+  stderr?: string
+  message?: string
+}): GitPrStatus {
+  if (err.code === "ENOENT") return { pr: null, unavailable: "missing" }
+  const text = err.stderr || err.message || ""
+  if (/no pull requests found|no git remotes/i.test(text)) return { pr: null }
+  if (/gh auth login|not logged in|HTTP 401|bad credentials/i.test(text)) {
+    return { pr: null, unavailable: "unauthenticated" }
+  }
+  return { pr: null, unavailable: "error" }
+}
+
+export async function getPrForBranch(cwd: string): Promise<GitPrStatus> {
+  try {
+    const { stdout } = await execFileAsync(
+      "gh",
+      ["pr", "view", "--json", PR_VIEW_FIELDS],
+      { cwd, timeout: 20_000, maxBuffer: BUFFER },
+    )
+    return { pr: parsePrView(stdout) }
+  } catch (err) {
+    return prStatusFromFailure(err as { code?: string; stderr?: string; message?: string })
+  }
+}
+
+export function trimLogTail(text: string, maxLines = LOG_TAIL_LINES): string {
+  const lines = text.replace(ANSI_SEQUENCE, "").replace(/\r/g, "").split("\n")
+  while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop()
+  return lines.slice(-maxLines).join("\n")
+}
+
+function assertRunId(runId: string): string {
+  if (!/^\d{1,20}$/.test(runId)) throw new Error(`Invalid run id: ${runId}`)
+  return runId
+}
+
+export async function getCheckRunLog(cwd: string, runId: string): Promise<string> {
+  assertRunId(runId)
+  try {
+    const { stdout } = await execFileAsync(
+      "gh",
+      ["run", "view", runId, "--log-failed"],
+      { cwd, timeout: 60_000, maxBuffer: BUFFER },
+    )
+    return trimLogTail(stdout)
+  } catch (err) {
+    const e = err as { stderr?: string; message?: string }
+    const reason = (e.stderr || e.message || "gh run view failed").trim().split("\n")[0]
+    return `(log unavailable: ${reason})`
+  }
 }
