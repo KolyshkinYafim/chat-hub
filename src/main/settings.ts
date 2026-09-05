@@ -291,6 +291,10 @@ export class SettingsStore {
             ? (parsed.general as GeneralConfig)
             : {},
         mcpEnv: coerceMcpEnv(parsed.mcpEnv),
+        automationToken:
+          typeof parsed.automationToken === "string" && parsed.automationToken
+            ? parsed.automationToken
+            : undefined,
         window: parseWindowState(parsed.window) ?? undefined,
         windows: parseWindowStates(parsed.windows) ?? undefined,
         zoomLevel:
@@ -408,6 +412,15 @@ export class SettingsStore {
     return Object.keys(prev)
   }
 
+  get automationToken(): string {
+    return this.data.automationToken ? openSecret(this.data.automationToken) : ""
+  }
+
+  async setAutomationToken(plain: string): Promise<void> {
+    this.data = { ...this.data, automationToken: sealSecret(plain) }
+    await this.save()
+  }
+
   /** Remove every sealed env value belonging to a deleted MCP server. */
   async removeMcpServerEnv(serverId: string): Promise<void> {
     const id = serverId.trim()
@@ -475,6 +488,12 @@ export function sanitizeGeneralPatch(patch: unknown): GeneralConfig {
       throw new Error("Invalid hub control flag")
     }
     clean.allowAgentHubControl = p.allowAgentHubControl
+  }
+  if (p.automationServer !== undefined) {
+    if (typeof p.automationServer !== "boolean") {
+      throw new Error("Invalid automation server flag")
+    }
+    clean.automationServer = p.automationServer
   }
   if (p.customThemes !== undefined) {
     if (!Array.isArray(p.customThemes) || p.customThemes.length > 64) {

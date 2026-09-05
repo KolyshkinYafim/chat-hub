@@ -50,6 +50,10 @@ export class HubControl {
     if (!this.deps.enabled()) {
       return { id: request.id, ok: false, error: HUB_CONTROL_DISABLED_MESSAGE }
     }
+    return this.handleTrusted(request)
+  }
+
+  async handleTrusted(request: HubRequest): Promise<HubResponse> {
     try {
       return await this.run(request)
     } catch (err) {

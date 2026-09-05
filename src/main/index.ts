@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from "electro
 import { join } from "node:path"
 import { realpathSync, statSync } from "node:fs"
 import { IpcChannels } from "@shared/ipc"
-import type { CreateSessionInput, ProviderId } from "@shared/types"
+import type { CreateSessionInput, ProviderId, SessionMeta } from "@shared/types"
 import { PROVIDERS } from "@shared/types"
 import { listProviderInfo } from "./adapters"
 import { EventBus } from "./event-bus"
@@ -42,6 +42,7 @@ import { listCheckpoints } from "./checkpoints"
 import { sanitizeGeneralPatch, SettingsStore } from "./settings"
 import type { PermissionMode } from "@shared/permission"
 import type {
+  AutomationStatus,
   BuildInfo,
   DataPaths,
   ProviderConfig,
@@ -128,6 +129,10 @@ import {
 import { hubMcpEnv, hubMcpServerDef, hubMcpServerPath } from "./hub-mcp"
 import { HubControl } from "./hub-control"
 import { SURFACE_OPS } from "@shared/surface-control"
+import { DEEP_LINK_SCHEME, deepLinkFromArgv } from "@shared/deep-link"
+import type { HubResponse } from "@shared/hub-control"
+import { DeepLinkDispatcher, type DeepLinkNewSession } from "./deep-links"
+import { AutomationServer, generateAutomationToken } from "./automation-server"
 
 const REAL_PROVIDER_IDS: ProviderId[] = [
   "claude",
@@ -193,6 +198,7 @@ let dockBadge: DockBadge | null = null
 // createWindow also runs from `activate` and the monitor bridge, long after
 // bootstrap handed the store around, so the window path reads it from here.
 let settingsStore: SettingsStore | null = null
+let projectStore: ProjectStore | null = null
 
 const PROVIDER_IDS = new Set(PROVIDERS.map((p) => p.id))
 
@@ -344,6 +350,80 @@ const hubControl = new HubControl({
       params: { surface },
     }),
 })
+
+const deepLinks = new DeepLinkDispatcher({
+  hub: (request) => hubControl.handleTrusted(request),
+  newSession: (input) => newSessionFromDeepLink(input),
+  warn: (reason) => console.warn("[deep-link]", reason),
+})
+
+const automation = new AutomationServer({
+  token: () => settingsStore?.automationToken ?? "",
+  hub: (request) => hubControl.handleTrusted(request),
+})
+
+async function syncAutomationServer(): Promise<void> {
+  const settings = settingsStore
+  const wanted = settings?.general.automationServer === true
+  if (wanted && !automation.running) {
+    if (!settings.automationToken) {
+      await settings.setAutomationToken(generateAutomationToken())
+    }
+    await automation.start()
+  } else if (!wanted && automation.running) {
+    await automation.stop()
+  }
+}
+
+async function createPinnedSession(
+  sm: SessionManager,
+  projects: ProjectStore,
+  settings: SettingsStore,
+  input: CreateSessionInput,
+): Promise<SessionMeta> {
+  const session = await sm.createSession(input)
+  await projects.ensure(session.baseCwd ?? session.cwd, session.project)
+  void materializeMcpForProject(session.cwd, (serverId) =>
+    settings.getMcpEnv(serverId),
+  ).catch((err) => console.error("[mcp] materialize on create failed", err))
+  return session
+}
+
+async function newSessionFromDeepLink(
+  input: DeepLinkNewSession,
+): Promise<HubResponse> {
+  const sm = manager
+  const projects = projectStore
+  const settings = settingsStore
+  const id = "deep-link"
+  if (!sm || !projects || !settings) {
+    return { id, ok: false, error: "Chat Hub is still starting." }
+  }
+  const cwd = input.project ?? sm.listSessions()[0]?.cwd
+  if (!cwd) {
+    return {
+      id,
+      ok: false,
+      error: "No project folder in the link and no previous session to inherit one from.",
+    }
+  }
+  try {
+    const session = await createPinnedSession(sm, projects, settings, {
+      provider: settings.general.defaultProvider ?? "claude",
+      cwd,
+    })
+    sm.setActiveSession(session.id)
+    focusSession(session.id)
+    if (input.prompt) await sm.sendMessage(session.id, input.prompt)
+    return {
+      id,
+      ok: true,
+      result: { summary: `Started ${session.title} in ${session.cwd}.`, sessionId: session.id },
+    }
+  } catch (err) {
+    return { id, ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
 
 const browserService = new BrowserService(
   chatHubBrowserSocketPath(),
@@ -811,7 +891,7 @@ export function registerIpc(
     if (!PROVIDER_IDS.has(raw.provider as ProviderId)) {
       throw new Error("Unknown provider")
     }
-    const session = await sm.createSession({
+    return createPinnedSession(sm, projects, settings, {
       provider: raw.provider,
       instanceId: typeof raw.instanceId === "string" ? raw.instanceId : undefined,
       title: typeof raw.title === "string" ? raw.title : undefined,
@@ -820,13 +900,6 @@ export function registerIpc(
       model: typeof raw.model === "string" ? raw.model : undefined,
       worktree: raw.worktree === true,
     })
-    // Pin the folder as a first-class project so it survives with no sessions.
-    await projects.ensure(session.baseCwd ?? session.cwd, session.project)
-    // Keep CLI-native MCP files in sync for this project (non-blocking).
-    void materializeMcpForProject(session.cwd, (serverId) =>
-      settings.getMcpEnv(serverId),
-    ).catch((err) => console.error("[mcp] materialize on create failed", err))
-    return session
   })
   ipcMain.handle(
     IpcChannels.sendMessage,
@@ -1196,7 +1269,28 @@ export function registerIpc(
 
   ipcMain.handle(IpcChannels.setGeneralConfig, async (_e, patch: unknown) => {
     const next = await settings.setGeneralConfig(sanitizeGeneralPatch(patch))
+    await syncAutomationServer()
     return { general: next.general }
+  })
+
+  ipcMain.handle(
+    IpcChannels.automationStatus,
+    (): AutomationStatus => ({
+      enabled: settings.general.automationServer === true,
+      port: automation.port,
+    }),
+  )
+
+  ipcMain.handle(IpcChannels.automationToken, async () => {
+    if (!settings.automationToken) {
+      await settings.setAutomationToken(generateAutomationToken())
+    }
+    return settings.automationToken
+  })
+
+  ipcMain.handle(IpcChannels.automationRegenerateToken, async () => {
+    await settings.setAutomationToken(generateAutomationToken())
+    return settings.automationToken
   })
 
   ipcMain.handle(IpcChannels.setWindowCockpit, async (e, enabled: unknown) => {
@@ -1843,11 +1937,17 @@ function focusHubWindow(): void {
   if (settingsStore) openRememberedWindows()
 }
 
+function onSecondInstance(argv: readonly string[]): void {
+  const url = deepLinkFromArgv(argv)
+  if (url) deepLinks.open(url)
+  else focusHubWindow()
+}
+
 export interface SingleInstanceHooks {
   /** Electron's lock — keyed on the userData path chosen just above. */
   requestLock: () => boolean
   quit: () => void
-  onSecondInstance: (handler: () => void) => void
+  onSecondInstance: (handler: (argv: readonly string[]) => void) => void
   /** Everything that touches the world: window, permission socket, stores. */
   boot: () => void
 }
@@ -1871,7 +1971,7 @@ export function startSingleInstance(
     hooks.quit()
     return "quit"
   }
-  hooks.onSecondInstance(focusHubWindow)
+  hooks.onSecondInstance(onSecondInstance)
   hooks.boot()
   return "boot"
 }
@@ -1954,6 +2054,7 @@ async function bootstrap(): Promise<void> {
       bus.emit({ type: "providers.statuses", statuses, cachedAt }),
   })
   const projects = new ProjectStore(ProjectStore.defaultPath(userData))
+  projectStore = projects
   const bridge = new SessionMonitorBridge(SessionMonitorBridge.defaultPath())
   const notifications = new NotificationService(
     (id) => manager?.getSession(id),
@@ -2057,6 +2158,11 @@ async function bootstrap(): Promise<void> {
   commandBridge = new MonitorCommandBridge(sm, focusSession)
   commandBridge.start()
 
+  deepLinks.markReady()
+  await syncAutomationServer().catch((err) =>
+    console.error("[automation] server start failed", err),
+  )
+
   app.on("activate", () => {
     if (windows.size === 0) openRememberedWindows()
     else focusHubWindow()
@@ -2074,6 +2180,13 @@ function boot(): void {
   // Privileged schemes are only registrable before "ready" — the media
   // protocol the Files surface streams video/audio through is one of them.
   registerMediaScheme()
+  if (app.isPackaged) app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME)
+  app.on("open-url", (event, url) => {
+    event.preventDefault()
+    deepLinks.open(url)
+  })
+  const launchLink = deepLinkFromArgv(process.argv)
+  if (launchLink) deepLinks.open(launchLink)
   void app.whenReady().then(() => bootstrap().catch(failBootstrap))
 
   app.on("window-all-closed", () => {
@@ -2092,6 +2205,7 @@ function onBeforeQuit(e: { preventDefault: () => void }): void {
   permissions = null
   browserControl.detachAll()
   void browserService.stop()
+  void automation.stop()
   if (!manager || quitting) return
   quitting = true
   e.preventDefault()
@@ -2112,7 +2226,7 @@ startSingleInstance({
   requestLock: () => app.requestSingleInstanceLock(),
   quit: () => app.quit(),
   onSecondInstance: (handler) => {
-    app.on("second-instance", handler)
+    app.on("second-instance", (_event, argv) => handler(argv))
   },
   boot,
 })

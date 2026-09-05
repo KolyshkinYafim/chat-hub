@@ -7,6 +7,7 @@ import type {
 import { UsagePanel } from "./UsagePanel"
 import type { PermissionMode } from "@shared/permission"
 import type {
+  AutomationStatus,
   BuildInfo,
   DataPaths,
   EditorPref,
@@ -329,6 +330,9 @@ export function SettingsModal({
   const [storage, setStorage] = useState<StorageStats | null>(null)
   const [storageBusy, setStorageBusy] = useState(false)
   const [supportNotice, setSupportNotice] = useState<string | null>(null)
+  const [automation, setAutomation] = useState<AutomationStatus | null>(null)
+  const [automationToken, setAutomationToken] = useState<string | null>(null)
+  const [automationNotice, setAutomationNotice] = useState<string | null>(null)
   const [themeDraft, setThemeDraft] = useState<Record<string, string> | null>(
     null,
   )
@@ -403,15 +407,17 @@ export function SettingsModal({
     setLoading(true)
     setError(null)
     try {
-      const [snap, paths] = await Promise.all([
+      const [snap, paths, automationStatus] = await Promise.all([
         window.chatHub.getSettings(),
         window.chatHub.getDataPaths(),
+        window.chatHub.automationStatus(),
       ])
       setStatuses(snap.statuses)
       setStatusesCheckedAt(snap.statusesCachedAt)
       setProvidersCfg(snap.providers)
       setGeneral(snap.general)
       setDataPaths(paths)
+      setAutomation(automationStatus)
       if (projectCwd) {
         const res = await window.chatHub.mcpList(projectCwd)
         setMcpServers(res.config.servers)
@@ -883,6 +889,50 @@ export function SettingsModal({
   async function reveal(path: string) {
     try {
       await window.chatHub.revealPath(path)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function setAutomationEnabled(enabled: boolean) {
+    setAutomationNotice(null)
+    await patchGeneral({ automationServer: enabled })
+    try {
+      setAutomation(await window.chatHub.automationStatus())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function copyAutomationText(text: string, notice: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+      setAutomationNotice(notice)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function revealAutomationToken(): Promise<string | null> {
+    try {
+      const token = await window.chatHub.automationToken()
+      setAutomationToken(token)
+      return token
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      return null
+    }
+  }
+
+  async function copyAutomationToken() {
+    const token = automationToken ?? (await revealAutomationToken())
+    if (token) await copyAutomationText(token, "Token copied")
+  }
+
+  async function regenerateAutomationToken() {
+    try {
+      setAutomationToken(await window.chatHub.automationRegenerateToken())
+      setAutomationNotice("New token issued — the old one stopped working")
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -1905,6 +1955,112 @@ export function SettingsModal({
                       </button>
                     </div>
                   ) : null}
+                </div>
+              </div>
+
+              <h2 className="section-label">Automation</h2>
+              <p className="modal-lead">
+                Drive windows and layouts from Raycast, Slack or a script.{" "}
+                <code>chat-hub://</code> links always work; the HTTP endpoint is
+                opt-in and listens on this machine only.
+              </p>
+              <div className="settings-group">
+                <div className="settings-row">
+                  <div>
+                    <div className="row-title">Local HTTP endpoint</div>
+                    <div className="row-desc">
+                      POST the same JSON the hub MCP tools take to{" "}
+                      <code>/hub/arrange</code>, <code>/hub/focus-session</code>,{" "}
+                      <code>/hub/open-window</code> and friends, with the bearer
+                      token below. Starts and stops with this switch.
+                    </div>
+                  </div>
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={general.automationServer === true}
+                      onChange={(e) => void setAutomationEnabled(e.target.checked)}
+                    />
+                    <span className="switch-track" />
+                  </label>
+                </div>
+                {automation?.enabled ? (
+                  <div className="settings-row col">
+                    <div className="row-title">Endpoint</div>
+                    <code className="path-code">
+                      {automation.port
+                        ? `http://127.0.0.1:${automation.port}/hub/`
+                        : "Starting…"}
+                    </code>
+                    <div className="provider-card-actions">
+                      <button
+                        type="button"
+                        className="tb-btn"
+                        disabled={!automation.port}
+                        onClick={() =>
+                          void copyAutomationText(
+                            `http://127.0.0.1:${automation.port}/hub/`,
+                            "Endpoint copied",
+                          )
+                        }
+                      >
+                        Copy endpoint
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                <div className="settings-row col">
+                  <div className="row-title">Bearer token</div>
+                  <div className="row-desc">
+                    Generated once and kept sealed with your other keys. Send it
+                    as <code>Authorization: Bearer …</code>.
+                  </div>
+                  <code className="path-code">
+                    {automationToken ?? "••••••••••••••••"}
+                  </code>
+                  <div className="provider-card-actions">
+                    <button
+                      type="button"
+                      className="tb-btn"
+                      onClick={() =>
+                        automationToken
+                          ? setAutomationToken(null)
+                          : void revealAutomationToken()
+                      }
+                    >
+                      {automationToken ? "Hide" : "Reveal"}
+                    </button>
+                    <button
+                      type="button"
+                      className="tb-btn"
+                      onClick={() => void copyAutomationToken()}
+                    >
+                      Copy token
+                    </button>
+                    <button
+                      type="button"
+                      className="tb-btn"
+                      onClick={() => void regenerateAutomationToken()}
+                    >
+                      Regenerate
+                    </button>
+                  </div>
+                  {automationNotice ? (
+                    <div className="path-status">
+                      <span className="auth-dot ok" />
+                      {automationNotice}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="settings-row col">
+                  <div className="row-title">Deep links</div>
+                  <div className="row-desc">
+                    <code>chat-hub://session/&lt;id&gt;?window=front|new</code>,{" "}
+                    <code>chat-hub://arrange/review|monitor|deep-work</code>,{" "}
+                    <code>chat-hub://new?project=&lt;path&gt;&amp;prompt=&lt;text&gt;</code>,{" "}
+                    <code>chat-hub://surface/diff|terminal|editor|browser?session=&lt;id&gt;</code>.
+                    Copy a session link from its ⋯ menu or the command palette.
+                  </div>
                 </div>
               </div>
 

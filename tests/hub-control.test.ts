@@ -252,6 +252,24 @@ describe("HubControl", () => {
     })
   })
 
+  it("still serves a trusted caller while the toggle is off", async () => {
+    const { control, state } = makeControl({ enabled: () => false })
+    const response = await control.handleTrusted(
+      req(HUB_OPS.focusSession, { sessionId: "s-2" }),
+    )
+    expect(response.ok).toBe(true)
+    expect(state.focused).toEqual([{ sessionId: "s-2", windowId: null }])
+  })
+
+  it("keeps validating for a trusted caller", async () => {
+    const { control, state } = makeControl({ enabled: () => false })
+    const response = await control.handleTrusted(
+      req(HUB_OPS.arrange, { preset: "cosy" }),
+    )
+    expect(response.ok).toBe(false)
+    expect(state.applied).toEqual([])
+  })
+
   it("lists windows with ids, focus and session titles", async () => {
     const { control } = makeControl()
     const response = await control.handle(req(HUB_OPS.listWindows))

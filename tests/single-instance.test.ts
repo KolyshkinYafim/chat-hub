@@ -68,10 +68,10 @@ type Hooks = Parameters<typeof startSingleInstance>[0]
 function spyHooks(gotLock: boolean): {
   hooks: Hooks
   log: string[]
-  secondInstance: () => (() => void) | null
+  secondInstance: () => ((argv: readonly string[]) => void) | null
 } {
   const log: string[] = []
-  let handler: (() => void) | null = null
+  let handler: ((argv: readonly string[]) => void) | null = null
   return {
     log,
     secondInstance: () => handler,
@@ -119,7 +119,7 @@ describe("startSingleInstance", () => {
     const { hooks, secondInstance } = spyHooks(true)
     startSingleInstance(hooks)
 
-    expect(() => secondInstance()?.()).not.toThrow()
+    expect(() => secondInstance()?.([])).not.toThrow()
   })
 })
 

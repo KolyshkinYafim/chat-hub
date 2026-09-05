@@ -153,7 +153,37 @@ describe("SettingsStore persistence", () => {
   })
 })
 
+describe("automation token", () => {
+  it("is empty until issued, then sealed on disk and readable after reload", async () => {
+    const { s, file } = await store()
+    expect(s.automationToken).toBe("")
+
+    await s.setAutomationToken("tok-123")
+    expect(s.automationToken).toBe("tok-123")
+    const raw = await readFile(file, "utf8")
+    expect(raw).not.toContain("tok-123")
+    expect(raw).toContain("enc:v1:")
+
+    const reloaded = new SettingsStore(file)
+    await reloaded.load()
+    expect(reloaded.automationToken).toBe("tok-123")
+  })
+
+  it("never reaches the renderer through the general config", async () => {
+    const { s } = await store()
+    await s.setAutomationToken("tok-123")
+    expect(JSON.stringify(s.general)).not.toContain("tok-123")
+  })
+})
+
 describe("sanitizeGeneralPatch", () => {
+  it("accepts the automation server toggle and nothing but a boolean", () => {
+    expect(sanitizeGeneralPatch({ automationServer: true })).toEqual({
+      automationServer: true,
+    })
+    expect(() => sanitizeGeneralPatch({ automationServer: "yes" })).toThrow()
+  })
+
   it("round-trips modes through the store, like the IPC handler does", async () => {
     const { s, file } = await store()
     const modes = [
