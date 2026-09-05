@@ -129,7 +129,10 @@ describe("File menu", () => {
     const host = fakeContents()
     const window = fakeWindow(host.contents)
     const log = createMainLog(join(electron.logsPath, "menu.log"))
-    const file = submenu(buildDeveloperMenuTemplate(() => window, log), "File")
+    const file = submenu(
+      buildDeveloperMenuTemplate(() => window, log, undefined, undefined, "darwin"),
+      "File",
+    )
     expect(file).toHaveLength(1)
     expect(file[0]?.role).toBe("close")
   })
