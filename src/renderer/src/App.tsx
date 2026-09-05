@@ -35,6 +35,7 @@ import { resolveTheme } from "@shared/theme"
 import { readCockpitWindow } from "./lib/cockpit"
 import { applyTheme } from "./lib/theme-apply"
 import { projectFromCwd } from "@shared/project"
+import { sessionDeepLink } from "@shared/deep-link"
 import { clearMigratedArchive, readArchivedForMigration } from "./lib/archive"
 import type { ProjectScript } from "@shared/scripts"
 import { pruneDiffComments } from "./lib/diff-comments"
@@ -1357,6 +1358,16 @@ export default function App() {
     void window.chatHub.openWindow(sessionId)
   }, [])
 
+  const copySessionLink = useCallback(
+    (sessionId: string) => {
+      void navigator.clipboard
+        .writeText(sessionDeepLink(sessionId))
+        .then(() => showToast("Link to session copied"))
+        .catch(() => showToast("Could not copy the link"))
+    },
+    [showToast],
+  )
+
   async function loadOlderMessages(sessionId: string) {
     if (loadingOlderRef.current !== null) return
     if (overflowRef.current[sessionId] === false) return
@@ -1999,6 +2010,7 @@ export default function App() {
         }
         onDelete={(id) => void deleteSession(id)}
         onOpenInNewWindow={openInNewWindow}
+        onCopyLink={copySessionLink}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenSwitcher={() => setPaletteOpen(true)}
         onShowShortcuts={() => setShortcutsOpen(true)}
@@ -2129,6 +2141,7 @@ export default function App() {
           onNextAttention={attention.jumpNext}
           onNewWindow={openInNewWindow}
           onOpenInbox={openInbox}
+          onCopyLink={() => activeId && copySessionLink(activeId)}
           onClose={() => setPaletteOpen(false)}
         />
       ) : null}

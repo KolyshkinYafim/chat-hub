@@ -6,6 +6,7 @@ import {
   AGENT_INBOX_KEY,
   AGENT_INBOX_MATCH,
   buildPaletteEntries,
+  COPY_LINK_KEY,
   NEW_WINDOW_KEY,
   NEXT_ATTENTION_KEY,
   NEXT_ATTENTION_MATCH,
@@ -121,6 +122,15 @@ describe("buildPaletteEntries", () => {
       AGENT_INBOX_KEY,
       NEW_WINDOW_KEY,
     ])
+  })
+
+  it("offers copy link only while a session is on screen", () => {
+    const a = session()
+    expect(kinds(buildPaletteEntries([a], "", 0, 0, false))).not.toContain(
+      COPY_LINK_KEY,
+    )
+    const entries = buildPaletteEntries([a], "copy link", 0, 0, true)
+    expect(kinds(entries)[0]).toBe(COPY_LINK_KEY)
   })
 
   it("gives every entry a stable, unique key", () => {

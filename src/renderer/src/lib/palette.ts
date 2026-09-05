@@ -8,6 +8,8 @@ export const AGENT_INBOX_MATCH =
   "agent inbox panel permission question failed"
 export const NEW_WINDOW_KEY = "command:new-window"
 export const NEW_WINDOW_MATCH = "new window open another window"
+export const COPY_LINK_KEY = "command:copy-link"
+export const COPY_LINK_MATCH = "copy link to session deep link chat-hub url"
 
 const MAX_SESSION_RESULTS = 12
 
@@ -32,6 +34,7 @@ type CommandCandidate = { match: string; entry: PaletteCommand }
 function commandCandidates(
   attentionCount: number,
   inboxCount: number,
+  hasActiveSession: boolean,
 ): CommandCandidate[] {
   const out: CommandCandidate[] = []
   if (attentionCount > 0) {
@@ -69,6 +72,18 @@ function commandCandidates(
       hint: "⌘⇧N",
     },
   })
+  if (hasActiveSession) {
+    out.push({
+      match: COPY_LINK_MATCH,
+      entry: {
+        kind: "command",
+        key: COPY_LINK_KEY,
+        label: "Copy link to session",
+        sub: "Put a chat-hub:// link to the current session on the clipboard",
+        hint: "",
+      },
+    })
+  }
   return out
 }
 
@@ -77,6 +92,7 @@ export function buildPaletteEntries(
   query: string,
   attentionCount: number,
   inboxCount = 0,
+  hasActiveSession = false,
 ): PaletteEntry[] {
   const scored: { session: SessionMeta; score: number }[] = []
   for (const s of sessions) {
@@ -91,7 +107,11 @@ export function buildPaletteEntries(
   const ranked: { entry: PaletteEntry; score: number }[] = top.map(
     ({ session, score }) => ({ entry: { kind: "session", session }, score }),
   )
-  for (const candidate of commandCandidates(attentionCount, inboxCount)) {
+  for (const candidate of commandCandidates(
+    attentionCount,
+    inboxCount,
+    hasActiveSession,
+  )) {
     const score = fuzzyScore(query, candidate.match)
     if (score === null) continue
     ranked.push({ entry: candidate.entry, score })
