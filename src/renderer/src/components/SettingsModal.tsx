@@ -50,6 +50,11 @@ import {
   parseMcpArgs,
   slugifyMcpId,
 } from "@shared/mcp"
+import {
+  MCP_CATALOG,
+  mcpPresetToServerDef,
+  type McpPreset,
+} from "@shared/mcp-catalog"
 
 const SWATCH_TOKENS: ThemeToken[] = [
   "--bg",
@@ -149,6 +154,21 @@ function statusPill(state: McpServerStatus["state"]): { text: string; cls: strin
     default:
       return { text: "unknown", cls: "warn" }
   }
+}
+
+function presetAuthBadge(auth: McpPreset["auth"]): { text: string; cls: string } {
+  switch (auth) {
+    case "oauth":
+      return { text: "OAuth", cls: "info" }
+    case "token":
+      return { text: "Token", cls: "warn" }
+    default:
+      return { text: "Local", cls: "muted" }
+  }
+}
+
+function mcpRowId(serverId: string): string {
+  return `mcp-server-${serverId}`
 }
 
 function authBadge(auth: ProviderStatus["auth"]): { text: string; cls: string } {
@@ -323,6 +343,7 @@ export function SettingsModal({
     null,
   )
   const [mcpForm, setMcpForm] = useState<McpFormState | null>(null)
+  const [mcpHighlightId, setMcpHighlightId] = useState<string | null>(null)
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null)
   const [usageLoading, setUsageLoading] = useState(false)
   const [buildInfo, setBuildInfo] = useState<BuildInfo | null>(null)
@@ -399,6 +420,11 @@ export function SettingsModal({
     }
   }, [projectCwd])
 
+  useEffect(() => {
+    if (!open || tab !== "connections") return
+    void refreshMcp()
+  }, [open, tab, refreshMcp])
+
   const refresh = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -412,22 +438,12 @@ export function SettingsModal({
       setProvidersCfg(snap.providers)
       setGeneral(snap.general)
       setDataPaths(paths)
-      if (projectCwd) {
-        const res = await window.chatHub.mcpList(projectCwd)
-        setMcpServers(res.config.servers)
-        setMcpStatuses(res.statuses)
-        setMcpEnvKeys(res.envKeysByServer)
-      } else {
-        setMcpServers([])
-        setMcpStatuses([])
-        setMcpEnvKeys({})
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
     }
-  }, [projectCwd])
+  }, [])
 
   const probeNow = useCallback(async () => {
     setLoading(true)
@@ -581,6 +597,34 @@ export function SettingsModal({
       idLocked: true,
     })
     setMcpNotice(null)
+  }
+
+  async function addMcpPreset(preset: McpPreset) {
+    if (!projectCwd) return
+    setMcpBusy(true)
+    setMcpNotice(null)
+    setError(null)
+    try {
+      const def = mcpPresetToServerDef(preset)
+      const res = await window.chatHub.mcpUpsert(projectCwd, def)
+      setMcpServers(res.config.servers)
+      setMcpStatuses(res.statuses)
+      setMcpEnvKeys(res.envKeysByServer)
+      setMcpNotice(`${preset.name} added · CLI configs updated`)
+      if (def.envKeys.length > 0) openMcpEdit(def)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setMcpBusy(false)
+    }
+  }
+
+  function revealMcpServer(serverId: string) {
+    document
+      .getElementById(mcpRowId(serverId))
+      ?.scrollIntoView({ behavior: "smooth", block: "center" })
+    setMcpHighlightId(serverId)
+    window.setTimeout(() => setMcpHighlightId(null), 1600)
   }
 
   async function saveMcpForm() {
@@ -1993,6 +2037,61 @@ export function SettingsModal({
                   ) : null}
                 </div>
 
+                {projectCwd ? (
+                  <div className="settings-row col">
+                    <div className="row-title">Catalog</div>
+                    <div className="row-desc">
+                      Servers every agent cockpit ships with. Add one and it lands
+                      in this project; OAuth servers ask you to sign in on first use.
+                    </div>
+                    <div className="mcp-catalog">
+                      {MCP_CATALOG.map((preset) => {
+                        const badge = presetAuthBadge(preset.auth)
+                        const added = mcpServers.some((s) => s.id === preset.id)
+                        return (
+                          <div key={preset.id} className="mcp-preset">
+                            <div className="mcp-preset-head">
+                              <span className="row-title">{preset.name}</span>
+                              <span className={`auth-badge ${badge.cls}`}>
+                                {badge.text}
+                              </span>
+                            </div>
+                            <p className="mcp-preset-note">{preset.note}</p>
+                            <div className="mcp-preset-foot">
+                              <a
+                                className="mcp-preset-docs"
+                                href={preset.docsUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                Docs
+                              </a>
+                              {added ? (
+                                <button
+                                  type="button"
+                                  className="tb-btn sm"
+                                  onClick={() => revealMcpServer(preset.id)}
+                                >
+                                  Added
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="tb-btn sm primary-soft"
+                                  disabled={mcpBusy}
+                                  onClick={() => void addMcpPreset(preset)}
+                                >
+                                  Add
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+
                 {!projectCwd ? (
                   <div className="settings-row col">
                     <div className="settings-empty">
@@ -2034,7 +2133,13 @@ export function SettingsModal({
                         : server.url ?? ""
                     const keys = mcpEnvKeys[server.id] ?? server.envKeys
                     return (
-                      <div key={server.id} className="settings-row col mcp-card">
+                      <div
+                        key={server.id}
+                        id={mcpRowId(server.id)}
+                        className={`settings-row col mcp-card${
+                          mcpHighlightId === server.id ? " highlight" : ""
+                        }`}
+                      >
                         <div className="mcp-card-head">
                           <span className="row-title">{server.name}</span>
                           <span className="mono-soft dim">

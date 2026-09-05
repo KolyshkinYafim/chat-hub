@@ -3,6 +3,8 @@ import { constants as fsConstants } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, join } from "node:path"
 import { execFile } from "node:child_process"
+import { request as httpRequest } from "node:http"
+import { request as httpsRequest } from "node:https"
 import { promisify } from "node:util"
 import {
   assertMcpServerDef,
@@ -17,6 +19,7 @@ import {
   type McpServerDef,
   type McpServerStatus,
 } from "@shared/mcp"
+import { mcpUnreachableDetail } from "@shared/mcp-catalog"
 import { writeFileAtomic } from "./atomic-write"
 import { isEnoent } from "./fs-util"
 import { tomlKey } from "./toml"
@@ -163,12 +166,7 @@ async function probeOne(s: McpServerDef): Promise<McpServerStatus> {
     return { ...base, state: "disabled", detail: "disabled" }
   }
   if (s.transport === "http") {
-    // Network probe is flaky for many MCP URLs (auth, POST-only). Leave unknown.
-    return {
-      ...base,
-      state: "unknown",
-      detail: "http endpoint not probed",
-    }
+    return { ...base, ...(await probeHttp(s.url ?? "")) }
   }
   const command = s.command?.trim() ?? ""
   if (!command) {
@@ -179,6 +177,60 @@ async function probeOne(s: McpServerDef): Promise<McpServerStatus> {
     return { ...base, state: "error", detail: `command not found: ${command}` }
   }
   return { ...base, state: "ok", detail: found }
+}
+
+const HTTP_PROBE_TIMEOUT_MS = 3000
+
+const INITIALIZE_REQUEST = JSON.stringify({
+  jsonrpc: "2.0",
+  id: 1,
+  method: "initialize",
+  params: {
+    protocolVersion: "2025-03-26",
+    capabilities: {},
+    clientInfo: { name: "chat-hub", version: "0.1.0" },
+  },
+})
+
+type ProbeOutcome = Pick<McpServerStatus, "state" | "detail">
+
+export async function probeHttp(url: string): Promise<ProbeOutcome> {
+  const status = await postInitialize(url)
+  if (status === null) return { state: "error", detail: mcpUnreachableDetail(url) }
+  if (status === 401 || status === 403) return { state: "unknown", detail: "Needs sign-in" }
+  if (status >= 200 && status < 300) return { state: "ok", detail: url }
+  return { state: "error", detail: `HTTP ${status}` }
+}
+
+function postInitialize(url: string): Promise<number | null> {
+  let target: URL
+  try {
+    target = new URL(url)
+  } catch {
+    return Promise.resolve(null)
+  }
+  const request = target.protocol === "https:" ? httpsRequest : httpRequest
+  return new Promise((resolve) => {
+    const req = request(
+      target,
+      {
+        method: "POST",
+        timeout: HTTP_PROBE_TIMEOUT_MS,
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          "content-length": Buffer.byteLength(INITIALIZE_REQUEST),
+        },
+      },
+      (res) => {
+        res.resume()
+        resolve(res.statusCode ?? null)
+      },
+    )
+    req.on("timeout", () => req.destroy())
+    req.on("error", () => resolve(null))
+    req.end(INITIALIZE_REQUEST)
+  })
 }
 
 async function resolveCommand(command: string): Promise<string | null> {
