@@ -464,7 +464,7 @@ export function SettingsModal({
     return () => clearInterval(timer)
   }, [open, tab])
 
-  useOverlay({ onClose, enabled: open })
+  useOverlay({ onClose, enabled: open, exclusive: false })
 
   // Keep the editable copy in sync with what's persisted; fall back to the
   // seeded defaults until the user has saved any of their own. (Lives above

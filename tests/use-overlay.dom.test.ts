@@ -117,7 +117,7 @@ describe("useOverlay", () => {
     h.unmount()
   })
 
-  it("keeps an empty arrow cursor inert", () => {
+  it("swallows arrows on an empty cursor without moving", () => {
     const onMove = vi.fn()
     const h = mount({
       onClose: vi.fn(),
@@ -126,7 +126,7 @@ describe("useOverlay", () => {
 
     const event = press("ArrowDown")
     expect(onMove).not.toHaveBeenCalled()
-    expect(event.defaultPrevented).toBe(false)
+    expect(event.defaultPrevented).toBe(true)
     h.unmount()
   })
 
@@ -176,6 +176,71 @@ describe("useOverlay", () => {
     expect(onCommit).toHaveBeenCalledTimes(1)
     expect(onCommit).toHaveBeenCalledWith(event)
     expect(event.defaultPrevented).toBe(false)
+    h.unmount()
+  })
+
+  it("ignores keys whose target is outside scopeRef", () => {
+    const onClose = vi.fn()
+    const onCommit = vi.fn()
+    const panel = document.createElement("div")
+    const inside = document.createElement("input")
+    panel.append(inside)
+    const outside = document.createElement("input")
+    document.body.append(panel, outside)
+
+    const h = mount({
+      onClose,
+      scopeRef: { current: panel },
+      cursor: { count: 2, active: 0, onMove: vi.fn(), onCommit },
+    })
+
+    const stray = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    })
+    void act(() => {
+      outside.dispatchEvent(stray)
+    })
+    const strayEscape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    })
+    void act(() => {
+      outside.dispatchEvent(strayEscape)
+    })
+    expect(onCommit).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(strayEscape.defaultPrevented).toBe(false)
+
+    const owned = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    })
+    void act(() => {
+      inside.dispatchEvent(owned)
+    })
+    expect(onCommit).toHaveBeenCalledTimes(1)
+    h.unmount()
+  })
+
+  it("closes cooperatively when not exclusive, leaving the event untouched", () => {
+    const onClose = vi.fn()
+    const bystander = vi.fn()
+    window.addEventListener("keydown", bystander)
+    const h = mount({ onClose, exclusive: false })
+
+    const event = press("Escape")
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(event.defaultPrevented).toBe(false)
+    expect(bystander).toHaveBeenCalledTimes(1)
+
+    const enter = press("Enter")
+    expect(enter.defaultPrevented).toBe(false)
+
+    window.removeEventListener("keydown", bystander)
     h.unmount()
   })
 

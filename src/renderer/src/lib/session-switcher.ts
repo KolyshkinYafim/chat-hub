@@ -31,16 +31,6 @@ export function filterByQuery<
   return scored.map((hit) => hit.entry)
 }
 
-export function cycleIndex(
-  cursor: number,
-  delta: number,
-  length: number,
-): number {
-  if (length <= 0) return 0
-  const from = Math.min(Math.max(cursor, 0), length - 1)
-  return (from + delta + length) % length
-}
-
 export function initialCursor(length: number): number {
   return length > 1 ? 1 : 0
 }
