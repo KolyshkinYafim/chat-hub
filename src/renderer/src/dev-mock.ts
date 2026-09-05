@@ -1595,6 +1595,12 @@ export function installDevMock(): void {
     listProjects: async () => projects,
     getBridgePath: async () => dataPaths.bridgePath,
     getDataPaths: async () => dataPaths,
+    automationStatus: async () => ({
+      enabled: settings.general.automationServer === true,
+      port: settings.general.automationServer ? 51234 : null,
+    }),
+    automationToken: async () => "mock-automation-token",
+    automationRegenerateToken: async () => "mock-automation-token-2",
     getBuildInfo: async () => buildInfo,
     // Slow in the real app (it walks the data folder), so the mock stalls too —
     // the loading state on the Advanced tab has to be reviewable in a browser.

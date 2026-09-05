@@ -3,6 +3,7 @@ import type { SessionMeta } from "@shared/types"
 import {
   AGENT_INBOX_KEY,
   buildPaletteEntries,
+  COPY_LINK_KEY,
   NEW_WINDOW_KEY,
   paletteKey,
   resolvePaletteCursor,
@@ -22,6 +23,7 @@ type Props = {
   onNextAttention: () => void
   onNewWindow: (sessionId?: string) => void
   onOpenInbox: () => void
+  onCopyLink: () => void
   onClose: () => void
 }
 
@@ -35,14 +37,22 @@ export function CommandPalette({
   onNextAttention,
   onNewWindow,
   onOpenInbox,
+  onCopyLink,
   onClose,
 }: Props) {
   const [query, setQuery] = useState("")
   const [cursor, setCursor] = useState<PaletteCursor>({ key: null, index: 0 })
 
   const entries = useMemo(
-    () => buildPaletteEntries(sessions, query, attentionCount, inboxCount),
-    [sessions, query, attentionCount, inboxCount],
+    () =>
+      buildPaletteEntries(
+        sessions,
+        query,
+        attentionCount,
+        inboxCount,
+        activeId !== null,
+      ),
+    [sessions, query, attentionCount, inboxCount, activeId],
   )
   const keys = useMemo(() => entries.map(paletteKey), [entries])
   const active = resolvePaletteCursor(keys, cursor)
@@ -55,6 +65,7 @@ export function CommandPalette({
     if (entry.kind === "command") {
       if (entry.key === NEW_WINDOW_KEY) onNewWindow()
       else if (entry.key === AGENT_INBOX_KEY) onOpenInbox()
+      else if (entry.key === COPY_LINK_KEY) onCopyLink()
       else onNextAttention()
     } else if (newWindow) {
       onNewWindow(entry.session.id)
@@ -138,7 +149,9 @@ export function CommandPalette({
                           statusLabel[entry.session.status]
                         }${entry.session.id === activeId ? " · current" : ""}`}
                   </span>
-                  <span className={`palette-time ${command ? "kbd" : ""}`}>
+                  <span
+                    className={`palette-time ${command && entry.hint ? "kbd" : ""}`}
+                  >
                     {command ? keyHint(entry.hint) : formatRelative(entry.session.updatedAt)}
                   </span>
                 </button>

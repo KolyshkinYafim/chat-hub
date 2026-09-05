@@ -114,6 +114,7 @@ export type GeneralConfig = {
   /** User-saved themes from the Appearance editor / JSON import. */
   customThemes?: ThemeDef[]
   allowAgentHubControl?: boolean
+  automationServer?: boolean
 }
 
 /**
@@ -146,6 +147,7 @@ export type HubSettings = {
    * Optional so older settings.json loads without a migration bump.
    */
   mcpEnv?: Record<string, Record<string, string>>
+  automationToken?: string
   window?: WindowState
   windows?: PersistedWindow[]
   /** Shell zoom step (`1.2 ** level`); absent = 100%. */
@@ -198,6 +200,11 @@ export type SettingsSnapshot = {
   /** One entry per instance (default + extras), grouped by provider. */
   statuses: ProviderStatus[]
   statusesCachedAt: number | null
+}
+
+export type AutomationStatus = {
+  enabled: boolean
+  port: number | null
 }
 
 /** Filesystem locations + bridge health for the Advanced/Connections tabs. */

@@ -40,6 +40,7 @@ import type {
   TerminalHandle,
 } from "@shared/surfaces"
 import type {
+  AutomationStatus,
   BuildInfo,
   DataPaths,
   GeneralConfig,
@@ -378,6 +379,12 @@ const api = {
     ipcRenderer.invoke(IpcChannels.setGeneralConfig, patch),
   getDataPaths: (): Promise<DataPaths> =>
     ipcRenderer.invoke(IpcChannels.getDataPaths),
+  automationStatus: (): Promise<AutomationStatus> =>
+    ipcRenderer.invoke(IpcChannels.automationStatus),
+  automationToken: (): Promise<string> =>
+    ipcRenderer.invoke(IpcChannels.automationToken),
+  automationRegenerateToken: (): Promise<string> =>
+    ipcRenderer.invoke(IpcChannels.automationRegenerateToken),
   /** App version + build commit, for the Advanced tab and support threads. */
   getBuildInfo: (): Promise<BuildInfo> =>
     ipcRenderer.invoke(IpcChannels.getBuildInfo),

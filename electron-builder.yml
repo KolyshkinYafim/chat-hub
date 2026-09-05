@@ -14,6 +14,11 @@ files:
 
 asar: true
 
+protocols:
+  - name: Chat Hub
+    schemes:
+      - chat-hub
+
 # The browser MCP server is spawned as a separate Node process, which cannot
 # read a path inside the asar — it has to ship as a plain file next to it.
 extraResources:
