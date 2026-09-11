@@ -1,15 +1,29 @@
 import { execFile } from "node:child_process"
-import { mkdtemp, readFile, realpath, unlink, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, realpath, rm, unlink, writeFile } from "node:fs/promises"
 import { promisify } from "node:util"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   buildPrBody,
   createSessionWorktree,
   listSessionWorktrees,
   removeSessionWorktree,
 } from "../src/main/git"
+
+const testHome = vi.hoisted(() => ({ path: "" }))
+vi.mock("node:os", async (importOriginal) => ({
+  ...await importOriginal<typeof import("node:os")>(),
+  homedir: () => testHome.path,
+}))
+
+beforeEach(async () => {
+  testHome.path = await realpath(await mkdtemp(join(tmpdir(), "chat-hub-worktree-home-")))
+})
+
+afterEach(async () => {
+  await rm(testHome.path, { recursive: true, force: true })
+})
 
 const exec = promisify(execFile)
 

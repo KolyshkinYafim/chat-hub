@@ -12,6 +12,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    setupFiles: ["./tests/setup.ts"],
     environmentMatchGlobs: [["**/*.dom.test.ts", "jsdom"]],
     include: ["src/**/*.test.ts", "tests/**/*.test.ts"],
     reporters: ["default"],

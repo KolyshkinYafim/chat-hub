@@ -58,13 +58,6 @@ import {
 /** Retention window: how many per-turn checkpoints a session keeps. */
 export const MAX_CHECKPOINTS_PER_SESSION = 20
 
-/**
- * How long a turn waits for its own snapshot before it stops waiting. Ordering
- * the snapshot ahead of the agent is what makes a checkpoint mean "before this
- * turn"; the cap keeps a repo too large to hash in time from delaying the send.
- */
-export const CHECKPOINT_GATE_MS = 2500
-
 const ARCHIVE_REFILL_LIMIT = 50
 import { runWorktreeCreateScripts } from "./surfaces/scripts"
 import { projectContextBrief } from "./surfaces/project-context"
@@ -1199,26 +1192,17 @@ export class SessionManager {
   }
 
   /**
-   * Hold the send until the snapshot is on disk, so the checkpoint holds the
-   * tree as it was before the agent could touch it. A repo slower than the gate
-   * keeps the old best-effort behaviour: the send goes out and the snapshot
-   * still stamps its message, just without the ordering guarantee.
+   * Git commands have their own timeouts. Await their completion before letting
+   * the agent write: racing a wall-clock gate against git add can capture edits
+   * from the turn and incorrectly present them as a pre-turn checkpoint.
+   * Failed snapshots remain best-effort and do not prevent dispatch.
    */
   private snapshotGate(
     session: SessionMeta,
     content: string,
     userMessageId?: string,
   ): Promise<void> {
-    const snapshot = this.snapshotTurn(session, content, userMessageId).catch(
-      () => undefined,
-    )
-    return new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, CHECKPOINT_GATE_MS)
-      void snapshot.then(() => {
-        clearTimeout(timer)
-        resolve()
-      })
-    })
+    return this.snapshotTurn(session, content, userMessageId).catch(() => undefined)
   }
 
   /**

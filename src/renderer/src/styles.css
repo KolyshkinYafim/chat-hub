@@ -10538,3 +10538,36 @@ ol.activity-agent-steps li {
 .toast-action:hover {
   text-decoration: underline;
 }
+
+/* Give a reviewed file the full panel while preserving navigation and comments. */
+.scm-diff-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.scm-diff-file {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.scm-focused > .scm-repo-select,
+.scm-focused > .scm-branch-row,
+.scm-focused > .scm-checks,
+.scm-focused > .scm-review-gate,
+.scm-focused > .scm-lists,
+.scm-focused > .scm-worktrees,
+.scm-focused > .scm-commit { display: none; }
+.scm-focused .scm-diff-wrap { flex: 1; max-height: none; }
+.scm-focused .scm-diff { flex: 1; }
+.scm-focused .scm-diff-toolbar > [aria-pressed="true"] {
+  color: var(--text);
+  background: var(--bg-active);
+}

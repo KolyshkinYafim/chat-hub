@@ -39,7 +39,6 @@ import {
 import { isEditableTarget } from "../lib/editable-target"
 import { matchPath } from "../lib/path-match"
 import {
-  CHECKS_POLL_INTERVAL_MS,
   failingChecks,
   failingChecksPrompt,
   formatCheckDuration,
@@ -345,6 +344,7 @@ export function SourceControl({
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [pr, setPr] = useState<GitPrStatus | null>(null)
+  const [diffFocused, setDiffFocused] = useState(false)
   const [sendingChecks, setSendingChecks] = useState(false)
   const [viewed, setViewed] = useState<ViewedMap>(() => loadViewed(sessionId))
   const liveRef = useRef(true)
@@ -396,19 +396,35 @@ export function SourceControl({
   }, [repoCwd])
 
   useEffect(() => {
+    let cancelled = false
+    let receivedEvent = false
     setPr(null)
+    // Subscribe before reading the cache so an older snapshot cannot replace a
+    // fresh push. The main-process watcher owns the only polling timer.
+    const unsubscribe = window.chatHub.onHubEvent((event) => {
+      if (event.type !== "git.pr" || event.cwd !== repoCwd) return
+      receivedEvent = true
+      setPr(event.status)
+    })
+    void window.chatHub.gitPrStatuses().then(async (statuses) => {
+      if (cancelled || receivedEvent) return
+      const status = statuses[repoCwd] ?? await window.chatHub.gitPrStatus(repoCwd)
+      if (!cancelled && !receivedEvent) setPr(status)
+    }).catch(() => {
+      if (!cancelled && !receivedEvent) setPr({ pr: null, unavailable: "error" })
+    })
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
   }, [repoCwd])
 
+  const previousRefreshKey = useRef(refreshKey)
   useEffect(() => {
+    if (previousRefreshKey.current === refreshKey) return
+    previousRefreshKey.current = refreshKey
     void refreshPr()
   }, [refreshPr, refreshKey])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refreshPr()
-    }, CHECKS_POLL_INTERVAL_MS)
-    return () => window.clearInterval(timer)
-  }, [refreshPr])
 
   const staged = useMemo(() => stagedRows(copy.files), [copy.files])
   const unstaged = useMemo(() => unstagedRows(copy.files), [copy.files])
@@ -450,12 +466,12 @@ export function SourceControl({
   const fetchRowDiff = useCallback(
     (row: Row) =>
       window.chatHub.gitDiff(
-        cwd,
+        repoCwd,
         row.file.path,
         row.staged,
         !row.staged && row.code === "?",
       ),
-    [cwd],
+    [repoCwd],
   )
 
   useEffect(() => {
@@ -530,6 +546,12 @@ export function SourceControl({
   }
 
   function handleNavKey(event: ReactKeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape" && diffFocused) {
+      event.preventDefault()
+      event.stopPropagation()
+      setDiffFocused(false)
+      return
+    }
     if (event.metaKey || event.ctrlKey || event.altKey) return
     if (isEditableTarget(event.target)) return
     const delta =
@@ -567,7 +589,7 @@ export function SourceControl({
     setBusy(true)
     setNotice(null)
     try {
-      await window.chatHub.gitInit(cwd)
+      await window.chatHub.gitInit(repoCwd)
       await reload()
       onChanged()
     } catch (err) {
@@ -578,11 +600,11 @@ export function SourceControl({
   }
 
   function stage(paths: string[]) {
-    void run(() => window.chatHub.gitStage(cwd, paths))
+    void run(() => window.chatHub.gitStage(repoCwd, paths))
   }
 
   function unstage(paths: string[]) {
-    void run(() => window.chatHub.gitUnstage(cwd, paths))
+    void run(() => window.chatHub.gitUnstage(repoCwd, paths))
   }
 
   async function applyHunk(row: Row, index: number, hunk: string) {
@@ -590,8 +612,8 @@ export function SourceControl({
     setNotice(null)
     try {
       const res = row.staged
-        ? await window.chatHub.gitUnstageHunk(cwd, row.file.path, index, hunk)
-        : await window.chatHub.gitStageHunk(cwd, row.file.path, index, hunk)
+        ? await window.chatHub.gitUnstageHunk(repoCwd, row.file.path, index, hunk)
+        : await window.chatHub.gitStageHunk(repoCwd, row.file.path, index, hunk)
       if (!liveRef.current) return
       if (!res.ok) setNotice(res.output)
       // Success or not, later hunks' offsets may have shifted: re-fetch the
@@ -612,7 +634,7 @@ export function SourceControl({
     setBusy(true)
     setNotice(null)
     try {
-      const res = await window.chatHub.gitCommitStaged(cwd, text)
+      const res = await window.chatHub.gitCommitStaged(repoCwd, text)
       if (!liveRef.current) return
       setNotice(res.output)
       if (res.ok) setMessage("")
@@ -630,7 +652,7 @@ export function SourceControl({
     setBusy(true)
     setNotice(null)
     try {
-      const res = await window.chatHub.gitCheckout(cwd, branch)
+      const res = await window.chatHub.gitCheckout(repoCwd, branch)
       if (!liveRef.current) return
       // A dirty tree makes git refuse; its own message is the useful one.
       if (!res.ok) setNotice(res.output)
@@ -643,14 +665,14 @@ export function SourceControl({
 
   function push() {
     if (!reviewConfirmed) return
-    void run(() => window.chatHub.gitPush(cwd)).then(refreshPr)
+    void run(() => window.chatHub.gitPush(repoCwd)).then(refreshPr)
   }
 
   function createPr() {
     if (!reviewConfirmed) return
     const title = prTitle.trim() || copy.branch
     void run(() =>
-      window.chatHub.gitCreatePr(cwd, title, message.trim(), prDraft),
+      window.chatHub.gitCreatePr(repoCwd, title, message.trim(), prDraft),
     ).then(refreshPr)
   }
 
@@ -758,12 +780,12 @@ export function SourceControl({
   }
 
   function removeWorktree(worktree: GitWorktreeInfo) {
-    if (worktree.dirty || worktree.prunable || worktree.path === cwd) return
-    void run(() => window.chatHub.gitRemoveWorktree(cwd, worktree.path))
+    if (worktree.dirty || worktree.prunable || worktree.path === repoCwd) return
+    void run(() => window.chatHub.gitRemoveWorktree(repoCwd, worktree.path))
   }
 
   function pruneWorktrees() {
-    void run(() => window.chatHub.gitPruneWorktrees(cwd))
+    void run(() => window.chatHub.gitPruneWorktrees(repoCwd))
   }
 
   function fileRow(row: Row) {
@@ -841,7 +863,7 @@ export function SourceControl({
 
   return (
     <aside
-      className="scm"
+      className={`scm${diffFocused ? " scm-focused" : ""}`}
       aria-label="Source control"
       tabIndex={-1}
       onKeyDown={handleNavKey}
@@ -861,6 +883,21 @@ export function SourceControl({
           ×
         </button>
       </header>
+      <div className="scm-diff-toolbar">
+        <button type="button" className="scm-act" disabled={allRows.length === 0}
+          aria-pressed={diffFocused}
+          onClick={() => { if (!selected) stepFile(1); setDiffFocused((value) => !value) }}>
+          {diffFocused ? "Exit focus" : "Focus diff"}
+        </button>
+        <span className="scm-diff-file" title={selected?.file.path}>
+          {selected ? `${selected.staged ? "Staged" : "Changes"} · ${selected.file.path}` : "Choose a change"}
+        </span>
+        <button type="button" className="icon-chip xs ghost" aria-label="Previous file"
+          disabled={allRows.length === 0 || selectedIndex === 0} onClick={() => stepFile(-1)}>↑</button>
+        <span className="scm-pos" aria-live="polite">{Math.max(0, selectedIndex + 1)}/{allRows.length}</span>
+        <button type="button" className="icon-chip xs ghost" aria-label="Next file"
+          disabled={allRows.length === 0 || selectedIndex === allRows.length - 1} onClick={() => stepFile(1)}>↓</button>
+      </div>
       {repos.length > 0 ? <label className="chip select-chip scm-repo-select"><select value={repoCwd} onChange={(e) => setRepoCwd(e.target.value)} aria-label="Repository">{repos.map((repo) => <option key={repo.root} value={repo.root}>{repo.name} · {repo.branch}{repo.dirty ? " · dirty" : ""}</option>)}</select></label> : null}
 
       {noRepo ? (
@@ -1021,7 +1058,7 @@ export function SourceControl({
               </div>
               <ul className="scm-worktree-list">
                 {worktrees.map((worktree) => {
-                  const current = worktree.path === cwd
+                  const current = worktree.path === repoCwd
                   return (
                     <li key={worktree.path} className={current ? "current" : undefined}>
                       <span className="scm-worktree-main">
