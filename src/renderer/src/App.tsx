@@ -230,7 +230,7 @@ export default function App() {
     >
   >({})
   const [designFocusBySession, setDesignFocusBySession] = useState<
-    Record<string, { path: string; at: number }>
+    Record<string, { path: string; at: number; url?: string }>
   >({})
   const [projectSearch, setProjectSearch] = useState<ProjectSearchMode | null>(
     null,
@@ -1032,10 +1032,10 @@ export default function App() {
           },
         }))
       }
-      if (request.path !== null && surface === "design") {
+      if ((request.path !== null || request.url) && surface === "design") {
         setDesignFocusBySession((curr) => ({
           ...curr,
-          [request.sessionId]: { path: request.path as string, at: request.at },
+          [request.sessionId]: { path: request.path ?? "", url: request.url, at: request.at },
         }))
       }
       if (surface === "browser") setBrowserClaim(target.id)
@@ -1101,6 +1101,8 @@ export default function App() {
     },
     [],
   )
+
+  useEffect(() => window.chatHub.onFigmaWarning(showToast), [showToast])
 
   function setSessionArchived(id: string, archive: boolean) {
     void window.chatHub

@@ -1,3 +1,4 @@
+import { parseFigmaUrl } from "@shared/figma-link"
 import { randomUUID } from "node:crypto"
 import { statSync } from "node:fs"
 import {
@@ -41,6 +42,7 @@ const KIND_LIST = SURFACE_KINDS.join(", ")
 type Target = {
   surface: SurfaceKind
   path: string | null
+  url?: string
   directory: boolean
   line: number | null
   command: string | null
@@ -257,6 +259,7 @@ export class SurfaceControl {
       sessionId: session.id,
       surface: target.surface,
       path: live ? target.path : null,
+      ...(live && target.url ? { url: target.url } : {}),
       directory: target.directory,
       line: live ? target.line : null,
       command: live ? target.command : null,
@@ -321,6 +324,14 @@ export class SurfaceControl {
         `${JSON.stringify(surface ?? "")} is not a Chat Hub surface. Pick one of: ${KIND_LIST}.`,
       )
     }
+    let url: string | undefined
+    if (params.url !== undefined) {
+      if (surface !== "design" || typeof params.url !== "string" || !parseFigmaUrl(params.url)) {
+        throw new Error("A URL is only supported for Design and must be a Figma frame link containing node-id.")
+      }
+      if (params.path) throw new Error("Choose either a design folder or a Figma URL.")
+      url = params.url
+    }
     const target = this.resolvePath(session, surface, params)
     const line = target && !target.directory ? this.lineOf(params) : null
     const live = this.reveal(
@@ -328,6 +339,7 @@ export class SurfaceControl {
       {
         surface,
         path: target?.path ?? null,
+        ...(url ? { url } : {}),
         directory: target?.directory === true,
         line,
         command: null,

@@ -101,7 +101,7 @@ describe("parseHubPanes", () => {
 })
 
 describe("parseHubSurfaceChoice", () => {
-  it.each(["diff", "terminal", "editor", "browser"])("accepts %s", (value) => {
+  it.each(["diff", "terminal", "editor", "browser", "design"])("accepts %s", (value) => {
     expect(parseHubSurfaceChoice(value)).toEqual({ ok: true, value })
   })
 
@@ -389,6 +389,18 @@ describe("HubControl", () => {
     )
     expect(state.surfaced).toEqual([{ sessionId: "s-1", surface: "files" }])
     expect(response.ok).toBe(true)
+  })
+
+  it("forwards a Figma URL to the Design surface control", async () => {
+    let opened: HubRequest | null = null
+    const { control } = makeControl({ openSurface: async (request) => {
+      opened = request
+      return { id: request.id, ok: true, result: { summary: "opened" } }
+    } })
+    const url = "https://figma.com/design/AbC123/Frame?node-id=1-2"
+    const response = await control.handle(req(HUB_OPS.openSurface, { sessionId: "s-1", surface: "design", url }))
+    expect(response.ok).toBe(true)
+    expect(opened).toMatchObject({ params: { surface: "design", url } })
   })
 
   it("rejects a surface outside the hub's set", async () => {

@@ -1,3 +1,4 @@
+import { parseFigmaUrl } from "@shared/figma-link"
 import {
   useCallback,
   useEffect,
@@ -20,7 +21,7 @@ import {
 } from "../../lib/design-canvas"
 import { errorText, surfaceBridge } from "../../lib/surface-bridge"
 
-export type DesignFocus = { path: string; at: number }
+export type DesignFocus = { path: string; at: number; url?: string }
 
 type Props = {
   cwd: string
@@ -47,13 +48,16 @@ function sourceLabel(source: Source): string {
   return parts[parts.length - 1] ?? source.root
 }
 
-export function DesignSurface({ cwd, focus = null }: Props) {
+function LocalDesignSurface({ cwd, focus = null }: Props) {
   const [source, setSource] = useState<Source>(() =>
     focus
       ? { root: cwd, rel: focus.path, implicit: false }
       : { root: cwd, rel: DEFAULT_REL, implicit: true },
   )
   const [load, setLoad] = useState<LoadState>({ phase: "loading" })
+  const [selected, setSelected] = useState("")
+  const [exportError, setExportError] = useState<string | null>(null)
+  const generationRef = useRef(0)
   const [docs, setDocs] = useState<Record<string, string>>({})
   const [failed, setFailed] = useState<Record<string, string>>({})
   const [view, setView] = useState<CanvasView>({ zoom: 1, panX: 0, panY: 0 })
@@ -84,6 +88,8 @@ export function DesignSurface({ cwd, focus = null }: Props) {
 
   useEffect(() => {
     let cancelled = false
+    generationRef.current += 1
+    setSelected("")
     setLoad({ phase: "loading" })
     setDocs({})
     setFailed({})
@@ -171,6 +177,8 @@ export function DesignSurface({ cwd, focus = null }: Props) {
   useEffect(() => {
     if (!artboards) return
     const bridge = surfaceBridge()
+    const generation = generationRef.current
+    const fetching = fetchingRef.current
     for (const box of artboards) {
       if (!visible.has(box.file)) continue
       if (docs[box.file] !== undefined || failed[box.file] !== undefined) {
@@ -181,15 +189,15 @@ export function DesignSurface({ cwd, focus = null }: Props) {
       void bridge
         .readFileText(source.root, joinRel(source.rel, box.file))
         .then((contents) => {
-          if (!liveRef.current) return
+          if (!liveRef.current || generation !== generationRef.current) return
           setDocs((curr) => ({ ...curr, [box.file]: contents.text }))
         })
         .catch((err) => {
-          if (!liveRef.current) return
+          if (!liveRef.current || generation !== generationRef.current) return
           setFailed((curr) => ({ ...curr, [box.file]: errorText(err) }))
         })
         .finally(() => {
-          fetchingRef.current.delete(box.file)
+          fetching.delete(box.file)
         })
     }
   }, [artboards, visible, docs, failed, source])
@@ -260,12 +268,28 @@ export function DesignSurface({ cwd, focus = null }: Props) {
           {load.artboards.length}{" "}
           {load.artboards.length === 1 ? "artboard" : "artboards"}
         </span>
+        <select aria-label="Select artboard" value={selected} onChange={(event) => {
+          const file = event.target.value
+          setSelected(file)
+          const box = load.artboards.find((board) => board.file === file)
+          if (box) setView(fitView(box, size.w, size.h))
+          else fit()
+        }}>
+          <option value="">All artboards</option>
+          {load.artboards.map((box) => <option key={box.file} value={box.file}>{box.name}</option>)}
+        </select>
+        <button type="button" className="tb-btn" disabled={!selected} onClick={() => {
+          setExportError(null)
+          void window.chatHub.exportDesign(source.root, joinRel(source.rel, selected)).catch((error) => setExportError(errorText(error)))
+        }}>Export HTML</button>
+        {exportError ? <span role="alert">{exportError}</span> : null}
         <span className="design-toolbar-zoom">
           {Math.round(view.zoom * 100)}%
         </span>
-        <button type="button" className="tb-btn" onClick={fit}>
+        <button type="button" className="tb-btn" onClick={() => { setSelected(""); fit() }}>
           Fit
         </button>
+        <button type="button" className="tb-btn" onClick={() => setSource((current) => ({ ...current }))}>Refresh</button>
         <button
           type="button"
           className="tb-btn"
@@ -319,7 +343,7 @@ export function DesignSurface({ cwd, focus = null }: Props) {
           {load.artboards.map((box) => (
             <div
               key={box.file}
-              className="design-artboard"
+              className={`design-artboard ${selected === box.file ? "is-selected" : ""}`}
               style={{
                 left: box.x,
                 top: box.y,
@@ -327,12 +351,15 @@ export function DesignSurface({ cwd, focus = null }: Props) {
                 height: box.h,
               }}
             >
-              <div
+              <button
+                type="button"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => { setSelected(box.file); setView(fitView(box, size.w, size.h)) }}
                 className="design-artboard-label"
                 style={{ transform: `scale(${1 / view.zoom})` }}
               >
                 {box.name}
-              </div>
+              </button>
               {visible.has(box.file) && docs[box.file] !== undefined ? (
                 <iframe
                   className="design-artboard-frame"
@@ -349,6 +376,64 @@ export function DesignSurface({ cwd, focus = null }: Props) {
           ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+export function DesignSurface({ cwd, focus = null }: Props) {
+  const [url, setUrl] = useState(focus?.url ?? "")
+  const [activeUrl, setActiveUrl] = useState(focus?.url ?? "")
+  const [refresh, setRefresh] = useState(0)
+  const [preview, setPreview] = useState<import("@shared/figma-link").FigmaPreview | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    setActiveUrl(focus?.url ?? "")
+    setUrl(focus?.url ?? "")
+  }, [cwd, focus])
+
+  useEffect(() => {
+    if (!activeUrl) return
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    setPreview(null)
+    void window.chatHub.figmaPreview(cwd, activeUrl, refresh > 0).then((result) => {
+      if (!cancelled) setPreview(result)
+    }).catch((failure) => {
+      if (!cancelled) setError(errorText(failure))
+    }).finally(() => {
+      if (!cancelled) setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [cwd, activeUrl, refresh])
+
+  return (
+    <div className="design-workspace">
+      <form className="design-source-bar" onSubmit={(event) => {
+        event.preventDefault()
+        setActiveUrl(url.trim())
+        setRefresh((current) => current + 1)
+      }}>
+        <span className="design-source-mark" aria-hidden>◈</span>
+        <input aria-label="Figma frame URL" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="Paste a Figma frame link…" />
+        <button type="submit" className="tb-btn" disabled={!url.trim() || loading}>Open frame</button>
+        {activeUrl ? <button type="button" className="tb-btn" onClick={() => { setActiveUrl(""); setUrl("") }}>Local artboards</button> : null}
+      </form>
+      {activeUrl ? (
+        <div className="design-figma">
+          <div className="design-toolbar">
+            <span className="design-toolbar-source">Figma {preview ? `· ${preview.nodeId}` : "frame"}</span>
+            <button type="button" className="tb-btn" disabled={loading} onClick={() => setRefresh((current) => current + 1)}>Refresh</button>
+            {parseFigmaUrl(activeUrl) ? <a className="tb-btn" href={activeUrl} target="_blank" rel="noreferrer">Open in Figma ↗</a> : null}
+            {preview ? <button type="button" className="tb-btn" onClick={() => void window.chatHub.revealPath(preview.path)}>Show PNG</button> : null}
+          </div>
+          {loading ? <div className="design-status">Rendering frame…</div> : error ? <div className="design-empty"><p className="design-empty-title">Frame preview unavailable</p><p className="design-empty-hint">{error}</p></div> : preview ? (
+            <div className="design-figma-canvas"><img src={preview.dataUrl} alt={`Figma node ${preview.nodeId}`} /><span>Frame {preview.nodeId} · refreshed {new Date(preview.fetchedAt).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}</span></div>
+          ) : null}
+        </div>
+      ) : <LocalDesignSurface cwd={cwd} focus={focus} />}
     </div>
   )
 }

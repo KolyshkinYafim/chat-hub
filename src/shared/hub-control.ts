@@ -23,6 +23,7 @@ export const HUB_SURFACE_CHOICES = [
   "terminal",
   "editor",
   "browser",
+  "design",
 ] as const
 
 export type HubSurfaceChoice = (typeof HUB_SURFACE_CHOICES)[number]

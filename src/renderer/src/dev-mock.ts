@@ -1734,6 +1734,9 @@ export function installDevMock(): void {
     readImageDataUrl: async (path) => mockImage(path),
     savePastedImage: async () => "/mock/pasted.png",
     createSession: async () => sessions[0],
+    exportDesign: async () => false,
+    figmaPreview: async () => { throw new Error("Figma previews need the desktop app and a configured API key.") },
+    onFigmaWarning: () => () => {},
     sendMessage: async () => {},
     cancelQueued: async (sessionId, queuedId) => {
       queued[sessionId] = (queued[sessionId] ?? []).filter((q) => q.id !== queuedId)

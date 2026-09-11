@@ -2227,6 +2227,10 @@ export function SettingsModal({
                               </span>
                             </div>
                             <p className="mcp-preset-note">{preset.note}</p>
+                            {preset.id.startsWith("figma") || preset.id === "framelink" ? <p className="mcp-preset-note">
+                              Active: {mcpServers.filter((server) => server.enabled && (server.id.startsWith("figma") || server.id === "framelink")).map((server) => server.transport === "http" ? "desktop" : "Framelink").join(" + ") || "none"}
+                              {" · "}Preview key: {mcpServers.some((server) => server.enabled && (mcpEnvKeys[server.id] ?? []).includes("FIGMA_API_KEY")) ? "set" : "not set"}
+                            </p> : null}
                             <div className="mcp-preset-foot">
                               <a
                                 className="mcp-preset-docs"

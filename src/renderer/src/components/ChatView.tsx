@@ -1750,6 +1750,8 @@ export function ChatView({
           <div className="composer-toolbar">
             <div className="composer-chips">
               <ComposerMenu
+                draft={draft}
+                onInsertPrompt={(prompt) => setDraft((current) => current.trim() ? `${current}\n\n${prompt}` : prompt)}
                 providerLabel={
                   providers.find((p) => p.id === session.provider)?.label ??
                   session.provider

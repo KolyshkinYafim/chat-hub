@@ -67,7 +67,7 @@ type Props = {
     string,
     { path: string; line: number | null; directory: boolean; at: number }
   >
-  designFocusBySession: Record<string, { path: string; at: number }>
+  designFocusBySession: Record<string, { path: string; at: number; url?: string }>
   gitByCwd: Record<string, GitCheckoutInfo | null>
   scriptsByCwd: Record<string, ProjectScript[]>
   overflowHasMore: Record<string, boolean>

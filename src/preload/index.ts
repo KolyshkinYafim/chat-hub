@@ -140,6 +140,14 @@ const api = {
     ),
   createSession: (input: CreateSessionInput): Promise<SessionMeta> =>
     ipcRenderer.invoke(IpcChannels.createSession, input),
+  exportDesign: (cwd: string, path: string): Promise<boolean> => ipcRenderer.invoke(IpcChannels.exportDesign, cwd, path),
+  figmaPreview: (cwd: string, url: string, refresh = false): Promise<import("@shared/figma-link").FigmaPreview> =>
+    ipcRenderer.invoke(IpcChannels.figmaPreview, cwd, url, refresh),
+  onFigmaWarning: (cb: (text: string) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, text: string) => cb(text)
+    ipcRenderer.on(IpcChannels.figmaWarning, handler)
+    return () => { ipcRenderer.removeListener(IpcChannels.figmaWarning, handler) }
+  },
   sendMessage: (
     sessionId: string,
     text: string,

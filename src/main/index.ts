@@ -1,6 +1,7 @@
 import { LangfuseService } from "./langfuse"
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from "electron"
-import { join } from "node:path"
+import { basename, join } from "node:path"
+import { resolveContainedPath } from "./surfaces/paths"
 import { realpathSync, statSync } from "node:fs"
 import { IpcChannels } from "@shared/ipc"
 import { attentionEligible } from "@shared/attention"
@@ -60,7 +61,7 @@ import {
   type ProbeInput,
 } from "./provider-probe"
 import { existsSync } from "node:fs"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises"
 import { openLoginTerminal } from "./terminal-launch"
 import { HOME_ENV } from "./instances"
 import type { ProviderInstance } from "@shared/settings-types"
@@ -118,6 +119,7 @@ import {
   toggleHandyTranscription,
 } from "./voice-handy"
 import { inspectAttachmentPaths } from "./attachments"
+import { FigmaPreviewService } from "./figma-preview"
 import { ProviderStatusCacheStore } from "./provider-status-cache"
 import { ProviderStatusRefresher } from "./provider-status-refresh"
 import { PrStatusWatcher } from "./pr-status"
@@ -930,6 +932,31 @@ export function registerIpc(
       origin: raw.origin,
     })
   })
+  ipcMain.handle(IpcChannels.exportDesign, async (_e, cwd: unknown, path: unknown) => {
+    const source = resolveContainedPath(cwd, path)
+    if (!source.relativePath.endsWith(".dc.html")) throw new Error("Choose a .dc.html artboard to export.")
+    const picked = await dialog.showSaveDialog({ title: "Export artboard", defaultPath: basename(source.absolutePath), filters: [{ name: "HTML artboard", extensions: ["html"] }] })
+    if (picked.canceled || !picked.filePath) return false
+    if (picked.filePath !== source.absolutePath) await copyFile(source.absolutePath, picked.filePath)
+    return true
+  })
+  const figma = new FigmaPreviewService({
+    directory: join(app.getPath("userData"), "attachments", "figma"),
+    keyForProject: async (cwd) => {
+      const config = await readMcpConfig(cwd)
+      for (const server of config.servers) {
+        if (!server.enabled || !server.envKeys.includes("FIGMA_API_KEY")) continue
+        const key = settings.getMcpEnv(server.id).FIGMA_API_KEY
+        if (key) return key
+      }
+      return null
+    },
+  })
+  ipcMain.handle(IpcChannels.figmaPreview, async (_e, cwd: unknown, url: unknown, refresh: unknown) => {
+    await ready
+    if (typeof cwd !== "string" || typeof url !== "string") throw new Error("Invalid Figma preview request")
+    return figma.preview(cwd, url, 1, refresh === true)
+  })
   ipcMain.handle(
     IpcChannels.sendMessage,
     async (_e, sessionId: unknown, text: unknown, opts?: unknown) => {
@@ -940,7 +967,12 @@ export function registerIpc(
       if (typeof text !== "string") {
         throw new Error("Invalid message")
       }
-      return sm.sendMessage(sessionId, text, normalizeSendOpts(opts))
+      const session = sm.getSession(sessionId)
+      if (!session) throw new Error("Unknown session")
+      const clean = normalizeSendOpts(opts)
+      const enriched = await figma.enrich(session.cwd, text, clean?.attachments)
+      await sm.sendMessage(sessionId, enriched.text, { ...clean, attachments: enriched.attachments })
+      if (enriched.warning) _e.sender.send(IpcChannels.figmaWarning, enriched.warning)
     },
   )
   ipcMain.handle(

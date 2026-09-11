@@ -1,3 +1,4 @@
+import { figmaAssetsPrompt, figmaLinksInText } from "@shared/figma-link"
 import { useEffect, useRef, useState } from "react"
 import { useOutsideDismiss } from "../lib/use-outside-dismiss"
 import type { PermissionMode } from "@shared/permission"
@@ -11,9 +12,11 @@ import {
   type Effort,
 } from "../lib/composer-summary"
 
-type Pane = "root" | "model" | "mode" | "permission" | "effort"
+type Pane = "root" | "model" | "mode" | "permission" | "effort" | "figma"
 
 type Props = {
+  draft?: string
+  onInsertPrompt?: (prompt: string) => void
   providerLabel: string
   model: string | undefined
   models: ModelInfo[]
@@ -32,6 +35,10 @@ type Props = {
 export function ComposerMenu(props: Props) {
   const [open, setOpen] = useState(false)
   const [pane, setPane] = useState<Pane>("root")
+  const [figmaUrl, setFigmaUrl] = useState("")
+  const [assetDir, setAssetDir] = useState("src/assets/icons")
+  const [tokensFile, setTokensFile] = useState("src/styles/tokens.css")
+  const [figmaError, setFigmaError] = useState<string | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
 
   useOutsideDismiss(rootRef, open, () => setOpen(false))
@@ -98,6 +105,11 @@ export function ComposerMenu(props: Props) {
           {pane === "root" ? (
             <div className="composer-pane">
               <div className="composer-pane-head">{props.providerLabel}</div>
+              {props.onInsertPrompt ? <MenuRow label="Pull Figma assets…" value="MCP" onOpen={() => {
+                setFigmaUrl(figmaLinksInText(props.draft ?? "")[0]?.url ?? "")
+                setFigmaError(null)
+                setPane("figma")
+              }} /> : null}
               <MenuRow
                 label="Model"
                 value={modelLabel(props.model, props.models)}
@@ -128,6 +140,22 @@ export function ComposerMenu(props: Props) {
             </div>
           ) : null}
 
+          {pane === "figma" ? (
+            <div className="composer-pane figma-assets-form">
+              <button type="button" className="composer-pane-back" onClick={() => setPane("root")}>‹ Figma assets</button>
+              <label>Frame URL<input value={figmaUrl} onChange={(event) => setFigmaUrl(event.target.value)} placeholder="https://www.figma.com/design/…?node-id=…" /></label>
+              <label>SVG folder<input value={assetDir} onChange={(event) => setAssetDir(event.target.value)} /></label>
+              <label>CSS tokens file<input value={tokensFile} onChange={(event) => setTokensFile(event.target.value)} /></label>
+              <p>Requires a Figma MCP connection. Review the instruction in your composer before sending.</p>
+              {figmaError ? <p role="alert">{figmaError}</p> : null}
+              <button type="button" className="tb-btn" onClick={() => {
+                try {
+                  props.onInsertPrompt?.(figmaAssetsPrompt(figmaUrl, assetDir, tokensFile))
+                  setOpen(false)
+                } catch (error) { setFigmaError(error instanceof Error ? error.message : String(error)) }
+              }}>Add to composer</button>
+            </div>
+          ) : null}
           {pane === "model" ? (
             <OptionPane
               title="Model"
