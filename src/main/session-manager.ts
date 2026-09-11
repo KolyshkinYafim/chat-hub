@@ -1123,6 +1123,7 @@ export class SessionManager {
     if (!this.ownsTurn(sessionId, token)) return
     // Queued user messages already exist in the transcript; they are not turn
     // boundaries. Capture assistant IDs at dispatch to associate only this reply.
+    const turnStartedAt = Date.now()
     const priorAssistantIds = new Set(this.getMessages(sessionId).filter((m) => m.role === "assistant").map((m) => m.id))
     // Fire-and-forget: stream/status arrive via event bus; UI stays responsive.
     void adapter
@@ -1148,7 +1149,7 @@ export class SessionManager {
         if (!failed && this.sessions.get(sessionId)?.status === "running") {
           this.applyStatus(sessionId, "idle")
         }
-        this.reportTurnComplete(sessionId, userMessageId, failed, priorAssistantIds)
+        this.reportTurnComplete(sessionId, userMessageId, failed, priorAssistantIds, turnStartedAt)
         this.flushQueued(sessionId)
         if (failed) return
         this.maybeRefineTitle(sessionId)
@@ -1164,15 +1165,15 @@ export class SessionManager {
           id: sessionId,
           reason: "error",
         })
-        this.reportTurnComplete(sessionId, userMessageId, true, priorAssistantIds)
+        this.reportTurnComplete(sessionId, userMessageId, true, priorAssistantIds, turnStartedAt)
         this.dropQueued(sessionId, "the turn failed")
       })
   }
 
-  private reportTurnComplete(sessionId: string, messageId: string | undefined, failed: boolean, priorAssistantIds: Set<string>): void {
+  private reportTurnComplete(sessionId: string, messageId: string | undefined, failed: boolean, priorAssistantIds: Set<string>, startedAt: number): void {
     const session = this.sessions.get(sessionId)
     if (!session || !messageId || !this.onTurnComplete) return
-    const messages = this.getMessages(sessionId).filter((m) => m.id === messageId || (m.role === "assistant" && !priorAssistantIds.has(m.id)))
+    const messages = this.getMessages(sessionId).filter((m) => m.id === messageId || (m.role === "assistant" && !priorAssistantIds.has(m.id))).map((m) => m.id === messageId ? { ...m, createdAt: startedAt } : m)
     try { this.onTurnComplete(session, messages, messageId, failed) }
     catch { console.warn("[session-manager] turn observer failed") }
   }
