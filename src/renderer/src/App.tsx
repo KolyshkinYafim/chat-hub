@@ -32,6 +32,7 @@ import type {
 } from "@shared/settings-types"
 import { DEFAULT_MODES } from "@shared/settings-types"
 import { resolveTheme } from "@shared/theme"
+import { settleQueueFor } from "./lib/queue-state"
 import { readCockpitWindow } from "./lib/cockpit"
 import { applyTheme } from "./lib/theme-apply"
 import { projectFromCwd } from "@shared/project"
@@ -435,8 +436,12 @@ export default function App() {
           next[idx] = event.session
           return next.sort((a, b) => b.updatedAt - a.updatedAt)
         })
+        setQueuedBySession((curr) =>
+          settleQueueFor(curr, event.session.id, event.session.status),
+        )
         break
       case "session.status":
+        setQueuedBySession((curr) => settleQueueFor(curr, event.id, event.status))
         setSessions((curr) =>
           curr.map((s) => {
             if (s.id !== event.id) return s
