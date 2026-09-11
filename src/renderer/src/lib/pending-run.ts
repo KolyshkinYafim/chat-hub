@@ -52,6 +52,13 @@ function createHandoff(): Handoff {
 const terminal = createHandoff()
 const browser = createHandoff()
 
+/**
+ * Where each session's browser last was. The dock shows one surface at a
+ * time, so switching to Files or another session unmounts the webview; without
+ * this the remount would fall back to the default URL and lose the page.
+ */
+const lastBrowserUrls = new Map<string, string>()
+
 /** Hand a script command to the session's terminal surface (mounted or not). */
 export function stashTerminalCommand(sessionId: string, command: string): void {
   terminal.stash(sessionId, command)
@@ -86,7 +93,18 @@ export function onPendingBrowserUrl(cb: PendingListener): () => void {
   return browser.subscribe(cb)
 }
 
+export function rememberBrowserUrl(sessionId: string, url: string): void {
+  lastBrowserUrls.set(sessionId, url)
+}
+
+export function lastBrowserUrl(sessionId: string): string | null {
+  return lastBrowserUrls.get(sessionId) ?? null
+}
+
 export function prunePendingRuns(liveSessionIds: ReadonlySet<string>): void {
   terminal.prune(liveSessionIds)
   browser.prune(liveSessionIds)
+  for (const sessionId of [...lastBrowserUrls.keys()]) {
+    if (!liveSessionIds.has(sessionId)) lastBrowserUrls.delete(sessionId)
+  }
 }

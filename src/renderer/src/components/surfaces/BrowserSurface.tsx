@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { BrowserActivity } from "@shared/browser"
 import {
   clearBrowserUrl,
+  lastBrowserUrl,
   onPendingBrowserUrl,
   peekBrowserUrl,
+  rememberBrowserUrl,
 } from "../../lib/pending-run"
 import { stashComposerInsert } from "../../lib/pending-prompt"
 import {
@@ -107,7 +109,8 @@ export function BrowserSurface({ sessionId }: Props) {
   const viewRef = useRef<WebviewElement | null>(null)
   const initialUrlRef = useRef<string | null>(null)
   if (initialUrlRef.current === null) {
-    initialUrlRef.current = peekBrowserUrl(sessionId) ?? DEFAULT_URL
+    initialUrlRef.current =
+      peekBrowserUrl(sessionId) ?? lastBrowserUrl(sessionId) ?? DEFAULT_URL
   }
   const initialUrl = initialUrlRef.current
   const [url, setUrl] = useState(initialUrl)
@@ -181,6 +184,10 @@ export function BrowserSurface({ sessionId }: Props) {
     }
     const syncUrl = () => {
       const next = view.getURL()
+      // "about:blank" is what a guest reports before its first load.
+      if (next !== "" && next !== "about:blank") {
+        rememberBrowserUrl(sessionId, next)
+      }
       setUrl(next)
       setDraft(next)
       syncNav()
@@ -236,10 +243,11 @@ export function BrowserSurface({ sessionId }: Props) {
         else void view.loadURL(next).catch(() => setLoading(false))
         return
       }
+      rememberBrowserUrl(sessionId, next)
       setUrl(next)
       setFallbackNonce((n) => n + 1)
     },
-    [embedded],
+    [embedded, sessionId],
   )
 
   useEffect(() => {
