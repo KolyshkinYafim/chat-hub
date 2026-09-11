@@ -378,7 +378,8 @@ export type QueuedMessage = {
   createdAt: number
 }
 
-export type QueueMoveDirection = "up" | "down"
+/** One step either way, or straight to the head of the queue. */
+export type QueueMoveDirection = "up" | "down" | "front"
 
 export type PermissionDecision = "allow" | "deny"
 

@@ -10,6 +10,7 @@ export const IpcChannels = {
   cancelQueued: "queue:cancel",
   editQueued: "queue:edit",
   reorderQueued: "queue:reorder",
+  sendQueuedNow: "queue:send-now",
   abortSession: "session:abort",
   deleteSession: "session:delete",
   setActiveSession: "session:set-active",

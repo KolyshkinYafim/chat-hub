@@ -62,6 +62,10 @@ const GROUPS: Group[] = [
     rows: [
       { keys: "Enter", what: "Send · ⇧Enter for a newline" },
       { keys: "⌘Enter", what: "Send from anywhere in the box" },
+      {
+        keys: "⌥Enter",
+        what: "Send the first queued message now — stops the current turn",
+      },
       { keys: "↑ ↓", what: "Walk back through prompts you already sent" },
       { keys: "⌘S", what: "Stash the draft to come back to" },
       { keys: "Esc", what: "Cancel a voice recording in progress" },

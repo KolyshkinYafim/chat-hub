@@ -584,6 +584,94 @@ describe("queue surface", () => {
     ).toEqual(["second"])
   })
 
+  it("moves a queued message to the front so it goes out next", async () => {
+    const { sm, dir, events } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.sendMessage(session.id, "first")
+    await sm.sendMessage(session.id, "second")
+    await sm.sendMessage(session.id, "third")
+    await sm.sendMessage(session.id, "fourth")
+
+    const fourth = sm.listQueued(session.id)[2]
+    const next = sm.reorderQueued(session.id, fourth.id, "front")
+    expect(next.map((x) => x.text)).toEqual(["fourth", "second", "third"])
+    const queueEvents = events.filter((e) => e.type === "queue.changed")
+    expect(queueEvents.at(-1)).toMatchObject({
+      queued: [{ text: "fourth" }, { text: "second" }, { text: "third" }],
+    })
+    // Already first: nothing moves and nothing is announced.
+    const before = queueEvents.length
+    expect(
+      sm.reorderQueued(session.id, fourth.id, "front").map((x) => x.text),
+    ).toEqual(["fourth", "second", "third"])
+    expect(events.filter((e) => e.type === "queue.changed")).toHaveLength(before)
+
+    state.pending?.resolve()
+    await vi.waitFor(() => expect(state.sent).toEqual(["first", "fourth"]))
+  })
+
+  it("send-now stops the live turn, sends the chosen message and keeps the rest queued", async () => {
+    const { sm, dir } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.sendMessage(session.id, "first")
+    await sm.sendMessage(session.id, "second")
+    await sm.sendMessage(session.id, "third")
+    await sm.sendMessage(session.id, "fourth")
+    const firstTurn = state.pending
+
+    const third = sm.listQueued(session.id)[1]
+    const left = await sm.sendQueuedNow(session.id, third.id)
+    expect(left.map((x) => x.text)).toEqual(["second", "fourth"])
+    expect(state.aborted).toEqual([session.id])
+    await vi.waitFor(() => expect(state.sent).toEqual(["first", "third"]))
+    expect(sm.getSession(session.id)?.status).toBe("running")
+    // The interruption is on the record, but the queue was not thrown away.
+    expect(
+      sm.getMessages(session.id).some(
+        (m) => m.role === "system" && /turn was stopped/i.test(m.content),
+      ),
+    ).toBe(true)
+    expect(
+      sm.getMessages(session.id).some(
+        (m) => m.role === "system" && /not sent/i.test(m.content),
+      ),
+    ).toBe(false)
+    expect(sm.listQueued(session.id).map((x) => x.text)).toEqual([
+      "second",
+      "fourth",
+    ])
+
+    // The killed turn settling late must not touch the session or the queue.
+    firstTurn?.resolve()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(state.sent).toEqual(["first", "third"])
+    expect(sm.getSession(session.id)?.status).toBe("running")
+
+    // Once the interrupting turn ends, the rest follow in their old order.
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(state.sent).toEqual(["first", "third", "second"]),
+    )
+    state.pending?.resolve()
+    await vi.waitFor(() =>
+      expect(state.sent).toEqual(["first", "third", "second", "fourth"]),
+    )
+    expect(sm.listQueued(session.id)).toEqual([])
+  })
+
+  it("send-now for a gone id changes nothing", async () => {
+    const { sm, dir } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.sendMessage(session.id, "first")
+    await sm.sendMessage(session.id, "second")
+
+    expect(
+      (await sm.sendQueuedNow(session.id, "missing")).map((x) => x.text),
+    ).toEqual(["second"])
+    expect(state.aborted).toEqual([])
+    expect(state.sent).toEqual(["first"])
+  })
+
   it("drops the queue on Stop rather than firing it at a turn the user killed", async () => {
     const { sm, dir } = await makeManager()
     const session = await sm.createSession({ provider: "mock", cwd: dir })

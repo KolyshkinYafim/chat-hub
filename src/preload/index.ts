@@ -160,6 +160,8 @@ const api = {
     direction: QueueMoveDirection,
   ): Promise<QueuedMessage[]> =>
     ipcRenderer.invoke(IpcChannels.reorderQueued, sessionId, queuedId, direction),
+  sendQueuedNow: (sessionId: string, queuedId: string): Promise<QueuedMessage[]> =>
+    ipcRenderer.invoke(IpcChannels.sendQueuedNow, sessionId, queuedId),
   abortSession: (sessionId: string): Promise<void> =>
     ipcRenderer.invoke(IpcChannels.abortSession, sessionId),
   deleteSession: (sessionId: string): Promise<void> =>

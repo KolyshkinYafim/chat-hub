@@ -66,6 +66,7 @@ export type PaneActions = {
     queuedId: string,
     direction: QueueMoveDirection,
   ) => void
+  onSendQueuedNow: (sessionId: string, queuedId: string) => void
   onRenameSession: (sessionId: string) => void
   onUnsettle: (sessionId: string) => void
   onModelChange: (sessionId: string, model: string) => void
@@ -290,6 +291,9 @@ function PaneView({
       }
       onReorderQueued={(id, direction) =>
         sessionId && actions.onReorderQueued(sessionId, id, direction)
+      }
+      onSendQueuedNow={(id) =>
+        sessionId && actions.onSendQueuedNow(sessionId, id)
       }
       onShowShortcuts={actions.onShowShortcuts}
       onModelChange={(m) => sessionId && actions.onModelChange(sessionId, m)}
