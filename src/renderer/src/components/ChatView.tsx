@@ -1123,10 +1123,16 @@ export function ChatView({
 
   const effortCapabilities = useMemo(() => {
     const selectedModel = models.find((model) => model.id === session?.model) ?? models[0]
-    const supports = session?.provider === "claude" || session?.provider === "codex"
+    const supports =
+      session?.provider === "claude" ||
+      session?.provider === "codex" ||
+      session?.provider === "grok"
+    // grok 1.0.25: --reasoning-effort takes low|medium|high|xhigh, no max.
     const available: Effort[] = session?.provider === "codex"
       ? selectedModel?.reasoningEfforts ?? ["low", "medium", "high", "xhigh", "max", "ultra"]
-      : ["low", "medium", "high", "max"]
+      : session?.provider === "grok"
+        ? ["low", "medium", "high", "xhigh"]
+        : ["low", "medium", "high", "max"]
     return { selectedModel, supports, available }
   }, [models, session?.model, session?.provider])
 

@@ -129,6 +129,7 @@ export class GrokAdapter implements AgentAdapter {
       cwd: state.cwd,
       permissionMode: mode,
       model: opts?.model,
+      effort: opts?.effort,
       systemPrompt: appendInteractiveInputInstruction(opts?.systemPrompt),
       attachments: opts?.attachments,
       resumeId: state.grokSession,
