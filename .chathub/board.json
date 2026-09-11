@@ -1,0 +1,78 @@
+{
+  "todos": [
+    {
+      "id": "t-audit-design-empty-state",
+      "text": "[P0] Design surface: treat a missing design directory as an empty state; acceptance: a cold start and repeated surface refreshes produce no `Not found: design` IPC errors",
+      "done": true,
+      "status": "done",
+      "source": "user",
+      "createdAt": 1789161817652,
+      "updatedAt": 1789166253122
+    },
+    {
+      "id": "t-audit-tool-output-budget",
+      "text": "[P0] Bound persisted tool output: keep a short preview in hot.json and move full output to a separate log; acceptance: one large command cannot grow the active transcript by about 1 MB and archive/search still work",
+      "done": false,
+      "status": "pending",
+      "source": "user",
+      "createdAt": 1789161817652,
+      "updatedAt": 1789161817652
+    },
+    {
+      "id": "t-audit-model-resume-guard",
+      "text": "[P0] Validate a recorded model against the live provider catalog when resuming a session; acceptance: stale IDs such as `chatgpt-astra` cannot be sent and the UI offers a valid replacement with a clear explanation",
+      "done": false,
+      "status": "pending",
+      "source": "user",
+      "createdAt": 1789161817652,
+      "updatedAt": 1789161817652
+    },
+    {
+      "id": "t-audit-boot-profile",
+      "text": "[P1] Profile the observed ~20 s dev startup with boot marks around stores, provider probes, permission broker, remembered windows and snapshot serving; acceptance: the blocking stage is identified and startup work is moved off the critical path where safe",
+      "done": false,
+      "status": "pending",
+      "source": "user",
+      "createdAt": 1789161817652,
+      "updatedAt": 1789161817652
+    },
+    {
+      "id": "t-audit-linux-e2e-gate",
+      "text": "[P1] Make Linux E2E a blocking CI gate after stabilizing the runner; acceptance: remove `continue-on-error` and keep all 8 current Playwright scenarios green on Ubuntu",
+      "done": false,
+      "status": "pending",
+      "source": "user",
+      "createdAt": 1789161817652,
+      "updatedAt": 1789161817652
+    },
+    {
+      "id": "t-audit-build-warnings",
+      "text": "[P1] Remove validation warnings: migrate Vitest away from deprecated `environmentMatchGlobs` and make the boot-theme script bundling intent explicit; acceptance: typecheck, lint, unit tests and build finish without configuration warnings",
+      "done": false,
+      "status": "pending",
+      "source": "user",
+      "createdAt": 1789161817652,
+      "updatedAt": 1789161817652
+    },
+    {
+      "id": "t-audit-module-split",
+      "text": "[P2] Split the largest application modules and stylesheet by responsibility, starting with App, ChatView, main/index, session-manager and styles.css; acceptance: extracted boundaries have focused tests and no behavior regression",
+      "done": false,
+      "status": "pending",
+      "source": "user",
+      "createdAt": 1789161817652,
+      "updatedAt": 1789161817652
+    },
+    {
+      "id": "t-audit-renderer-bundle",
+      "text": "[P2] Reduce the 8.91 MiB renderer asset set by lazy-loading rare Mermaid/Cytoscape paths; acceptance: record before/after bundle sizes and preserve diagram rendering E2E coverage",
+      "done": false,
+      "status": "pending",
+      "source": "user",
+      "createdAt": 1789161817652,
+      "updatedAt": 1789161817652
+    }
+  ],
+  "notes": [],
+  "updatedAt": 1789161817652
+}
