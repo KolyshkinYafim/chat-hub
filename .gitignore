@@ -21,3 +21,6 @@ electron.vite.config.*.mjs
 /.grok/
 /opencode.json
 test-results/
+
+# Claude Code agent worktrees
+/.claude/worktrees/
