@@ -25,6 +25,7 @@ const FALLBACK_WINDOWS: ReadonlyArray<readonly [string, number]> = [
  * cached token read or written — output lives outside the input window.
  */
 export function contextUsedTokens(usage: TurnUsage): number | null {
+  if (usage.contextTokens !== undefined) return usage.contextTokens
   if (
     usage.inputTokens === undefined &&
     usage.cacheReadTokens === undefined &&

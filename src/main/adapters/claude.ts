@@ -25,7 +25,7 @@ import {
   type SnapshotState,
   type StreamTurn,
 } from "./stream-parse"
-import { readUsage } from "./usage"
+import { readCallContext, readUsage } from "./usage"
 import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
 import {
   isPlanToolName,
@@ -155,6 +155,7 @@ export class ClaudeAdapter implements AgentAdapter {
     let turn: StreamTurn | null = null
     let sawText = false
     let usage: TurnUsage | null = null
+    let lastContext: number | null = null
     const activity = new ClaudeActivityStream(state.cwd)
     const stderr: string[] = []
 
@@ -195,10 +196,18 @@ export class ClaudeAdapter implements AgentAdapter {
           cb.onAgentSession?.(sessionId, sid)
         }
 
+        if (asText(ev.type) === "assistant") {
+          // Each complete assistant message is one model call; the latest one
+          // says how full the window is now, which the summed `result` cannot.
+          const held = readCallContext(record(record(ev.message)?.usage) ?? undefined)
+          if (held !== null) lastContext = held
+        }
+
         if (asText(ev.type) === "result") {
           // One `result` per internal turn, and an async subagent makes several
           // in one run: the token counts add up, the cost is already a total.
           usage = mergeClaudeUsage(usage, readUsage(ev))
+          if (usage && lastContext !== null) usage.contextTokens = lastContext
           publish(activity.push(ev))
           // Final envelope; the text is normally already streamed.
           if (!turn && typeof ev.result === "string") pushAssistantText(ev.result)

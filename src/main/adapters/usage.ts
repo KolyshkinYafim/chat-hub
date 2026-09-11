@@ -56,6 +56,20 @@ export function readUsage(ev: Record<string, unknown>): TurnUsage | null {
 const CONTEXT_WINDOW_KEYS = ["contextWindow", "context_window"]
 
 /**
+ * Occupancy of one model call: its prompt plus what was read from or written
+ * to the cache. Null when the payload carries no input-side counts at all.
+ */
+export function readCallContext(usage: Record<string, unknown> | undefined): number | null {
+  if (!usage) return null
+  const cache = record(usage.cache) ?? usage
+  const input = pickNumber(usage, INPUT_KEYS)
+  const read = pickNumber(cache, CACHE_READ_KEYS)
+  const write = pickNumber(cache, CACHE_CREATE_KEYS)
+  if (input === undefined && read === undefined && write === undefined) return null
+  return (input ?? 0) + (read ?? 0) + (write ?? 0)
+}
+
+/**
  * The claude CLI reports the window per model under `modelUsage`; when a turn
  * touched several models, the one that occupied the most context is the one
  * whose window the meter must be honest about.

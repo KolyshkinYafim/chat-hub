@@ -87,6 +87,18 @@ describe("readUsage context window", () => {
 })
 
 describe("contextUsedTokens", () => {
+  it("prefers the last call's occupancy over the turn's summed counts", () => {
+    // Twenty tool calls at ~95k cached each sum to 1.9M against a 1M window.
+    expect(
+      contextUsedTokens({
+        inputTokens: 400,
+        cacheReadTokens: 1_900_000,
+        cacheCreateTokens: 12_000,
+        contextTokens: 96_200,
+      }),
+    ).toBe(96_200)
+  })
+
   it("sums input plus both cache directions of the last turn (claude result)", () => {
     expect(
       contextUsedTokens({

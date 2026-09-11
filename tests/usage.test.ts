@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { addUsage, readUsage } from "../src/main/adapters/usage"
+import { addUsage, readCallContext, readUsage } from "../src/main/adapters/usage"
 
 describe("readUsage", () => {
   it("reads a Claude stream-json result envelope", () => {
@@ -112,5 +112,23 @@ describe("addUsage", () => {
     const second = addUsage(first, { inputTokens: 7 })
     expect(second.contextWindow).toBe(1_000_000)
     expect(second.inputTokens).toBe(12)
+  })
+})
+
+describe("readCallContext", () => {
+  it("sums one call's prompt and cache traffic", () => {
+    expect(
+      readCallContext({
+        input_tokens: 4,
+        cache_read_input_tokens: 95_000,
+        cache_creation_input_tokens: 1_200,
+        output_tokens: 300,
+      }),
+    ).toBe(96_204)
+  })
+
+  it("is null when the payload has no input-side counts", () => {
+    expect(readCallContext({ output_tokens: 300 })).toBeNull()
+    expect(readCallContext(undefined)).toBeNull()
   })
 })

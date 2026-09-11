@@ -116,6 +116,12 @@ export type TurnUsage = {
   costUsd?: number
   durationMs?: number
   contextWindow?: number
+  /**
+   * What the window held after the turn's last model call. The token counts
+   * above add up over every call in the turn, so on a long tool loop they
+   * overshoot the window many times; this one is the honest occupancy.
+   */
+  contextTokens?: number
 }
 
 /** Running total over every turn of a session that reported usage. */
