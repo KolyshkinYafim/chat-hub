@@ -41,7 +41,9 @@ export class LangfuseService {
       if (typeof p[key] !== "string" || p[key].length > 8192) throw new Error("Invalid API key")
       const value = p[key].trim()
       if (!stored && value && !encryptionAvailable()) throw new Error("OS keychain encryption is unavailable. Keys were not saved.")
-      next[key] = stored || !value ? value : sealSecret(value)
+      const sealed = stored || !value ? value : sealSecret(value)
+      if (!stored && value && !sealed.startsWith("enc:v1:")) throw new Error("OS keychain encryption failed. Keys were not saved.")
+      next[key] = sealed
     }
     return next
   }

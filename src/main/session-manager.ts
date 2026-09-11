@@ -1104,6 +1104,9 @@ export class SessionManager {
     ])
     // Stopping during the gate must not resurrect the turn it just killed.
     if (!this.ownsTurn(sessionId, token)) return
+    // Queued user messages already exist in the transcript; they are not turn
+    // boundaries. Capture assistant IDs at dispatch to associate only this reply.
+    const priorAssistantIds = new Set(this.getMessages(sessionId).filter((m) => m.role === "assistant").map((m) => m.id))
     // Fire-and-forget: stream/status arrive via event bus; UI stays responsive.
     void adapter
       .send(sessionId, content || "Please review the attached files.", this.callbacks(), {
@@ -1128,7 +1131,7 @@ export class SessionManager {
         if (!failed && this.sessions.get(sessionId)?.status === "running") {
           this.applyStatus(sessionId, "idle")
         }
-        this.reportTurnComplete(sessionId, userMessageId, failed)
+        this.reportTurnComplete(sessionId, userMessageId, failed, priorAssistantIds)
         this.flushQueued(sessionId)
         if (failed) return
         this.maybeRefineTitle(sessionId)
@@ -1144,15 +1147,16 @@ export class SessionManager {
           id: sessionId,
           reason: "error",
         })
-        this.reportTurnComplete(sessionId, userMessageId, true)
+        this.reportTurnComplete(sessionId, userMessageId, true, priorAssistantIds)
         this.dropQueued(sessionId, "the turn failed")
       })
   }
 
-  private reportTurnComplete(sessionId: string, messageId: string | undefined, failed: boolean): void {
+  private reportTurnComplete(sessionId: string, messageId: string | undefined, failed: boolean, priorAssistantIds: Set<string>): void {
     const session = this.sessions.get(sessionId)
     if (!session || !messageId || !this.onTurnComplete) return
-    try { this.onTurnComplete(session, this.getMessages(sessionId), messageId, failed) }
+    const messages = this.getMessages(sessionId).filter((m) => m.id === messageId || (m.role === "assistant" && !priorAssistantIds.has(m.id)))
+    try { this.onTurnComplete(session, messages, messageId, failed) }
     catch { console.warn("[session-manager] turn observer failed") }
   }
 
