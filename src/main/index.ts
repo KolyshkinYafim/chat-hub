@@ -120,6 +120,7 @@ import {
 } from "./voice-handy"
 import { inspectAttachmentPaths } from "./attachments"
 import { FigmaPreviewService } from "./figma-preview"
+import { figmaKeyForProject } from "./figma-project-key"
 import { ProviderStatusCacheStore } from "./provider-status-cache"
 import { ProviderStatusRefresher } from "./provider-status-refresh"
 import { PrStatusWatcher } from "./pr-status"
@@ -942,15 +943,12 @@ export function registerIpc(
   })
   const figma = new FigmaPreviewService({
     directory: join(app.getPath("userData"), "attachments", "figma"),
-    keyForProject: async (cwd) => {
-      const config = await readMcpConfig(cwd)
-      for (const server of config.servers) {
-        if (!server.enabled || !server.envKeys.includes("FIGMA_API_KEY")) continue
-        const key = settings.getMcpEnv(server.id).FIGMA_API_KEY
-        if (key) return key
-      }
-      return null
-    },
+    keyForProject: (cwd) => figmaKeyForProject(
+      cwd,
+      sm.listSessions().find((session) => session.cwd === cwd)?.baseCwd,
+      readMcpConfig,
+      (serverId) => settings.getMcpEnv(serverId),
+    ),
   })
   ipcMain.handle(IpcChannels.figmaPreview, async (_e, cwd: unknown, url: unknown, refresh: unknown) => {
     await ready
