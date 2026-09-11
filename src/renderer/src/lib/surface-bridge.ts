@@ -92,7 +92,7 @@ export type SurfaceBridge = {
   scriptsList: (cwd: string) => Promise<ScriptsFile>
   scriptsSave: (cwd: string, scripts: ProjectScript[]) => Promise<ScriptsFile>
   browserAttach: (sessionId: string, webContentsId: number) => Promise<boolean>
-  browserDetach: (sessionId: string) => Promise<boolean>
+  browserDetach: (sessionId: string, webContentsId?: number) => Promise<boolean>
   onBrowserActivity: (cb: (event: BrowserActivity) => void) => () => void
   onBrowserOpen: (cb: (sessionId: string) => void) => () => void
   onSurfaceOpen: (cb: (request: SurfaceOpenRequest) => void) => () => void

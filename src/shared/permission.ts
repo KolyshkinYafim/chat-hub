@@ -9,13 +9,13 @@ export const DEFAULT_PERMISSION_MODE: PermissionMode = "yolo"
 export const PERMISSION_LABELS: Record<PermissionMode, string> = {
   yolo: "YOLO",
   acceptEdits: "Edits",
-  default: "Ask",
+  default: "Confirm",
 }
 
 export const PERMISSION_HINTS: Record<PermissionMode, string> = {
   yolo: "Bypass all tool permission prompts (full access)",
   acceptEdits: "Auto-accept file edits; still ask for risky shell",
-  default: "CLI default / ask on tools",
+  default: "Ask before tools that need approval",
 }
 
 /** Claude Code CLI flags for a mode. */

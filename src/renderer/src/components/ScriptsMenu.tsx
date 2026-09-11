@@ -89,12 +89,12 @@ export function ScriptsMenu({ scripts, onRun, onSave }: Props) {
       <button
         type="button"
         className="tb-btn"
-        title="Project scripts — run a named command (⌘⌥1–9)"
+        title="Run or manage project scripts (⌘⌥1–9)"
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         onClick={() => setMenuOpen((o) => !o)}
       >
-        Actions ▾
+        {scripts.length > 0 ? "Run" : "Scripts"} ▾
       </button>
       {menuOpen ? (
         <>
@@ -152,7 +152,7 @@ export function ScriptsMenu({ scripts, onRun, onSave }: Props) {
   )
 }
 
-function ScriptsEditor({
+export function ScriptsEditor({
   scripts,
   onSave,
   onClose,

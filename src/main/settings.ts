@@ -516,6 +516,12 @@ function sanitizeMode(raw: unknown): Mode {
   if (typeof m.id !== "string" || !m.id) throw new Error("Invalid mode id")
   if (typeof m.name !== "string" || !m.name.trim()) throw new Error("Invalid mode name")
   const clean: Mode = { id: m.id, name: m.name }
+  if (m.description !== undefined) {
+    if (typeof m.description !== "string") {
+      throw new Error("Invalid mode description")
+    }
+    clean.description = m.description
+  }
   if (m.systemPrompt !== undefined) {
     if (typeof m.systemPrompt !== "string") throw new Error("Invalid mode prompt")
     clean.systemPrompt = m.systemPrompt

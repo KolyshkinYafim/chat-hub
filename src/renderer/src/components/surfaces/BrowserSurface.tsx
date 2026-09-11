@@ -177,6 +177,23 @@ export function BrowserSurface({ sessionId }: Props) {
   useEffect(() => {
     const view = viewRef.current
     if (!embedded || !view) return
+    let active = true
+    let attachedGuestId: number | undefined
+
+    const attach = () => {
+      let guestId: number
+      try {
+        guestId = view.getWebContentsId()
+      } catch {
+        // A newly mounted webview has no guest yet; dom-ready will retry.
+        return
+      }
+      attachedGuestId = guestId
+      void window.chatHub.browserAttach(sessionId, guestId).then(
+        (ready) => { if (active) setAttached(ready) },
+        () => { if (active) setAttached(false) },
+      )
+    }
 
     const syncNav = () => {
       setCanGoBack(view.canGoBack())
@@ -193,9 +210,7 @@ export function BrowserSurface({ sessionId }: Props) {
       syncNav()
     }
     const onDomReady = () => {
-      void window.chatHub
-        .browserAttach(sessionId, view.getWebContentsId())
-        .then(setAttached)
+      attach()
       syncUrl()
     }
     const onStart = () => setLoading(true)
@@ -209,13 +224,25 @@ export function BrowserSurface({ sessionId }: Props) {
     view.addEventListener("did-navigate-in-page", syncUrl)
     view.addEventListener("did-start-loading", onStart)
     view.addEventListener("did-stop-loading", onStop)
+    // Fast Refresh replays effects on the existing, already loaded webview.
+    // Its cleanup detached the bridge, but no new dom-ready will arrive.
+    attach()
+    // A tool may request the panel while it is already open but its binding
+    // was lost. Re-announce the existing guest instead of waiting for a load.
+    const unsubscribeOpen = window.chatHub.onBrowserOpen((requestedSession) => {
+      if (requestedSession === sessionId) attach()
+    })
     return () => {
+      active = false
+      unsubscribeOpen()
       view.removeEventListener("dom-ready", onDomReady)
       view.removeEventListener("did-navigate", syncUrl)
       view.removeEventListener("did-navigate-in-page", syncUrl)
       view.removeEventListener("did-start-loading", onStart)
       view.removeEventListener("did-stop-loading", onStop)
-      void window.chatHub.browserDetach(sessionId)
+      if (attachedGuestId !== undefined) {
+        void window.chatHub.browserDetach(sessionId, attachedGuestId)
+      }
     }
   }, [embedded, sessionId])
 

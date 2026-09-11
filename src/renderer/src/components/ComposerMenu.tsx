@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useOutsideDismiss } from "../lib/use-outside-dismiss"
 import type { PermissionMode } from "@shared/permission"
 import { PERMISSION_HINTS, PERMISSION_LABELS } from "@shared/permission"
-import type { ModelInfo, Mode } from "@shared/settings-types"
+import type { ModelInfo } from "@shared/settings-types"
 import {
   composerSummary,
   EFFORT_LABELS,
@@ -11,20 +11,17 @@ import {
   type Effort,
 } from "../lib/composer-summary"
 
-type Pane = "root" | "model" | "mode" | "permission" | "effort"
+type Pane = "root" | "model" | "permission" | "effort"
 
 type Props = {
   providerLabel: string
   model: string | undefined
   models: ModelInfo[]
-  modeId: string | undefined
-  modes: Mode[]
   permissionMode: PermissionMode
   effort: Effort
   availableEfforts: Effort[]
   supportsEffort: boolean
   onModelChange: (model: string) => void
-  onApplyMode: (modeId: string) => void
   onPermissionChange: (mode: PermissionMode) => void
   onEffortChange: (effort: Effort) => void
 }
@@ -40,7 +37,6 @@ export function ComposerMenu(props: Props) {
     if (!open) setPane("root")
   }, [open])
 
-  const activeMode = props.modes.find((m) => m.id === props.modeId)
   const summary = composerSummary(props)
 
   function pick<T>(apply: (value: T) => void): (value: T) => void {
@@ -63,9 +59,6 @@ export function ComposerMenu(props: Props) {
         <span className="composer-pill-dot" aria-hidden />
         <span className="composer-pill-provider">{props.providerLabel}</span>
         <span className="composer-pill-summary">{summary}</span>
-        {activeMode ? (
-          <span className="composer-pill-mode">◈ {activeMode.name}</span>
-        ) : null}
         <svg
           className={`composer-pill-caret ${open ? "is-open" : ""}`}
           aria-hidden
@@ -104,13 +97,6 @@ export function ComposerMenu(props: Props) {
                 disabled={props.models.length === 0}
                 onOpen={() => setPane("model")}
               />
-              {props.modes.length > 0 ? (
-                <MenuRow
-                  label="Mode"
-                  value={activeMode?.name ?? "No mode"}
-                  onOpen={() => setPane("mode")}
-                />
-              ) : null}
               <MenuRow
                 label="Permissions"
                 value={PERMISSION_SHORT[props.permissionMode]}
@@ -142,19 +128,6 @@ export function ComposerMenu(props: Props) {
               ]}
               selected={props.model ?? ""}
               onSelect={pick(props.onModelChange)}
-            />
-          ) : null}
-
-          {pane === "mode" ? (
-            <OptionPane
-              title="Mode"
-              onBack={() => setPane("root")}
-              options={[
-                { id: "", label: "No mode" },
-                ...props.modes.map((m) => ({ id: m.id, label: m.name })),
-              ]}
-              selected={props.modeId ?? ""}
-              onSelect={pick(props.onApplyMode)}
             />
           ) : null}
 

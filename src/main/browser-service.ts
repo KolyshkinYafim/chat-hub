@@ -9,7 +9,7 @@ import { BrowserSocketServer } from "./browser-socket"
 
 export type BrowserExecutor = {
   attach: (sessionId: string, webContentsId: number) => void
-  detach: (sessionId: string) => void
+  detach: (sessionId: string, webContentsId?: number) => void
   hasGuest: (sessionId: string) => boolean
   handle: (request: BrowserRequest) => Promise<BrowserResponse>
 }
@@ -85,8 +85,8 @@ export class BrowserService {
     return true
   }
 
-  detach(sessionId: string): boolean {
-    this.executor.detach(sessionId)
+  detach(sessionId: string, webContentsId?: number): boolean {
+    this.executor.detach(sessionId, webContentsId)
     return true
   }
 

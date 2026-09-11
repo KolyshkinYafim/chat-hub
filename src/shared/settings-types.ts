@@ -48,13 +48,15 @@ export type EditorPref = "auto" | "cursor" | "code" | "finder"
 /**
  * A reusable preset the user can attach to a session: a system prompt (persona /
  * standing instructions) plus optional model / effort / permission defaults.
- * Only the system prompt reaches the CLI as `--append-system-prompt` (Claude);
- * model/effort/permission just pre-set the session's existing knobs.
+ * The system prompt reaches each adapter through its native instruction path;
+ * model/effort/permission pre-set the session's existing knobs.
  */
 export type Mode = {
   id: string
   name: string
-  /** Appended to the CLI's own system prompt every turn (Claude Code only). */
+  /** Short user-facing promise shown by the session mode picker. */
+  description?: string
+  /** Appended to the provider's own instructions every turn. */
   systemPrompt?: string
   model?: string
   effort?: EffortLevel
@@ -64,35 +66,38 @@ export type Mode = {
 /** Seeded presets shown until the user defines their own. */
 export const DEFAULT_MODES: Mode[] = [
   {
-    id: "reviewer",
-    name: "Reviewer",
+    id: "code",
+    name: "Code",
+    description: "Build, edit files, and verify the result.",
     systemPrompt:
-      "Act as a meticulous senior code reviewer. Do not modify files. Point out bugs, edge cases, and risky assumptions, and cite exact file:line locations. Prefer being critical over being agreeable.",
+      "Work as an implementation partner. Inspect the existing project, make the requested changes, and verify them in proportion to risk. Keep unrelated changes out of the diff.",
+    permissionMode: "acceptEdits",
+  },
+  {
+    id: "plan",
+    name: "Plan",
+    description: "Explore first and propose a concrete plan without editing.",
+    systemPrompt:
+      "Explore the project and produce a concrete implementation plan with trade-offs and file-level steps. Do not modify files or run destructive commands until the user explicitly asks to implement the plan.",
     effort: "high",
     permissionMode: "default",
   },
   {
-    id: "quick-fixer",
-    name: "Quick fixer",
+    id: "review",
+    name: "Review",
+    description: "Find bugs and risks without changing the code.",
     systemPrompt:
-      "Make the smallest change that fixes the problem. Do not refactor unrelated code, do not add comments unless asked, and keep the diff tight. State what you changed in one line.",
-    effort: "low",
+      "Act as a meticulous senior code reviewer. Do not modify files. Point out bugs, regressions, edge cases, and risky assumptions, citing exact file and line locations. Lead with findings by severity.",
+    effort: "high",
+    permissionMode: "default",
   },
   {
-    id: "architect",
-    name: "Architect",
+    id: "ask",
+    name: "Ask",
+    description: "Explain the project and answer without taking action.",
     systemPrompt:
-      "Think before coding. Lay out the approach, trade-offs, and file-level plan first, then implement. Match existing patterns in the codebase over introducing new ones.",
-    effort: "high",
-  },
-  {
-    id: "planner",
-    name: "Planner",
-    systemPrompt:
-      "Maintain a project board at `.chathub/board.json` in the workspace root. It is JSON of the shape " +
-      '{"todos":[{"id":string,"text":string,"done":boolean,"status":"pending"|"in_progress"|"blocked"|"done"|"cancelled","blockedReason"?:string,"result"?:string,"createdAt":number}],"notes":[{"id":string,"text":string,"createdAt":number}]}. ' +
-      "At the start of a task, read it (create it if missing) and add the todos you plan to do. As you work, set status (in_progress / blocked / done) and done:true when finished; put a short blockedReason or result when useful. Append notes about decisions. Keep it current — it is shown live in the Board panel.",
-    effort: "high",
+      "Answer questions and explain the project clearly. You may inspect files when useful, but do not modify files or run destructive commands unless the user explicitly switches to an implementation request.",
+    permissionMode: "default",
   },
 ]
 

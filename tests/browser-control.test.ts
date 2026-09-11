@@ -693,6 +693,17 @@ describe("network buffer", () => {
     expect(requests.map((r) => r.url)).toEqual(["https://example.com/app.js"])
   })
 
+  it("ignores cleanup from an older panel without detaching the current guest", async () => {
+    await send("network")
+    request("1", "https://example.com/app.js")
+    control.detach(SESSION, GUEST_ID + 1)
+    expect(control.hasGuest(SESSION)).toBe(true)
+    expect(guest.debugger.attached).toBe(true)
+    expect((await send("snapshot")).ok).toBe(true)
+    control.detach(SESSION, GUEST_ID)
+    expect(control.hasGuest(SESSION)).toBe(false)
+  })
+
   it("attaches the debugger lazily and records requests and responses", async () => {
     expect(guest.debugger.attached).toBe(false)
 

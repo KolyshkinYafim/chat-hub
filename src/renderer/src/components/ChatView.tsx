@@ -25,7 +25,6 @@ import type {
   TurnUsage,
 } from "@shared/types"
 import type { PermissionMode } from "@shared/permission"
-import { PERMISSION_LABELS } from "@shared/permission"
 import type { ProjectScript } from "@shared/scripts"
 import type { Mode, ModelInfo } from "@shared/settings-types"
 import { formatClock, formatRelative } from "../lib/format"
@@ -1296,10 +1295,6 @@ export function ChatView({
       ? `${git.branch}${git.dirty ? " *" : ""}`
       : "no-git"
 
-  const modelLabel =
-    models.find((m) => m.id === session.model)?.label ??
-    session.model ??
-    "CLI default"
   const supportsEffort = effortCapabilities.supports
   const availableEfforts = effortCapabilities.available
   const running = session.status === "running"
@@ -1319,28 +1314,20 @@ export function ChatView({
         git={git}
         dockOpen={dockOpen}
         scripts={scripts}
+        modes={modes}
         inboxCount={inboxCount}
         limits={limits}
         phase={headPhase}
         onOpenInbox={onOpenInbox}
         onRunScript={onRunScript}
         onSaveScripts={onSaveScripts}
+        onApplyMode={onApplyMode}
         onToggleDock={onToggleDock}
         onOpenFolder={onOpenFolder}
         onOpenEditor={onOpenEditor}
         onCommit={onCommit}
         onRename={onRename}
       />
-
-      <div className="system-banner" title={session.cwd}>
-        <span className="mono-soft">
-          {session.provider}
-          {` · ${modelLabel}`}
-          {` · ${PERMISSION_LABELS[permissionMode]}`}
-          {supportsEffort ? ` · ${effort}` : ""}
-        </span>
-        <span className="mono-soft dim">{session.cwd}</span>
-      </div>
 
       {onboard ? (
         <div className="onboard-strip">
@@ -1374,8 +1361,8 @@ export function ChatView({
 
       {permissionMode === "default" ? (
         <div className="warn-banner">
-          Ask mode — risky Codex actions are denied until the approval card is
-          answered. YOLO keeps turns moving without prompts.
+          Confirmation is on — risky Codex actions wait for an approval card.
+          YOLO keeps turns moving without prompts.
         </div>
       ) : null}
 
@@ -1780,14 +1767,11 @@ export function ChatView({
                 }
                 model={session.model}
                 models={models}
-                modeId={session.modeId}
-                modes={modes}
                 permissionMode={permissionMode}
                 effort={effort}
                 availableEfforts={availableEfforts}
                 supportsEffort={supportsEffort}
                 onModelChange={onModelChange}
-                onApplyMode={onApplyMode}
                 onPermissionChange={onPermissionChange}
                 onEffortChange={onEffortChange}
               />

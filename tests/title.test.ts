@@ -274,6 +274,43 @@ describe("session auto-titling", () => {
     ).toBe(true)
   })
 
+  it("does not mistake the old New · project suggestion for a manual title", async () => {
+    const { sm, dir } = await makeManager(async () => null)
+    const session = await sm.createSession({
+      provider: "mock",
+      cwd: dir,
+      title: "New · chat-hub",
+    })
+    expect(session.titleOrigin).toBe("default")
+
+    await sm.sendMessage(session.id, "simplify the crowded workspace header")
+
+    expect(sm.getSession(session.id)?.title).toBe(
+      "Simplify the crowded workspace header",
+    )
+  })
+
+  it("repairs persisted placeholder titles when their transcript loads", async () => {
+    const { sm, dir } = await makeManager(async () => null)
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    const legacy = sm.getSession(session.id)!
+    legacy.title = "New · chat-hub"
+    legacy.titleOrigin = "user"
+
+    await sm.sendMessage(session.id, "make the working mode obvious")
+    state.pending?.resolve()
+    await vi.waitFor(() => expect(sm.getSession(session.id)?.status).toBe("idle"))
+    await sm.flush()
+
+    const { sm: reborn } = await makeManager(async () => null, dir)
+    expect(reborn.getSession(session.id)?.titleOrigin).toBe("default")
+    await reborn.ensureMessagesLoaded([session.id])
+    expect(reborn.getSession(session.id)).toMatchObject({
+      title: "Make the working mode obvious",
+      titleOrigin: "auto",
+    })
+  })
+
   it("only the first user message retitles; later ones leave the title alone", async () => {
     const { sm, dir } = await makeManager(async () => null)
     const session = await sm.createSession({ provider: "mock", cwd: dir })

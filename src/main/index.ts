@@ -469,8 +469,8 @@ function registerBrowserIpc(): void {
     (_e, sessionId: string, webContentsId: number) =>
       browserService.attach(sessionId, webContentsId),
   )
-  ipcMain.handle(IpcChannels.browserDetach, (_e, sessionId: string) =>
-    browserService.detach(sessionId),
+  ipcMain.handle(IpcChannels.browserDetach, (_e, sessionId: string, webContentsId?: number) =>
+    browserService.detach(sessionId, webContentsId),
   )
   ipcMain.on(IpcChannels.surfaceState, (_e, state: unknown) => {
     surfaceControl.setState(state)

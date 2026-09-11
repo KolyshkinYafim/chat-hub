@@ -5,26 +5,30 @@ import type {
   SessionMeta,
 } from "@shared/types"
 import type { ProjectScript } from "@shared/scripts"
+import type { Mode } from "@shared/settings-types"
 import { attentionBadge, needsAction } from "@shared/attention"
 import { StatusDot } from "./StatusDot"
-import { ScriptsMenu } from "./ScriptsMenu"
-import { shortCwd, statusLabel } from "../lib/format"
+import { ScriptsEditor, ScriptsMenu } from "./ScriptsMenu"
+import { statusLabel } from "../lib/format"
 import { formatQuotaChip, quotaChipTitle } from "../lib/allowance"
 import { phaseLabel } from "@shared/live"
 import type { LivePhase } from "@shared/types"
 import { PanelIcon } from "./surfaces/SurfaceIcon"
+import { SessionModePicker } from "./SessionModePicker"
 
 type Props = {
   session: SessionMeta
   git: GitCheckoutInfo | null
   dockOpen: boolean
   scripts: ProjectScript[]
+  modes: Mode[]
   inboxCount: number
   limits?: ProviderRateLimits | null
   phase?: LivePhase | null
   onOpenInbox: () => void
   onRunScript: (script: ProjectScript) => void
   onSaveScripts: (scripts: ProjectScript[]) => Promise<void>
+  onApplyMode: (modeId: string) => void
   onToggleDock: () => void
   onOpenFolder: () => void
   onOpenEditor: () => void
@@ -37,12 +41,14 @@ export function TopBar({
   git,
   dockOpen,
   scripts,
+  modes,
   inboxCount,
   limits = null,
   phase = null,
   onOpenInbox,
   onRunScript,
   onSaveScripts,
+  onApplyMode,
   onToggleDock,
   onOpenFolder,
   onOpenEditor,
@@ -50,6 +56,7 @@ export function TopBar({
   onRename,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [scriptsEditorOpen, setScriptsEditorOpen] = useState(false)
   const badge = attentionBadge(inboxCount)
   const quota = formatQuotaChip(limits)
   const statusHint =
@@ -78,10 +85,6 @@ export function TopBar({
         </h1>
         <div className="topbar-meta">
           <span className="mono-soft">{session.project}</span>
-          <span className="sep">·</span>
-          <span className="mono-soft" title={session.cwd}>
-            {shortCwd(session.cwd)}
-          </span>
           {git && git.branch !== "no-git" ? (
             <>
               <span className="sep">·</span>
@@ -106,49 +109,55 @@ export function TopBar({
       </div>
       {/* No Stop here: the only Stop lives next to Send, where the hand is. */}
       <div className="topbar-actions">
-        <div className="inbox-entry">
+        <SessionModePicker
+          modes={modes}
+          modeId={session.modeId}
+          onSelect={onApplyMode}
+        />
+        {inboxCount > 0 ? (
+          <div className="inbox-entry">
+            <button
+              type="button"
+              className="icon-chip"
+              title="Agent inbox (⌥⇧I)"
+              aria-label={`Agent inbox, ${inboxCount} waiting`}
+              onClick={onOpenInbox}
+            >
+              <InboxIcon />
+            </button>
+            {badge ? (
+              <span className="inbox-badge" aria-hidden>
+                {badge}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        {scripts.length > 0 ? (
+          <ScriptsMenu
+            scripts={scripts}
+            onRun={onRunScript}
+            onSave={onSaveScripts}
+          />
+        ) : null}
+        <button
+          type="button"
+          className={`tb-btn changes-btn${git?.dirty ? " has-changes" : ""}`}
+          onClick={onCommit}
+          title="Review changes, stage, and commit (⌘G)"
+        >
+          Changes{git?.dirty ? " •" : ""}
+        </button>
+        <div className="topbar-more">
           <button
             type="button"
             className="icon-chip"
-            title="Agent inbox (⌥⇧I)"
-            aria-label={
-              inboxCount > 0
-                ? `Agent inbox, ${inboxCount} waiting`
-                : "Agent inbox"
-            }
-            onClick={onOpenInbox}
-          >
-            <InboxIcon />
-          </button>
-          {badge ? (
-            <span className="inbox-badge" aria-hidden>
-              {badge}
-            </span>
-          ) : null}
-        </div>
-        <ScriptsMenu
-          scripts={scripts}
-          onRun={onRunScript}
-          onSave={onSaveScripts}
-        />
-        <div className="tb-split">
-          <button
-            type="button"
-            className="tb-btn"
-            title="Open folder in Finder"
-            onClick={onOpenFolder}
-          >
-            Open
-          </button>
-          <button
-            type="button"
-            className="tb-btn tb-btn-narrow"
-            title="More…"
+            title="Session actions"
+            aria-label="Session actions"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((o) => !o)}
+            onClick={() => setMenuOpen((open) => !open)}
           >
-            ▾
+            •••
           </button>
           {menuOpen ? (
             <>
@@ -157,7 +166,17 @@ export function TopBar({
                 role="presentation"
                 onClick={() => setMenuOpen(false)}
               />
-              <div className="tb-menu" role="menu">
+              <div className="tb-menu topbar-more-menu" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    onRename()
+                  }}
+                >
+                  Rename chat…
+                </button>
                 <button
                   type="button"
                   role="menuitem"
@@ -173,52 +192,54 @@ export function TopBar({
                   role="menuitem"
                   onClick={() => {
                     setMenuOpen(false)
-                    void navigator.clipboard.writeText(session.cwd)
+                    onOpenFolder()
                   }}
                 >
-                  Copy path
+                  Reveal project folder
                 </button>
                 <button
                   type="button"
                   role="menuitem"
                   onClick={() => {
                     setMenuOpen(false)
-                    onOpenFolder()
+                    void navigator.clipboard.writeText(session.cwd)
                   }}
                 >
-                  Reveal in Finder
+                  Copy project path
                 </button>
+                {scripts.length === 0 ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      setScriptsEditorOpen(true)
+                    }}
+                  >
+                    Set up project scripts…
+                  </button>
+                ) : null}
               </div>
             </>
           ) : null}
         </div>
         <button
           type="button"
-          className="tb-btn"
-          onClick={onCommit}
-          title="Source control — stage, diff, commit (⌘G)"
-        >
-          Commit
-        </button>
-        <button
-          type="button"
-          className="icon-chip"
-          title="Rename session"
-          aria-label="Rename session"
-          onClick={onRename}
-        >
-          ✎
-        </button>
-        <button
-          type="button"
           className={`icon-chip panel-toggle ${dockOpen ? "is-on" : ""}`}
-          title="Right panel — browser, terminal, files, diff (⌘B)"
+          title={`${dockOpen ? "Close" : "Open"} project tools (⌘B)`}
           aria-pressed={dockOpen}
           onClick={onToggleDock}
         >
           <PanelIcon open={dockOpen} />
         </button>
       </div>
+      {scriptsEditorOpen ? (
+        <ScriptsEditor
+          scripts={scripts}
+          onSave={onSaveScripts}
+          onClose={() => setScriptsEditorOpen(false)}
+        />
+      ) : null}
     </header>
   )
 }

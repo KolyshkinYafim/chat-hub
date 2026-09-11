@@ -641,6 +641,19 @@ export class SessionManager {
     this.applyTitle(sessionId, title, "auto")
   }
 
+  /** Give legacy placeholder sessions a useful title when their history loads. */
+  private maybeRepairRestoredTitle(
+    sessionId: string,
+    messages: readonly ChatMessage[],
+  ): void {
+    const session = this.sessions.get(sessionId)
+    if (!session || this.titleOriginOf(session) !== "default") return
+    const first = messages.find((message) => message.role === "user")
+    if (!first) return
+    const title = heuristicTitle(first.content)
+    if (title) this.applyTitle(sessionId, title, "auto")
+  }
+
   private maybeRefineTitle(sessionId: string): void {
     const session = this.sessions.get(sessionId)
     if (!session || session.titleRefined) return
@@ -690,6 +703,7 @@ export class SessionManager {
       await this.persistence.saveIndex(index)
     }
 
+    let repairedLegacyTitles = false
     for (const session of index.sessions) {
       // Drop demo / missing project paths — only real folders survive restart.
       const cwd = session.cwd || ""
@@ -714,6 +728,17 @@ export class SessionManager {
         status,
         activityAt: session.activityAt ?? session.updatedAt,
       }
+      // The old new-chat dialog submitted its "New · project" suggestion as
+      // if the owner had typed it. That made auto-titling honour the placeholder
+      // forever. Repair only the shapes we already recognise as generated.
+      if (
+        restored.titleOrigin === "user" &&
+        looksDefaultTitle(restored.title)
+      ) {
+        restored.titleOrigin = "default"
+        delete restored.titleRefined
+        repairedLegacyTitles = true
+      }
       // Threads the Hub used to settle by itself come back: settling is the
       // owner's call now, and leaving those stamps would keep a sidebar full
       // of finished-looking work that nobody chose to put away.
@@ -723,6 +748,7 @@ export class SessionManager {
       }
       this.sessions.set(session.id, restored)
     }
+    if (repairedLegacyTitles) this.scheduleSave()
     for (const [id, total] of Object.entries(index.usage ?? {})) {
       if (this.sessions.has(id)) this.usage.set(id, total)
     }
@@ -879,7 +905,9 @@ export class SessionManager {
         const restored = stored.map((m) => ({ ...m, streaming: false }))
         const cut = this.cutOnBoot.delete(sessionId)
         if (cut) markTurnCutByRestart(restored)
-        this.messages.set(sessionId, [...restored, ...pending])
+        const messages = [...restored, ...pending]
+        this.messages.set(sessionId, messages)
+        this.maybeRepairRestoredTitle(sessionId, messages)
         if (pending.length > 0 || cut) this.scheduleSessionSave(sessionId)
       })
       .finally(() => {
@@ -940,10 +968,14 @@ export class SessionManager {
     }
     const model =
       input.model?.trim() || resolved.defaultModel || undefined
+    const requestedTitle = input.title?.trim()
+    const userOwnsTitle = Boolean(
+      requestedTitle && !looksDefaultTitle(requestedTitle),
+    )
     const session: SessionMeta = {
       id,
-      title: input.title?.trim() || defaultTitle(provider, project, now),
-      titleOrigin: input.title?.trim() ? "user" : "default",
+      title: requestedTitle || defaultTitle(provider, project, now),
+      titleOrigin: userOwnsTitle ? "user" : "default",
       project,
       provider,
       instanceId,

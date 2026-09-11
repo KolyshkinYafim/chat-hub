@@ -343,9 +343,11 @@ export class BrowserControl {
     if (guest) this.startConsoleCapture(binding, guest)
   }
 
-  detach(sessionId: string): void {
+  detach(sessionId: string, webContentsId?: number): void {
     const binding = this.bindings.get(sessionId)
     if (!binding) return
+    // An old panel may unmount after another window has claimed this session.
+    if (webContentsId !== undefined && binding.webContentsId !== webContentsId) return
     this.bindings.delete(sessionId)
     this.stopConsoleCapture(binding)
     this.stopNetworkCapture(binding)

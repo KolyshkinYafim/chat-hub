@@ -1142,7 +1142,7 @@ export function SettingsModal({
                   >
                     <option value="yolo">YOLO — full bypass</option>
                     <option value="acceptEdits">Edits — auto file edits</option>
-                    <option value="default">Ask — CLI default</option>
+                    <option value="default">Confirm — ask before tools</option>
                   </select>
                 </label>
 
@@ -1264,9 +1264,9 @@ export function SettingsModal({
 
               <h2 className="section-label">Modes</h2>
               <p className="modal-lead">
-                Presets you can attach to a session from the composer. The system
-                prompt is appended every turn (Claude Code); model / effort /
-                permission pre-set the session’s knobs.
+                Ways of working shown in the session header. Instructions reach
+                every supported agent; model, effort, and permission can tune
+                the session when a mode is selected.
               </p>
               <div className="modes-list">
                 {modesDraft.map((m) => (
@@ -1288,6 +1288,17 @@ export function SettingsModal({
                         ×
                       </button>
                     </div>
+                    <input
+                      className="mode-description"
+                      value={m.description ?? ""}
+                      placeholder="One-line promise shown in the mode picker"
+                      onChange={(e) =>
+                        editMode(m.id, {
+                          description: e.target.value || undefined,
+                        })
+                      }
+                      onBlur={() => commitModes()}
+                    />
                     <textarea
                       className="mode-prompt"
                       rows={3}

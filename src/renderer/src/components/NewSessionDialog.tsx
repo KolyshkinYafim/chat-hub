@@ -126,7 +126,10 @@ export function NewSessionDialog({
     if (!open) return
     setQuery("")
     setHighlight(0)
-    setTitle(projectHint ? `New · ${projectHint}` : "")
+    // A suggested-looking value is still a real value to the main process.
+    // Keeping "New · project" in this field made every untouched suggestion a
+    // user-owned title, which intentionally disabled automatic naming forever.
+    setTitle("")
     setInstanceId(initialProvider)
     setAgentPinned(false)
     setOptionsOpen(false)
@@ -432,7 +435,11 @@ export function NewSessionDialog({
                 <input
                   className="text-input"
                   value={title}
-                  placeholder="Short chat title"
+                  placeholder={
+                    selected
+                      ? `Auto-name from the first message · ${selected.name}`
+                      : "Auto-name from the first message"
+                  }
                   onChange={(e) => setTitle(e.target.value)}
                 />
               </label>

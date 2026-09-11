@@ -1,4 +1,4 @@
-import { useCallback } from "react"
+import { useCallback, useState } from "react"
 import type { HookRun } from "@shared/hooks"
 import type {
   QueuedMessage,
@@ -28,6 +28,16 @@ import { FilesSurface } from "./FilesSurface"
 import { FleetSurface } from "./FleetSurface"
 import { HistorySurface } from "./HistorySurface"
 import { TerminalSurface } from "./TerminalSurface"
+
+const PRIMARY_SURFACES: readonly SurfaceKind[] = [
+  "files",
+  "terminal",
+  "browser",
+  "diff",
+]
+const SECONDARY_SURFACES = SURFACE_KINDS.filter(
+  (kind) => !PRIMARY_SURFACES.includes(kind),
+)
 
 type Props = {
   session: SessionMeta
@@ -92,6 +102,7 @@ export function SurfaceDock({
   onClose,
   layout = "side",
 }: Props) {
+  const [moreOpen, setMoreOpen] = useState(false)
   const clamp = useCallback(
     (px: number) => clampDockWidth(px, window.innerWidth, sidebarWidth),
     [sidebarWidth],
@@ -121,7 +132,7 @@ export function SurfaceDock({
       )}
       <header className="surface-head">
         <div className="surface-tabs">
-          {SURFACE_KINDS.map((tab) => (
+          {PRIMARY_SURFACES.map((tab) => (
             <button
               key={tab}
               type="button"
@@ -135,21 +146,73 @@ export function SurfaceDock({
               onClick={() => onSelectKind(kind === tab ? null : tab)}
             >
               <SurfaceIcon kind={tab} />
+              <span className="surface-tab-label">
+                {tab === "diff" ? "Changes" : SURFACE_LABEL[tab]}
+              </span>
             </button>
           ))}
         </div>
-        {/* The chooser explains every surface; once one is open its own hint
-            was the only thing that vanished. Keep it as the header's title. */}
-        <span
-          className="surface-head-label"
-          title={
-            kind === null
-              ? "Pick what this panel shows"
-              : `${SURFACE_LABEL[kind]} — ${SURFACE_HINT[kind]}`
-          }
-        >
-          {kind === null ? "Surfaces" : SURFACE_LABEL[kind]}
-        </span>
+        <div className="surface-more">
+          <button
+            type="button"
+            className={`surface-more-trigger${
+              kind && SECONDARY_SURFACES.includes(kind) ? " active" : ""
+            }`}
+            aria-haspopup="menu"
+            aria-expanded={moreOpen}
+            onClick={() => setMoreOpen((open) => !open)}
+          >
+            {kind && SECONDARY_SURFACES.includes(kind)
+              ? SURFACE_LABEL[kind]
+              : "More"}
+            <span aria-hidden>⌄</span>
+          </button>
+          {moreOpen ? (
+            <>
+              <div
+                className="menu-backdrop"
+                role="presentation"
+                onClick={() => setMoreOpen(false)}
+              />
+              <div className="surface-more-menu" role="menu">
+                <div className="surface-more-head">More tools</div>
+                {SECONDARY_SURFACES.map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={kind === tab}
+                    className={kind === tab ? "active" : ""}
+                    onClick={() => {
+                      setMoreOpen(false)
+                      onSelectKind(tab)
+                    }}
+                  >
+                    <span className="surface-more-icon">
+                      <SurfaceIcon kind={tab} />
+                    </span>
+                    <span className="surface-more-copy">
+                      <strong>{SURFACE_LABEL[tab]}</strong>
+                      <span>{SURFACE_HINT[tab]}</span>
+                    </span>
+                    {kind === tab ? <span className="surface-more-check">✓</span> : null}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="surface-all-tools"
+                  onClick={() => {
+                    setMoreOpen(false)
+                    onSelectKind(null)
+                  }}
+                >
+                  Browse all tools…
+                </button>
+              </div>
+            </>
+          ) : null}
+        </div>
         <button
           type="button"
           className="surface-close"

@@ -190,6 +190,7 @@ describe("sanitizeGeneralPatch", () => {
       {
         id: "reviewer",
         name: "Reviewer",
+        description: "Review without editing.",
         systemPrompt: "Review carefully.",
         model: "opus",
         effort: "high",
@@ -244,6 +245,9 @@ describe("sanitizeGeneralPatch", () => {
     expect(() =>
       sanitizeGeneralPatch({ modes: [{ id: "a", name: "A", systemPrompt: 7 }] }),
     ).toThrow("Invalid mode prompt")
+    expect(() =>
+      sanitizeGeneralPatch({ modes: [{ id: "a", name: "A", description: 7 }] }),
+    ).toThrow("Invalid mode description")
   })
 })
 
@@ -444,4 +448,3 @@ describe("the window set", () => {
     expect(s.windowStates).toBeNull()
   })
 })
-

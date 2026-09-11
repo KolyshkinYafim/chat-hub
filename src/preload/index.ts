@@ -485,8 +485,8 @@ const api = {
    */
   browserAttach: (sessionId: string, webContentsId: number): Promise<boolean> =>
     ipcRenderer.invoke(IpcChannels.browserAttach, sessionId, webContentsId),
-  browserDetach: (sessionId: string): Promise<boolean> =>
-    ipcRenderer.invoke(IpcChannels.browserDetach, sessionId),
+  browserDetach: (sessionId: string, webContentsId?: number): Promise<boolean> =>
+    ipcRenderer.invoke(IpcChannels.browserDetach, sessionId, webContentsId),
   onBrowserActivity: (cb: (event: BrowserActivity) => void): (() => void) => {
     const handler = (_e: IpcRendererEvent, event: BrowserActivity) => cb(event)
     ipcRenderer.on(IpcChannels.browserActivity, handler)

@@ -1187,6 +1187,7 @@ select:focus-visible {
   min-width: 0;
   min-height: 0;
   background: var(--bg);
+  container-type: inline-size;
 }
 
 .topbar {
@@ -1265,6 +1266,176 @@ select:focus-visible {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+}
+
+.topbar-more,
+.session-mode-picker {
+  position: relative;
+  display: inline-flex;
+  -webkit-app-region: no-drag;
+}
+
+.topbar-more-menu {
+  top: calc(100% + 7px);
+  right: 0;
+  left: auto;
+  min-width: 190px;
+}
+
+.changes-btn.has-changes {
+  border-color: color-mix(in srgb, var(--accent-2) 34%, var(--border));
+  color: var(--text);
+}
+
+/* A mode is the session's intent, not an advanced model setting. Keep it in
+   the header where it remains visible after the composer scrolls away. */
+.session-mode-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 10px 0 8px;
+  border: 1px solid color-mix(in srgb, var(--accent-2) 32%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-2) 9%, var(--bg-elevated));
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 620;
+  white-space: nowrap;
+}
+
+.session-mode-trigger:hover {
+  border-color: color-mix(in srgb, var(--accent-2) 60%, var(--border));
+  background: color-mix(in srgb, var(--accent-2) 14%, var(--bg-elevated));
+}
+
+.session-mode-glyph,
+.session-mode-option-glyph {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent-2) 17%, transparent);
+  color: var(--accent-2);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.session-mode-trigger.mode-plan .session-mode-glyph,
+.session-mode-option-glyph.mode-plan {
+  color: var(--working);
+  background: color-mix(in srgb, var(--working) 15%, transparent);
+}
+
+.session-mode-trigger.mode-review .session-mode-glyph,
+.session-mode-option-glyph.mode-review {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+
+.session-mode-trigger.mode-ask .session-mode-glyph,
+.session-mode-option-glyph.mode-ask {
+  color: var(--text-secondary);
+  background: var(--bg-active);
+}
+
+.session-mode-caret {
+  color: var(--text-faint);
+  font-size: 11px;
+  transform: translateY(-1px);
+}
+
+.session-mode-menu {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  z-index: 50;
+  width: min(360px, calc(100vw - 32px));
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-pop);
+}
+
+.session-mode-menu-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 9px 9px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.session-mode-menu-head strong {
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.session-mode-menu-head span {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.session-mode-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  text-align: left;
+}
+
+.session-mode-option:hover,
+.session-mode-option.is-active {
+  background: var(--bg-hover);
+}
+
+.session-mode-option-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-mode-option-copy strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.session-mode-option-copy > span {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.session-mode-check {
+  flex: none;
+  color: var(--accent-2);
+  font-size: 12px;
+}
+
+@media (max-width: 980px) {
+  .topbar-meta,
+  .scripts-menu {
+    display: none;
+  }
+}
+
+@container (max-width: 720px) {
+  .topbar-meta,
+  .topbar-actions > .scripts-menu {
+    display: none;
+  }
+
+  .topbar {
+    padding-inline: 14px 10px;
+  }
 }
 
 .tb-btn {
@@ -3789,6 +3960,20 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   color: var(--text);
 }
 
+.mode-description {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+}
+
+.mode-description::placeholder {
+  color: var(--text-faint);
+}
+
 .mode-prompt {
   width: 100%;
   resize: vertical;
@@ -5995,6 +6180,7 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   min-height: 0;
   background: var(--bg-sidebar);
   border-left: 1px solid var(--border);
+  container-type: inline-size;
 }
 
 .surface-resizer,
@@ -6061,7 +6247,7 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
 .surface-head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 7px;
   height: var(--topbar-h);
   min-height: var(--topbar-h);
   padding: 0 12px;
@@ -6074,18 +6260,23 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
 }
 
 .surface-tabs {
-  display: inline-flex;
-  flex: none;
+  display: flex;
+  flex: 1;
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
 }
 
 .surface-tab {
-  width: 30px;
+  display: flex;
+  flex: 1;
+  min-width: 0;
   height: 28px;
-  display: grid;
-  place-items: center;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 7px;
   background: var(--bg-elevated);
   color: var(--text-faint);
 }
@@ -6104,19 +6295,135 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   color: var(--text);
 }
 
+.surface-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: inherit;
+  font-size: 10.5px;
+  font-weight: 560;
+  white-space: nowrap;
+}
+
 .surface-icon {
   display: block;
 }
 
-.surface-head-label {
+.surface-more {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.surface-more-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 560;
+}
+
+.surface-more-trigger:hover,
+.surface-more-trigger.active {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.surface-more-menu {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  z-index: 50;
+  width: min(310px, calc(100vw - 32px));
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-pop);
+}
+
+.surface-more-head {
+  padding: 5px 9px 7px;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.surface-more-menu > button:not(.surface-all-tools) {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  text-align: left;
+}
+
+.surface-more-menu > button:hover,
+.surface-more-menu > button.active {
+  background: var(--bg-hover);
+}
+
+.surface-more-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.surface-more-copy {
+  display: flex;
   flex: 1;
   min-width: 0;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-secondary);
+  flex-direction: column;
+  gap: 2px;
+}
+
+.surface-more-copy strong {
+  color: var(--text);
+  font-size: 11.5px;
+}
+
+.surface-more-copy span {
   overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.surface-more-check {
+  color: var(--accent-2);
+}
+
+.surface-all-tools {
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px 9px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: left;
+}
+
+@container (max-width: 390px) {
+  .surface-tab-label {
+    display: none;
+  }
+
+  .surface-tab {
+    padding-inline: 5px;
+  }
 }
 
 .surface-close {

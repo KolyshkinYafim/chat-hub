@@ -15,7 +15,7 @@ export const EFFORT_LABELS: Record<Effort, string> = {
 export const PERMISSION_SHORT: Record<PermissionMode, string> = {
   yolo: "YOLO",
   acceptEdits: "Edits",
-  default: "Ask",
+  default: "Confirm",
 }
 
 export function modelLabel(
