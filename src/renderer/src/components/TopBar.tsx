@@ -1,3 +1,4 @@
+import { OriginBadge } from "./OriginBadge"
 import { useState } from "react"
 import type {
   GitCheckoutInfo,
@@ -76,6 +77,7 @@ export function TopBar({
             {session.title}
           </button>
         </h1>
+        <OriginBadge origin={session.origin} />
         <div className="topbar-meta">
           <span className="mono-soft">{session.project}</span>
           <span className="sep">·</span>

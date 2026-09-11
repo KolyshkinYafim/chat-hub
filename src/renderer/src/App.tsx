@@ -1321,6 +1321,7 @@ export default function App() {
         model: draft.model,
         title: draft.title,
         worktree: draft.worktree,
+        origin: draft.origin,
       })
       setLayout((curr) => assignSession(curr, intoPane, session.id))
       activeIdRef.current = session.id
@@ -1330,6 +1331,13 @@ export default function App() {
       })
       attachTranscripts({ [session.id]: [] })
       noteRecent(session.id)
+      if (draft.firstPrompt) {
+        try {
+          await window.chatHub.sendMessage(session.id, draft.firstPrompt)
+        } catch (err) {
+          setError(`Chat created, but the first message failed: ${err instanceof Error ? err.message : String(err)}`)
+        }
+      }
       // The folder is auto-pinned as a project in main — reflect it.
       void window.chatHub.listProjects().then(setProjects)
     } catch (err) {

@@ -1,3 +1,4 @@
+import { normalizeSessionOrigin } from "@shared/task-sources"
 import { randomUUID } from "node:crypto"
 import type {
   ChatMessage,
@@ -47,7 +48,12 @@ import {
 import { createSessionWorktree, removeSessionWorktree } from "./git"
 import { heuristicTitle, looksDefaultTitle } from "@shared/title"
 import { generateTitle } from "./title-llm"
-import { listUnignoredMcpNativeFiles } from "./mcp"
+import {
+  listUnignoredMcpNativeFiles,
+  materializeMcpForProject,
+  readMcpConfig,
+  writeMcpConfig,
+} from "./mcp"
 import {
   createCheckpoint,
   deleteSessionCheckpoints,
@@ -900,6 +906,7 @@ export class SessionManager {
       )
     }
 
+    const origin = normalizeSessionOrigin(input.origin)
     const now = Date.now()
     const id = randomUUID()
     const baseCwd = resolveSessionCwd(input.cwd)
@@ -914,6 +921,7 @@ export class SessionManager {
       input.model?.trim() || resolved.defaultModel || undefined
     const session: SessionMeta = {
       id,
+      ...(origin ? { origin } : {}),
       title: input.title?.trim() || defaultTitle(provider, project, now),
       titleOrigin: input.title?.trim() ? "user" : "default",
       project,
@@ -938,6 +946,15 @@ export class SessionManager {
 
     const cb = this.callbacks()
     try {
+      if (origin && worktree) {
+        await writeMcpConfig(session.cwd, await readMcpConfig(baseCwd))
+      }
+      if (origin) {
+        const mcp = await materializeMcpForProject(session.cwd, (serverId) =>
+          this.settings.getMcpEnv(serverId),
+        )
+        if (!mcp.ok) throw new Error(mcp.error || "Unable to prepare source MCP connection")
+      }
       await this.prepareBrowserTools(session)
       void this.noteUnignoredConfigs(session.id, session.cwd)
       await adapter.start(

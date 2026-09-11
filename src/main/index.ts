@@ -393,9 +393,11 @@ async function createPinnedSession(
 ): Promise<SessionMeta> {
   const session = await sm.createSession(input)
   await projects.ensure(session.baseCwd ?? session.cwd, session.project)
-  void materializeMcpForProject(session.cwd, (serverId) =>
-    settings.getMcpEnv(serverId),
-  ).catch((err) => console.error("[mcp] materialize on create failed", err))
+  if (!session.origin) {
+    void materializeMcpForProject(session.cwd, (serverId) =>
+      settings.getMcpEnv(serverId),
+    ).catch((err) => console.error("[mcp] materialize on create failed", err))
+  }
   return session
 }
 
@@ -925,6 +927,7 @@ export function registerIpc(
       project: typeof raw.project === "string" ? raw.project : undefined,
       model: typeof raw.model === "string" ? raw.model : undefined,
       worktree: raw.worktree === true,
+      origin: raw.origin,
     })
   })
   ipcMain.handle(

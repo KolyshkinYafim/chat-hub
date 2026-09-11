@@ -1,3 +1,4 @@
+import { OriginBadge } from "./OriginBadge"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { DragEvent, HTMLAttributes } from "react"
 import type { HookRun } from "@shared/hooks"
@@ -428,6 +429,7 @@ function PaneView({
             phase={panePhase}
           />
         ) : null}
+        <OriginBadge origin={session?.origin} />
         <span className="pane-head-title" title={session?.cwd}>
           {session ? session.title : "Empty pane — drop a chat here"}
         </span>

@@ -7,6 +7,14 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react"
 import type { Project, ProviderId, ProviderInfo, SessionMeta } from "@shared/types"
+import {
+  availableTaskSources,
+  buildTaskSourcePrompt,
+  taskSourceOrigin,
+  TASK_SOURCE_LABELS,
+  type SessionOrigin,
+  type TaskSourceKind,
+} from "@shared/task-sources"
 import type { PermissionMode } from "@shared/permission"
 import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
 import type { ProviderStatus } from "@shared/settings-types"
@@ -30,6 +38,8 @@ export type NewSessionDraft = {
   title?: string
   permissionMode: PermissionMode
   worktree: boolean
+  origin?: SessionOrigin
+  firstPrompt?: string
 }
 
 type Props = {
@@ -62,6 +72,10 @@ export function NewSessionDialog({
   const [instanceId, setInstanceId] = useState<string>(initialProvider)
   const [model, setModel] = useState("")
   const [title, setTitle] = useState("")
+  const [sourceKind, setSourceKind] = useState<TaskSourceKind | null>(null)
+  const [sourceRef, setSourceRef] = useState("")
+  const [sourcePrompt, setSourcePrompt] = useState<string | null>(null)
+  const [sourceConfig, setSourceConfig] = useState<{ cwd: string; kinds: TaskSourceKind[] } | null>(null)
   const [worktree, setWorktree] = useState(false)
   const [optionsOpen, setOptionsOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -122,8 +136,27 @@ export function NewSessionDialog({
   }, [picks, query])
   const selected: ProjectPick | null = rows[highlight] ?? rows[0] ?? null
 
+  const selectedCwd = selected?.cwd
+  const sourceKinds = sourceConfig && sourceConfig.cwd === selectedCwd ? sourceConfig.kinds : ["url" as const]
+  const firstPrompt = sourceKind ? sourcePrompt ?? buildTaskSourcePrompt(sourceKind, sourceRef) : ""
+
+  useEffect(() => {
+    if (!open || !selectedCwd) return
+    let live = true
+    void window.chatHub.mcpList(selectedCwd).then((result) => {
+      if (live) setSourceConfig({ cwd: selectedCwd, kinds: availableTaskSources(result.config.servers) })
+    }).catch(() => {
+      if (live) setSourceConfig({ cwd: selectedCwd, kinds: ["url"] })
+    })
+    return () => { live = false }
+  }, [open, selectedCwd])
+
   useEffect(() => {
     if (!open) return
+    setSourceKind(null)
+    setSourceRef("")
+    setSourcePrompt(null)
+    setSourceConfig(null)
     setQuery("")
     setHighlight(0)
     setTitle(projectHint ? `New · ${projectHint}` : "")
@@ -187,6 +220,17 @@ export function NewSessionDialog({
       setBusy(true)
       setError(null)
       try {
+        let origin: SessionOrigin | undefined
+        if (sourceKind) {
+          if (sourceKind !== "url") {
+            const mcp = await window.chatHub.mcpList(pick.cwd)
+            if (!availableTaskSources(mcp.config.servers).includes(sourceKind)) {
+              throw new Error(`Enable ${TASK_SOURCE_LABELS[sourceKind]} in Settings → MCP for this project`)
+            }
+          }
+          origin = taskSourceOrigin(sourceKind, sourceRef)
+          if (!firstPrompt.trim()) throw new Error("Enter the first message")
+        }
         // The permission mode belongs to the Hub, not to this dialog: it is
         // echoed back unchanged so creating a chat never retunes the sessions
         // already running. It is changed on the composer chip or in Settings.
@@ -202,6 +246,8 @@ export function NewSessionDialog({
           title: title.trim() || undefined,
           permissionMode,
           worktree: isolated,
+          origin,
+          firstPrompt: origin ? firstPrompt.trim() : undefined,
         })
         onClose()
       } catch (err) {
@@ -210,7 +256,7 @@ export function NewSessionDialog({
         setBusy(false)
       }
     },
-    [instanceId, model, onClose, onCreate, status, title],
+    [instanceId, model, onClose, onCreate, status, title, sourceKind, sourceRef, firstPrompt],
   )
 
   useEffect(() => {
@@ -307,7 +353,10 @@ export function NewSessionDialog({
                   className={`ns-pick${i === highlight ? " is-on" : ""}`}
                   disabled={busy}
                   onMouseEnter={() => setHighlight(i)}
-                  onClick={() => void submit(pick, worktree)}
+                  onClick={() => {
+                    if (sourceKind) setHighlight(i)
+                    else void submit(pick, worktree)
+                  }}
                 >
                   <span className="ns-pick-name">{pick.name}</span>
                   <span className="ns-pick-meta">
@@ -347,6 +396,40 @@ export function NewSessionDialog({
               </button>
             ))}
           </div>
+
+          <section className="ns-source" aria-label="Task source">
+            <div className="ns-source-chips" role="radiogroup" aria-label="From">
+              <span className="ns-source-label">From</span>
+              <button type="button" className={`ns-agent${sourceKind === null ? " is-on" : ""}`} role="radio" aria-checked={sourceKind === null} disabled={busy} onClick={() => setSourceKind(null)}>Blank chat</button>
+              {sourceKinds.map((kind) => (
+                <button key={kind} type="button" className={`ns-agent${sourceKind === kind ? " is-on" : ""}`} role="radio" aria-checked={sourceKind === kind} disabled={busy} onClick={() => {
+                  setSourceKind(kind)
+                  setSourceRef("")
+                  setSourcePrompt(null)
+                }}>{TASK_SOURCE_LABELS[kind]}</button>
+              ))}
+            </div>
+            {sourceKind ? (
+              <div className="ns-source-body">
+                <label className="form-field">
+                  <span>{TASK_SOURCE_LABELS[sourceKind]} {sourceKind === "clickup" ? "task URL or ID" : "URL"}</span>
+                  <input className="text-input" aria-label="Source reference" value={sourceRef} disabled={busy} spellCheck={false} placeholder={sourceKind === "clickup" ? "https://app.clickup.com/t/…" : sourceKind === "sentry" ? "https://your-org.sentry.io/issues/…" : "https://…"} onChange={(event) => {
+                    setSourceRef(event.target.value)
+                    setSourcePrompt(null)
+                  }} />
+                </label>
+                <label className="form-field">
+                  <span>First message <small>Review and edit before starting</small></span>
+                  <textarea className="text-input ns-source-prompt" aria-label="First message" value={firstPrompt} disabled={busy} rows={5} onChange={(event) => setSourcePrompt(event.target.value)} />
+                </label>
+                <div className="ns-source-help">
+                  <span className="field-hint">{sourceKind === "url" ? "The agent reads the link when the chat starts." : "Context is read through the agent’s MCP connection when the chat starts."}</span>
+                  {sourcePrompt !== null ? <button type="button" className="tb-btn" disabled={busy} onClick={() => setSourcePrompt(null)}>Reset message</button> : null}
+                </div>
+                {!sourceKinds.includes(sourceKind) ? <p className="field-hint">Enable {TASK_SOURCE_LABELS[sourceKind]} in Settings → MCP for the selected project.</p> : null}
+              </div>
+            ) : <p className="field-hint ns-source-help">Connect ClickUp or Sentry in Settings → MCP to start from a task.</p>}
+          </section>
 
           <details
             className="ns-options"

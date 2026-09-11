@@ -150,6 +150,35 @@ beforeEach(() => {
   state.cb = null
 })
 
+describe("session task origin", () => {
+  it("materializes the source connection before starting the adapter", async () => {
+    const { sm, dir } = await makeManager()
+    const { writeMcpConfig } = await import("../src/main/mcp")
+    await writeMcpConfig(dir, { version: 1, servers: [{ id: "clickup", name: "clickup", enabled: true, transport: "http", url: "https://mcp.clickup.com/mcp", args: [], envKeys: [] }] })
+    const start = vi.spyOn(adapter, "start").mockImplementationOnce(async (opts) => {
+      const native = JSON.parse(await readFile(join(opts.cwd, ".mcp.json"), "utf8"))
+      expect(native.mcpServers.clickup.url).toBe("https://mcp.clickup.com/mcp")
+    })
+    try {
+      await sm.createSession({ provider: "mock", cwd: dir, origin: { kind: "clickup", ref: "123", url: "https://app.clickup.com/t/123" } })
+      expect(start).toHaveBeenCalledOnce()
+    } finally { start.mockRestore() }
+  })
+  it("persists a source through creation, index reload and archival", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const origin = { kind: "clickup" as const, ref: "ABC-123", url: "https://app.clickup.com/t/ABC-123" }
+    const session = await sm.createSession({ provider: "mock", cwd: dir, origin })
+    expect(session.origin).toEqual(origin)
+    await sm.flush()
+    const restored = await persistence.loadIndex()
+    expect(restored.sessions.find((item) => item.id === session.id)?.origin).toEqual(origin)
+    sm.setSessionSettled(session.id, true)
+    sm.setSessionArchived(session.id, true)
+    await sm.flush()
+    expect((await persistence.loadIndex()).sessions[0]?.origin).toEqual(origin)
+  })
+})
+
 describe("live activity meta", () => {
   it("tracks phase transitions on the meta and damps same-step updates", async () => {
     const { sm, dir, events } = await makeManager()
