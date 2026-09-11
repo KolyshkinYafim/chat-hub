@@ -36,6 +36,7 @@ import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
 import type { SettingsStore } from "./settings"
 import { HookRunner } from "./hooks"
 import { inspectAttachmentPaths } from "./attachments"
+import { promptWithAttachments } from "./adapters/args"
 import { MessageArchive, type ArchivedContext } from "./message-archive"
 import {
   MIN_TRANSCRIPT_QUERY,
@@ -76,6 +77,8 @@ export const MAX_MESSAGES_PER_SESSION = 200
 export type SendOpts = {
   effort?: EffortLevel
   attachments?: string[]
+  /** A prompt hook re-entering the queue: automation, never the owner's reply. */
+  fromHook?: boolean
 }
 
 export type BrowserMcpTarget = {
@@ -184,7 +187,7 @@ export class SessionManager {
     // enqueue must not re-fire themselves in a tight loop — sendMessage only
     // dispatches when no turn is live, so a turn_done prompt waits for idle.
     this.hooks = new HookRunner(this.bus, (sessionId, text) => {
-      void this.sendMessage(sessionId, text)
+      void this.sendMessage(sessionId, text, { fromHook: true })
     })
     this.archive =
       opts?.archive ?? MessageArchive.fromStatePath(this.persistence.filePath)
@@ -1038,6 +1041,13 @@ export class SessionManager {
     const content = text.trim()
     if (!content && !opts?.attachments?.length) return
 
+    // A CLI-style question keeps the turn open with no process behind it, and
+    // what the owner types next is the answer — in the composer or from the
+    // island rather than the form. Queued, it would wait on that very form.
+    if (!opts?.fromHook && this.answerPendingQuestion(sessionId, content, opts)) {
+      return
+    }
+
     await this.loadHot(sessionId).catch(() => undefined)
 
     const attachments = inspectAttachmentPaths(opts?.attachments ?? [])
@@ -1086,6 +1096,33 @@ export class SessionManager {
     }
 
     await this.dispatch(sessionId, content, opts, userMsg.id)
+  }
+
+  /**
+   * Hand a sent message to the one pending question this session is waiting
+   * on, when that question takes prose. A pick-one Codex prompt, a secret, or
+   * a multi-question form has no slot for a composer message, so those still
+   * queue behind the form as before.
+   */
+  private answerPendingQuestion(
+    sessionId: string,
+    content: string,
+    opts?: SendOpts,
+  ): boolean {
+    // Same stubbed-broker tolerance as hasPendingInput.
+    const asked = (this.permissions?.listInputs?.() ?? []).filter(
+      (request) => request.sessionId === sessionId,
+    )
+    if (asked.length !== 1 || !this.permissions) return false
+    const [request] = asked
+    const [question] = request.questions
+    if (!question || request.questions.length !== 1 || question.secret) {
+      return false
+    }
+    if (question.options?.length && question.allowOther !== true) return false
+    return this.permissions.resolveInput(request.requestId, {
+      [question.id]: [promptWithAttachments(content, opts?.attachments)],
+    })
   }
 
   private async dispatch(
@@ -1153,6 +1190,12 @@ export class SessionManager {
         if (!this.ownsTurn(sessionId, token)) return
         this.turns.delete(sessionId)
         console.error("[session-manager] send failed", err)
+        // The red dot alone reads as "my message never went"; say what the
+        // provider actually refused so the user can act on it.
+        this.systemNote(
+          sessionId,
+          `The turn could not be sent — ${sendFailureReason(err)}`,
+        )
         this.unsettle(sessionId)
         this.applyStatus(sessionId, "error")
         this.publishSessionEvent({
@@ -2148,4 +2191,28 @@ export function markTurnCutByRestart(messages: ChatMessage[]): void {
     detail: RESTART_CUT_DETAIL,
   })
   last.items = items
+}
+
+/**
+ * One line out of whatever the adapter threw. Codex wraps the API's JSON
+ * error in an Error message, so dig for its `error.message` before falling
+ * back to the raw text.
+ */
+export function sendFailureReason(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err)
+  const start = raw.indexOf("{")
+  if (start !== -1) {
+    try {
+      const parsed = JSON.parse(raw.slice(start)) as {
+        error?: { message?: unknown }
+        message?: unknown
+      }
+      const inner = parsed.error?.message ?? parsed.message
+      if (typeof inner === "string" && inner.trim() !== "") return inner.trim()
+    } catch {
+      /* not JSON — the raw message is the best we have */
+    }
+  }
+  const line = raw.split("\n").find((l) => l.trim() !== "") ?? raw
+  return line.trim() || "the provider gave no reason"
 }

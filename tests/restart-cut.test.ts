@@ -60,3 +60,21 @@ describe("markTurnCutByRestart", () => {
     expect(messages).toEqual([])
   })
 })
+
+describe("sendFailureReason", () => {
+  it("digs the API message out of a codex-wrapped JSON error", async () => {
+    const { sendFailureReason } = await import("../src/main/session-manager")
+    const err = new Error(
+      '{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The \'chatgpt-astra\' model is not supported when using Codex with a ChatGPT account."}}',
+    )
+    expect(sendFailureReason(err)).toBe(
+      "The 'chatgpt-astra' model is not supported when using Codex with a ChatGPT account.",
+    )
+  })
+
+  it("keeps the first line of a plain error", async () => {
+    const { sendFailureReason } = await import("../src/main/session-manager")
+    expect(sendFailureReason(new Error("spawn claude ENOENT\n  at x"))).toBe("spawn claude ENOENT")
+    expect(sendFailureReason("")).toBe("the provider gave no reason")
+  })
+})
