@@ -1,3 +1,4 @@
+import { LangfuseSettings } from "./LangfuseSettings"
 import { Fragment, useCallback, useEffect, useState } from "react"
 import type {
   ProviderId,
@@ -1973,6 +1974,7 @@ export function SettingsModal({
 
           {tab === "connections" ? (
             <div className="settings-section">
+              <LangfuseSettings projectCwd={projectCwd ?? undefined} />
               <h2 className="section-label">Session Monitor</h2>
               <p className="modal-lead">
                 How Chat Hub reaches the rest of the desktop suite — the island /

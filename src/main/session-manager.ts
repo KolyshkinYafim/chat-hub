@@ -154,6 +154,7 @@ export class SessionManager {
   /** Sessions already told their workspace carries an unignored CLI config. */
   private configNoted = new Set<string>()
   private readonly generateTitleFn: TitleGenerator
+  private readonly onTurnComplete?: (session: SessionMeta, messages: ChatMessage[], userMessageId: string, failed: boolean) => void
   private readonly usageLedger: UsageLedger | null
   private readonly worktreeSetup: WorktreeSetupRunner
   private readonly liveActivity = new LiveActivityTracker()
@@ -170,6 +171,7 @@ export class SessionManager {
       maxMessages?: number
       titleGenerator?: TitleGenerator
       worktreeSetup?: WorktreeSetupRunner
+      onTurnComplete?: (session: SessionMeta, messages: ChatMessage[], userMessageId: string, failed: boolean) => void
       usageLedger?: UsageLedger
     },
   ) {
@@ -187,6 +189,7 @@ export class SessionManager {
       opts?.titleGenerator ?? ((user, assistant) => generateTitle(user, assistant))
     this.worktreeSetup = opts?.worktreeSetup ?? runWorktreeCreateScripts
     this.usageLedger = opts?.usageLedger ?? null
+    this.onTurnComplete = opts?.onTurnComplete
   }
 
   /**
@@ -1132,6 +1135,7 @@ export class SessionManager {
         if (!failed && this.sessions.get(sessionId)?.status === "running") {
           this.applyStatus(sessionId, "idle")
         }
+        this.reportTurnComplete(sessionId, userMessageId, failed)
         this.flushQueued(sessionId)
         if (failed) return
         this.maybeRefineTitle(sessionId)
@@ -1147,8 +1151,16 @@ export class SessionManager {
           id: sessionId,
           reason: "error",
         })
+        this.reportTurnComplete(sessionId, userMessageId, true)
         this.dropQueued(sessionId, "the turn failed")
       })
+  }
+
+  private reportTurnComplete(sessionId: string, messageId: string | undefined, failed: boolean): void {
+    const session = this.sessions.get(sessionId)
+    if (!session || !messageId || !this.onTurnComplete) return
+    try { this.onTurnComplete(session, this.getMessages(sessionId), messageId, failed) }
+    catch { console.warn("[session-manager] turn observer failed") }
   }
 
   private conversationBefore(

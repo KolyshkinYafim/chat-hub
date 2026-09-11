@@ -1,3 +1,4 @@
+import { LangfuseService } from "./langfuse"
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from "electron"
 import { join } from "node:path"
 import { realpathSync, statSync } from "node:fs"
@@ -2097,6 +2098,10 @@ async function bootstrap(): Promise<void> {
     () => settings.general.completionSound === true,
     focusSession,
   )
+  const tracing = new LangfuseService(join(userData, "data", "langfuse.json"))
+  await tracing.load()
+  tracing.register()
+  langfuseService = tracing
   const usageLedger = new UsageLedger(UsageLedger.defaultPath(userData))
   const sm = new SessionManager(
     bus,
@@ -2105,7 +2110,7 @@ async function bootstrap(): Promise<void> {
     notifications,
     settings,
     undefined,
-    { usageLedger },
+    { usageLedger, onTurnComplete: (session, messages, messageId, failed) => tracing.exporter.enqueue(session, messages, messageId, failed) },
   )
   manager = sm
 
@@ -2214,6 +2219,7 @@ async function bootstrap(): Promise<void> {
   })
 }
 
+let langfuseService: LangfuseService | null = null
 let quitting = false
 
 /**
@@ -2260,7 +2266,7 @@ function onBeforeQuit(e: { preventDefault: () => void }): void {
   // A wedged child must not hold ⌘Q hostage: quit anyway once the kill+flush
   // has had a fair chance.
   const hardExit = setTimeout(() => app.exit(0), 3000)
-  void sm.shutdown().finally(() => {
+  void Promise.allSettled([sm.shutdown(), langfuseService?.exporter.stop()]).finally(() => {
     clearTimeout(hardExit)
     app.exit(0)
   })

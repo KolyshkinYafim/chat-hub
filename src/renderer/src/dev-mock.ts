@@ -1,3 +1,4 @@
+import { DEFAULT_LANGFUSE } from "@shared/langfuse"
 /**
  * Dev-only mock of the preload `window.chatHub` bridge so the real React UI
  * can be rendered (and screenshotted) in a plain browser tab without Electron.
@@ -1620,6 +1621,9 @@ export function installDevMock(): void {
     listProjects: async () => projects,
     getBridgePath: async () => dataPaths.bridgePath,
     getDataPaths: async () => dataPaths,
+    langfuseGet: async () => ({ ...DEFAULT_LANGFUSE, hasPublicKey: false, hasSecretKey: false, pending: 0, lastError: null, lastSentAt: null }),
+    langfuseUpdate: async (patch) => ({ ...DEFAULT_LANGFUSE, ...patch, hasPublicKey: false, hasSecretKey: false, pending: 0, lastError: null, lastSentAt: null }),
+    langfuseTest: async () => "Demo mode — no network request sent.",
     automationStatus: async () => ({
       enabled: settings.general.automationServer === true,
       port: settings.general.automationServer ? 51234 : null,

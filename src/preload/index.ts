@@ -1,3 +1,4 @@
+import type { LangfuseStatus, LangfusePatch } from "@shared/langfuse"
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron"
 import { IpcChannels } from "@shared/ipc"
 import { parseWindowIntent } from "@shared/window-identity"
@@ -388,6 +389,9 @@ const api = {
     ipcRenderer.invoke(IpcChannels.setGeneralConfig, patch),
   getDataPaths: (): Promise<DataPaths> =>
     ipcRenderer.invoke(IpcChannels.getDataPaths),
+  langfuseGet: (): Promise<LangfuseStatus> => ipcRenderer.invoke(IpcChannels.langfuseGet),
+  langfuseUpdate: (patch: LangfusePatch): Promise<LangfuseStatus> => ipcRenderer.invoke(IpcChannels.langfuseUpdate, patch),
+  langfuseTest: (): Promise<string> => ipcRenderer.invoke(IpcChannels.langfuseTest),
   automationStatus: (): Promise<AutomationStatus> =>
     ipcRenderer.invoke(IpcChannels.automationStatus),
   automationToken: (): Promise<string> =>
