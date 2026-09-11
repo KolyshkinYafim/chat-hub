@@ -2265,6 +2265,40 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   animation: blink 1s step-end infinite;
 }
 
+.inline-visualization {
+  width: 100%;
+  margin: 10px 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.inline-visualization.is-wide {
+  width: min(1024px, calc(100vw - 96px));
+  max-width: 100%;
+}
+
+.inline-visualization iframe {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+}
+
+.inline-visualization-loading,
+.inline-visualization-error {
+  margin: 10px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text-muted);
+}
+
+.inline-visualization-error {
+  color: var(--danger);
+}
+
 @keyframes blink {
   50% {
     opacity: 0;

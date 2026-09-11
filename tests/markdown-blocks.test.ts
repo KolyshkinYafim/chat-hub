@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { orderedMarkers, splitBlocks, type Block } from "@renderer/lib/markdown"
+import {
+  orderedMarkers,
+  readVisualization,
+  splitBlocks,
+  type Block,
+} from "@renderer/lib/markdown"
 
 function kinds(src: string): string[] {
   return splitBlocks(src).map((block) => block.kind)
@@ -184,5 +189,26 @@ describe("fences still win", () => {
 
   it("leaves a heading-looking comment inside a fence alone", () => {
     expect(kinds("```sh\n# a comment\necho hi\n```")).toEqual(["code"])
+  })
+})
+
+describe("visualizations", () => {
+  it("parses a visualization content reference as its own block", () => {
+    const source = [
+      "Status:",
+      "",
+      'visualize{"path":"/work/status.html","mode":"wide","title":"Status"}',
+    ].join("\n")
+    expect(kinds(source)).toEqual(["p", "visualize"])
+    expect(only(source, "visualize").ref).toEqual({
+      path: "/work/status.html",
+      title: "Status",
+      wide: true,
+    })
+  })
+
+  it("leaves malformed or non-html references as prose", () => {
+    expect(readVisualization('visualize{"path":"/work/data.json"}')).toBeNull()
+    expect(kinds("visualizenot-json")).toEqual(["p"])
   })
 })

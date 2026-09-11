@@ -11,6 +11,7 @@ import { InlineText, PathActions, type PathOpener } from "./InlineText"
 import { MermaidDiagram } from "./MermaidDiagram"
 import { PlanSteps } from "./PlanSteps"
 import { ToolRun } from "./ToolRun"
+import { InlineVisualization } from "./InlineVisualization"
 
 type AnyBlock = TranscriptBlock | MdBlock
 
@@ -54,6 +55,7 @@ export function MarkdownBody({
             block={block}
             live={streaming === true}
             scope={`${messageId ?? ""}/b${i}`}
+            cwd={cwd}
           />
         ))}
         {streaming ? null : (
@@ -68,10 +70,12 @@ function Block({
   block,
   live,
   scope,
+  cwd,
 }: {
   block: AnyBlock
   live: boolean
   scope: string
+  cwd?: string
 }): ReactNode {
   switch (block.kind) {
     case "tools":
@@ -105,7 +109,13 @@ function Block({
           {block.blocks
             .filter((child) => child.kind !== "tool" && child.kind !== "plan")
             .map((child, i) => (
-              <Block key={i} block={child} live={live} scope={`${scope}q${i}`} />
+              <Block
+                key={i}
+                block={child}
+                live={live}
+                scope={`${scope}q${i}`}
+                cwd={cwd}
+              />
             ))}
         </blockquote>
       )
@@ -159,6 +169,8 @@ function Block({
           <div className="reasoning-body">{block.text}</div>
         </details>
       )
+    case "visualize":
+      return <InlineVisualization refInfo={block.ref} cwd={cwd} />
     case "tool":
       return <CodeBlock lang={block.name} code={block.body} expandKey={scope} />
     default:

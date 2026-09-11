@@ -15,6 +15,12 @@ export type DefinitionItem = { term: string; details: string[] }
 
 export type FootnoteItem = { label: string; text: string }
 
+export type VisualizationRef = {
+  path: string
+  title?: string
+  wide: boolean
+}
+
 /** Block model for the agent-transcript renderer (see MarkdownBody). */
 export type Block =
   | { kind: "h"; level: HeadingLevel; text: string }
@@ -31,6 +37,7 @@ export type Block =
   | { kind: "mermaid"; code: string }
   | { kind: "diff"; code: string }
   | { kind: "reasoning"; text: string }
+  | { kind: "visualize"; ref: VisualizationRef }
   | {
       kind: "tool"
       name: string
@@ -58,6 +65,7 @@ const TASK = /^\[([ xX])\]\s+(.*)$/
 const QUOTE = /^\s{0,3}>\s?(.*)$/
 const DEFINITION = /^\s{0,3}:\s+(.*)$/
 const FOOTNOTE = /^\[\^([^\]\s]+)\]:\s*(.*)$/
+const VISUALIZE = /^visualize(\{.*\})$/
 const MAX_LIST_DEPTH = 5
 
 export function splitBlocks(src: string): Block[] {
@@ -72,6 +80,13 @@ function parseLines(lines: string[]): Block[] {
     const line = lines[i]!
 
     if (line.trim() === "") {
+      i += 1
+      continue
+    }
+
+    const visualization = readVisualization(line)
+    if (visualization) {
+      out.push({ kind: "visualize", ref: visualization })
       i += 1
       continue
     }
@@ -149,7 +164,32 @@ function startsBlock(lines: string[], at: number): boolean {
   if (BULLET.test(line) || ORDERED.test(line)) return true
   if (FOOTNOTE.test(line)) return true
   if (DEFINITION.test(line)) return true
+  if (readVisualization(line)) return true
   return readTable(lines, at) !== null
+}
+
+export function readVisualization(line: string): VisualizationRef | null {
+  const match = VISUALIZE.exec(line.trim())
+  if (!match) return null
+  try {
+    const value = JSON.parse(match[1]!) as {
+      path?: unknown
+      title?: unknown
+      mode?: unknown
+    }
+    if (typeof value.path !== "string" || !value.path.trim().endsWith(".html")) {
+      return null
+    }
+    return {
+      path: value.path.trim(),
+      title: typeof value.title === "string" && value.title.trim()
+        ? value.title.trim()
+        : undefined,
+      wide: value.mode === "wide",
+    }
+  } catch {
+    return null
+  }
 }
 
 function readFence(
