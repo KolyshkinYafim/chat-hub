@@ -8377,11 +8377,15 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
 
 /* ===== context meter ===== */
 
+/* Both meters sit on the composer's column like every row above it; a
+   full-width bar on a wide pane parks its label far from the box it is about. */
 .context-meter {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 2px 6px;
+  max-width: var(--column-w);
+  margin: 0 auto 6px;
+  padding: 0 2px;
   min-width: 0;
 }
 
@@ -8430,7 +8434,9 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 0 2px 6px;
+  max-width: var(--column-w);
+  margin: 0 auto 6px;
+  padding: 0 2px;
   min-width: 0;
 }
 
