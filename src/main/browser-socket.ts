@@ -1,6 +1,7 @@
 import { createServer, type Server, type Socket } from "node:net"
-import { chmodSync, mkdirSync, unlinkSync } from "node:fs"
+import { chmodSync, mkdirSync } from "node:fs"
 import { dirname } from "node:path"
+import { prepareSocketPath } from "./socket-path"
 import type { BrowserRequest, BrowserResponse } from "@shared/browser"
 
 export type BrowserRequestHandler = (
@@ -59,12 +60,8 @@ export class BrowserSocketServer {
 
   async start(): Promise<void> {
     if (this.server) return
-    mkdirSync(dirname(this.socketPath), { recursive: true })
-    try {
-      unlinkSync(this.socketPath)
-    } catch {
-      /* nothing to clear */
-    }
+    mkdirSync(dirname(this.socketPath), { recursive: true, mode: 0o700 })
+    await prepareSocketPath(this.socketPath)
 
     const server = createServer((socket) => this.adopt(socket))
     await new Promise<void>((resolve, reject) => {
@@ -92,11 +89,8 @@ export class BrowserSocketServer {
     this.sockets.clear()
     if (!server) return
     await new Promise<void>((resolve) => server.close(() => resolve()))
-    try {
-      unlinkSync(this.socketPath)
-    } catch {
-      /* already gone */
-    }
+    // Node removes the bound Unix socket on close. A second unlink here can
+    // delete a replacement server that bound after our close completed.
   }
 
   private adopt(socket: Socket): void {

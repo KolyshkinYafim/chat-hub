@@ -1,3 +1,4 @@
+import { agentDesktopCommandsPath, agentDesktopSocketPath } from "@shared/bridge-path"
 import { normalizeSessionOrigin } from "@shared/task-sources"
 import { randomUUID } from "node:crypto"
 import type {
@@ -1335,6 +1336,11 @@ export class SessionManager {
    */
   private hookIdentityEnv(session: SessionMeta): Record<string, string> {
     return {
+      ...(process.env.CHAT_HUB_USER_DATA ? {
+        AGENT_DESKTOP_EVENTS: this.bridge.path,
+        AGENT_DESKTOP_COMMANDS: agentDesktopCommandsPath(),
+        AGENT_DESKTOP_SOCKET: this.permissions?.socketPath ?? agentDesktopSocketPath(),
+      } : {}),
       AGENT_DESKTOP_HUB_SESSION: session.id,
       AGENT_DESKTOP_HUB_BUNDLE: "com.agentdesktop.ChatHub",
     }

@@ -1,6 +1,7 @@
 import { createServer, connect, type Server, type Socket } from "node:net"
-import { chmodSync, mkdirSync, unlinkSync } from "node:fs"
+import { chmodSync, mkdirSync } from "node:fs"
 import { dirname } from "node:path"
+import { prepareSocketPath } from "./socket-path"
 import type { PermissionDecision } from "@shared/types"
 
 /**
@@ -58,14 +59,8 @@ export class HubPermissionServer {
 
   async start(): Promise<void> {
     if (this.server) return
-    mkdirSync(dirname(this.socketPath), { recursive: true })
-    // A socket file left by a crash refuses bind; nobody can be listening on it
-    // because a second Hub instance is already prevented by Electron's lock.
-    try {
-      unlinkSync(this.socketPath)
-    } catch {
-      /* nothing to clear */
-    }
+    mkdirSync(dirname(this.socketPath), { recursive: true, mode: 0o700 })
+    await prepareSocketPath(this.socketPath)
 
     const server = createServer((socket) => this.adopt(socket))
     await new Promise<void>((resolve, reject) => {
@@ -94,11 +89,8 @@ export class HubPermissionServer {
     this.sockets.clear()
     if (!server) return
     await new Promise<void>((resolve) => server.close(() => resolve()))
-    try {
-      unlinkSync(this.socketPath)
-    } catch {
-      /* already gone */
-    }
+    // Node removes the bound Unix socket on close. A second unlink here can
+    // delete a replacement server that bound after our close completed.
   }
 
   private adopt(socket: Socket): void {

@@ -1,5 +1,6 @@
-import { homedir } from "node:os"
-import { join } from "node:path"
+import { createHash } from "node:crypto"
+import { homedir, tmpdir } from "node:os"
+import { join, resolve } from "node:path"
 import { BROWSER_SOCKET_BASENAME, BROWSER_SOCKET_ENV } from "./browser"
 
 /**
@@ -7,6 +8,9 @@ import { BROWSER_SOCKET_BASENAME, BROWSER_SOCKET_ENV } from "./browser"
  * macOS: ~/Library/Application Support/agent-desktop/events.jsonl
  */
 function agentDesktopDir(): string {
+  if (process.env.CHAT_HUB_USER_DATA) {
+    return join(resolve(process.env.CHAT_HUB_USER_DATA), "agent-desktop")
+  }
   if (process.platform === "darwin") {
     return join(homedir(), "Library", "Application Support", "agent-desktop")
   }
@@ -15,6 +19,14 @@ function agentDesktopDir(): string {
     return join(base, "agent-desktop")
   }
   return join(homedir(), ".local", "share", "agent-desktop")
+}
+
+/** Unix socket paths have a small platform limit, so hash long profile paths. */
+function socketDir(): string {
+  const profile = process.env.CHAT_HUB_USER_DATA
+  if (!profile) return agentDesktopDir()
+  const key = createHash("sha256").update(resolve(profile)).digest("hex").slice(0, 12)
+  return join(tmpdir(), `ch-${key}`)
 }
 
 export function agentDesktopEventsPath(): string {
@@ -32,7 +44,7 @@ export function agentDesktopSocketPath(): string {
   if (process.env.AGENT_DESKTOP_SOCKET) {
     return process.env.AGENT_DESKTOP_SOCKET
   }
-  return join(agentDesktopDir(), "monitor.sock")
+  return join(socketDir(), "monitor.sock")
 }
 
 /**
@@ -44,7 +56,7 @@ export function chatHubSocketPath(): string {
   if (process.env.CHAT_HUB_SOCKET) {
     return process.env.CHAT_HUB_SOCKET
   }
-  return join(agentDesktopDir(), "hub.sock")
+  return join(socketDir(), "hub.sock")
 }
 
 /** Where the built-in browser MCP server reaches the Hub's Browser surface. */
@@ -52,7 +64,7 @@ export function chatHubBrowserSocketPath(): string {
   if (process.env[BROWSER_SOCKET_ENV]) {
     return process.env[BROWSER_SOCKET_ENV]
   }
-  return join(agentDesktopDir(), BROWSER_SOCKET_BASENAME)
+  return join(socketDir(), BROWSER_SOCKET_BASENAME)
 }
 
 /** Session Monitor → Chat Hub reverse channel. */
