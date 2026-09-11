@@ -323,6 +323,10 @@ export class BrowserControl {
 
   attach(sessionId: string, webContentsId: number): void {
     if (!sessionId) return
+    // The panel re-announces its guest on every dom-ready, i.e. after each
+    // navigation. Same guest, same binding: rebuilding it here dropped the
+    // network log and detached the debugger right after the page loaded.
+    if (this.bindings.get(sessionId)?.webContentsId === webContentsId) return
     this.detach(sessionId)
     const binding: Binding = {
       webContentsId,
@@ -380,7 +384,7 @@ export class BrowserControl {
     }
   }
 
-  private run(
+  private async run(
     request: BrowserRequest,
     binding: Binding,
     guest: GuestLike,
@@ -391,11 +395,9 @@ export class BrowserControl {
         // Recording starts with the first navigation, not the first
         // browser_network call — otherwise that call always answers "no
         // requests" for the page it was asked about.
-        try {
-          this.startNetworkCapture(binding, guest)
-        } catch {
+        this.startNetworkCapture(binding, guest).catch(() => {
           /* browser_network will explain if the debugger is taken */
-        }
+        })
         return this.navigate(guest, params)
       case "snapshot":
         return this.snapshot(guest, params)
@@ -707,7 +709,7 @@ export class BrowserControl {
     guest: GuestLike,
     params: Record<string, unknown>,
   ): Promise<OpOutcome> {
-    this.startNetworkCapture(binding, guest)
+    await this.startNetworkCapture(binding, guest)
     const pattern =
       typeof params.urlPattern === "string" && params.urlPattern !== ""
         ? params.urlPattern
@@ -873,7 +875,7 @@ export class BrowserControl {
     binding.listeningTo = null
   }
 
-  private startNetworkCapture(binding: Binding, guest: GuestLike): void {
+  private async startNetworkCapture(binding: Binding, guest: GuestLike): Promise<void> {
     if (binding.debuggerHost) return
     const host = guest.debugger
     if (!host) {
@@ -881,6 +883,8 @@ export class BrowserControl {
         "This browser surface cannot record network traffic: the guest exposes no debugger.",
       )
     }
+    // Synchronous up to the enable command, so a caller that does not wait
+    // still has the listener in place before it starts a load.
     try {
       if (!host.isAttached()) host.attach(DEBUGGER_PROTOCOL_VERSION)
     } catch (err) {
@@ -895,7 +899,9 @@ export class BrowserControl {
     binding.debuggerListener = listener
     binding.debuggerHost = host
     host.on("message", listener)
-    void Promise.resolve(host.sendCommand("Network.enable")).catch(() => {})
+    // Nothing is recorded until the protocol acknowledges this; a navigation
+    // started before then makes its document request unobserved.
+    await Promise.resolve(host.sendCommand("Network.enable")).catch(() => {})
   }
 
   private stopNetworkCapture(binding: Binding): void {

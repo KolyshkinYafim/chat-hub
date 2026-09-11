@@ -681,6 +681,18 @@ describe("network buffer", () => {
     expect(requests.map((r) => r.url)).toEqual(["https://example.com/"])
   })
 
+  it("keeps the log and the debugger when the panel re-announces the same guest", async () => {
+    await send("network")
+    request("1", "https://example.com/app.js")
+    // dom-ready after every navigation makes the renderer attach again.
+    control.attach(SESSION, GUEST_ID)
+    expect(guest.debugger.attached).toBe(true)
+    const requests = resultOf(await send("network")).requests as Array<
+      Record<string, unknown>
+    >
+    expect(requests.map((r) => r.url)).toEqual(["https://example.com/app.js"])
+  })
+
   it("attaches the debugger lazily and records requests and responses", async () => {
     expect(guest.debugger.attached).toBe(false)
 

@@ -414,6 +414,8 @@ describe("fill script", () => {
     expect(result).toEqual({ ok: true, kind: "input" })
     expect(field.value).toBe("typed by an agent")
     expect(seen).toEqual(["input", "change"])
+    // The Enter an agent sends next has to land in this field.
+    expect(document.activeElement).toBe(field)
   })
 
   it("writes through the native setter when a framework has shadowed value", () => {

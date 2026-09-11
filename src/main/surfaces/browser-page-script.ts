@@ -411,7 +411,19 @@ ${HELPERS}
     return { ok: true, kind: "select" }
   }
 
+  // Focus first: a key the agent sends next (Enter to submit) goes to the
+  // focused element, and a field filled without focus never receives it.
+  var takeFocus = function () {
+    if (typeof el.focus !== "function") return
+    try {
+      el.focus({ preventScroll: true })
+    } catch (err) {
+      el.focus()
+    }
+  }
+
   if (tag === "input" || tag === "textarea") {
+    takeFocus()
     writeValue(el, next)
     fire("input")
     fire("change")
@@ -419,6 +431,7 @@ ${HELPERS}
   }
 
   if (el.isContentEditable) {
+    takeFocus()
     el.textContent = next
     fire("input")
     fire("change")
