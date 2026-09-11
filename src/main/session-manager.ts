@@ -1508,8 +1508,18 @@ export class SessionManager {
     for (const id of [...this.queued.keys()]) {
       this.dropQueued(id, "Chat Hub quit")
     }
+    // A turn cut by our own quit ends the same way as one whose process died
+    // with us: the transcript says where it stopped and the sidebar asks for
+    // attention. Idling it quietly read as the agent going silent.
     for (const s of live) {
-      this.applyStatus(s.id, "idle")
+      const messages = this.messages.get(s.id)
+      if (messages && this.hotLoaded.has(s.id)) {
+        markTurnCutByRestart(messages)
+        this.scheduleSessionSave(s.id)
+      } else {
+        this.cutOnBoot.add(s.id)
+      }
+      this.applyStatus(s.id, "error")
     }
     await this.flush()
     await this.bridge.flush()

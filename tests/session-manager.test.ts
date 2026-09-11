@@ -98,7 +98,7 @@ vi.mock("../src/main/adapters", () => ({
   listProviderInfo: () => [],
 }))
 
-const { SessionManager, MAX_MESSAGES_PER_SESSION } = await import(
+const { SessionManager, MAX_MESSAGES_PER_SESSION, RESTART_CUT_TITLE } = await import(
   "../src/main/session-manager"
 )
 const { EventBus } = await import("../src/main/event-bus")
@@ -740,7 +740,7 @@ describe("watchdog", () => {
 })
 
 describe("shutdown", () => {
-  it("stops live turns and persists them as idle, not running", async () => {
+  it("stops live turns and marks where the quit cut them", async () => {
     const { sm, dir, persistence } = await makeManager()
     const session = await sm.createSession({ provider: "mock", cwd: dir })
     await sm.sendMessage(session.id, "hello")
@@ -751,8 +751,16 @@ describe("shutdown", () => {
     expect(state.aborted).toContain(session.id)
     const persisted = await persistence.loadIndex()
     expect(persisted.sessions.find((s) => s.id === session.id)?.status).toBe(
-      "idle",
+      "error",
     )
+    const messages = await persistence.loadHotMessages(session.id)
+    const tail = messages[messages.length - 1]
+    expect(tail?.role).toBe("assistant")
+    expect(
+      tail?.items?.some(
+        (item) => item.kind === "notice" && item.title === RESTART_CUT_TITLE,
+      ),
+    ).toBe(true)
   })
 })
 
