@@ -353,6 +353,7 @@ export class CodexAdapter implements AgentAdapter {
         const window = event.params.tokenUsage.modelContextWindow
         active.usage = {
           inputTokens: uncachedInput(usage.inputTokens, usage.cachedInputTokens),
+          contextUsedTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
           cacheReadTokens: usage.cachedInputTokens,
           cacheCreateTokens: usage.cacheWriteInputTokens,

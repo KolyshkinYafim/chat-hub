@@ -155,6 +155,7 @@ export class ClaudeAdapter implements AgentAdapter {
     let turn: StreamTurn | null = null
     let sawText = false
     let usage: TurnUsage | null = null
+    let lastContextUsed: number | undefined
     const activity = new ClaudeActivityStream(state.cwd)
     const stderr: string[] = []
 
@@ -195,10 +196,17 @@ export class ClaudeAdapter implements AgentAdapter {
           cb.onAgentSession?.(sessionId, sid)
         }
 
+        // Each main-thread assistant message carries the usage of one API
+        // request; the last one seen is the window's true occupancy. Subagent
+        // lines (non-null parent_tool_use_id) run in their own window.
+        const requestUsage = readClaudeRequestContext(ev)
+        if (requestUsage !== null) lastContextUsed = requestUsage.contextUsedTokens
+
         if (asText(ev.type) === "result") {
           // One `result` per internal turn, and an async subagent makes several
           // in one run: the token counts add up, the cost is already a total.
           usage = mergeClaudeUsage(usage, readUsage(ev))
+          if (usage) usage.contextUsedTokens = lastContextUsed
           publish(activity.push(ev))
           // Final envelope; the text is normally already streamed.
           if (!turn && typeof ev.result === "string") pushAssistantText(ev.result)
@@ -226,7 +234,7 @@ export class ClaudeAdapter implements AgentAdapter {
         const messageId = turn?.messageId
         finishTurn(turn, sessionId, cb, outcome)
         turn = null
-        if (usage) cb.onUsage?.(sessionId, usage, messageId)
+        if (usage) cb.onUsage?.(sessionId, { ...usage, contextUsedTokens: lastContextUsed }, messageId)
         // A newer turn may already own this session (Stop then immediate
         // resend): a dead process must not overwrite the live turn's status.
         if (state.proc !== proc) return
@@ -1118,6 +1126,9 @@ export function mergeClaudeUsage(
   }
   if (next.costUsd !== undefined) merged.costUsd = next.costUsd
   if (next.contextWindow !== undefined) merged.contextWindow = next.contextWindow
+  if (next.contextUsedTokens !== undefined) {
+    merged.contextUsedTokens = next.contextUsedTokens
+  }
   return merged
 }
 
@@ -1149,4 +1160,15 @@ function str(value: unknown): string | undefined {
 
 function num(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+export function readClaudeRequestContext(ev: Record<string, unknown>): TurnUsage | null {
+  if (str(ev.parent_tool_use_id)) return null
+  const event = ev.type === "stream_event" ? record(ev.event) : ev
+  if (!event || (event.type !== "message_start" && event.type !== "assistant")) return null
+  const message = record(event.message)
+  const usage = message ? readUsage(message) : null
+  const counts = [usage?.inputTokens, usage?.cacheReadTokens ?? 0, usage?.cacheCreateTokens ?? 0]
+  if (!counts.every((count) => typeof count === "number" && Number.isFinite(count) && count >= 0)) return {}
+  return { contextUsedTokens: (counts as number[]).reduce((sum, count) => sum + count, 0) }
 }

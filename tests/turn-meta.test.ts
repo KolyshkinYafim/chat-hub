@@ -13,6 +13,7 @@ describe("formatTurnMeta", () => {
           cacheCreateTokens: 2400,
           costUsd: 0.06,
           contextWindow: 200_000,
+          contextUsedTokens: 69_600,
         },
         "claude-sonnet-4",
       ),
@@ -27,7 +28,7 @@ describe("formatTurnMeta", () => {
 
   it("falls back to the session window when the turn reported none", () => {
     expect(
-      formatTurnMeta({ inputTokens: 50_000 }, undefined, 200_000),
+      formatTurnMeta({ inputTokens: 50_000, contextUsedTokens: 50_000 }, undefined, 200_000),
     ).toBe("50k in · 25% ctx")
   })
 
@@ -41,7 +42,11 @@ describe("formatTurnMeta", () => {
 
   it("caps the context share at 100%", () => {
     expect(
-      formatTurnMeta({ inputTokens: 300_000 }, undefined, 200_000),
+      formatTurnMeta({ inputTokens: 300_000, contextUsedTokens: 300_000 }, undefined, 200_000),
     ).toBe("300k in · 100% ctx")
   })
+})
+
+it("hides ctx for historical cumulative usage that has no request snapshot", () => {
+  expect(formatTurnMeta({ inputTokens: 2100, cacheReadTokens: 1_100_000, outputTokens: 9400, contextWindow: 1_000_000 }, "claude-fable-5")).toBe("2.1k in · 9.4k out")
 })

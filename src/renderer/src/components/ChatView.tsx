@@ -212,7 +212,7 @@ function ContextMeter({
   return (
     <div
       className={`context-meter${tone}`}
-      title={`Context after last turn · ${usageDetail(last)}`}
+      title={`Latest request context · ${usageDetail(last)}`}
     >
       <span className="context-meter-bar" aria-hidden>
         <span

@@ -114,3 +114,17 @@ describe("addUsage", () => {
     expect(second.inputTokens).toBe(12)
   })
 })
+
+it("keeps context as the latest turn snapshot while billing counters accumulate", () => {
+  const first = addUsage(undefined, { inputTokens: 1000, cacheReadTokens: 500_000, costUsd: 0.2, contextUsedTokens: 40_000 })
+  const second = addUsage(first, { inputTokens: 1100, cacheReadTokens: 600_000, costUsd: 0.3, contextUsedTokens: 46_300 })
+  expect(second).toMatchObject({ inputTokens: 2100, cacheReadTokens: 1_100_000, costUsd: 0.5, turns: 2 })
+  expect(second.lastTurn?.contextUsedTokens).toBe(46_300)
+  expect(second.contextUsedTokens).toBeUndefined()
+  expect(addUsage(second, { outputTokens: 4 }).lastTurn?.contextUsedTokens).toBeUndefined()
+})
+
+it("reads an explicit provider context snapshot without deriving one from billing", () => {
+  expect(readUsage({ usage: { input_tokens: 1_100_000, context_used_tokens: 46_300 } })).toEqual({ inputTokens: 1_100_000, contextUsedTokens: 46_300 })
+  expect(readUsage({ usage: { input_tokens: 1_100_000 } })?.contextUsedTokens).toBeUndefined()
+})

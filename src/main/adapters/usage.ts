@@ -47,6 +47,7 @@ export function readUsage(ev: Record<string, unknown>): TurnUsage | null {
   assign(out, "cacheCreateTokens", pickNumber(cache, CACHE_CREATE_KEYS))
   assign(out, "costUsd", pickNumber(ev, COST_KEYS) ?? pickNumber(usage, COST_KEYS))
   assign(out, "durationMs", pickNumber(ev, DURATION_KEYS))
+  assign(out, "contextUsedTokens", pickNumber(usage, ["contextUsedTokens", "context_used_tokens"]))
 
   if (Object.keys(out).length === 0) return null
   assign(out, "contextWindow", modelContextWindow(ev))
