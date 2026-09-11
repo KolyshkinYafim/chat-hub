@@ -6,6 +6,7 @@ import { DEFAULT_LANGFUSE } from "../src/shared/langfuse"
 import { LangfuseExporter, normalizeLangfuseUrl, turnSpan } from "../src/main/langfuse-exporter"
 import type { ChatMessage, SessionMeta } from "../src/shared/types"
 vi.mock("electron", () => ({ ipcMain: { handle: vi.fn() }, safeStorage: { isEncryptionAvailable: () => true, encryptString: (v: string) => Buffer.from(`sealed:${v}`), decryptString: (v: Buffer) => v.toString().slice(7) } }))
+import { safeStorage } from "electron"
 import { LangfuseService } from "../src/main/langfuse"
 const session: SessionMeta = { id: "s1", title: "Private title", project: "demo", provider: "claude", model: "test-model", cwd: "/repo", status: "done", createdAt: 100, updatedAt: 300 }
 const messages: ChatMessage[] = [
@@ -92,5 +93,27 @@ it("stores sealed keys, never returns them, and preserves them across config edi
     await expect(service.update({ baseUrl: "http://remote.test" })).rejects.toThrow()
     await service.update({ enabled: false, secretKey: "", publicKey: "" })
     expect(service.status().hasSecretKey).toBe(false)
+  } finally { await service.exporter.stop(); await rm(dir, { recursive: true, force: true }) }
+})
+
+it("rejects encryption failure without saving plaintext or replacing prior keys", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "langfuse-key-failure-"))
+  const path = join(dir, "tracing.json")
+  const service = new LangfuseService(path)
+  try {
+    await service.load()
+    await service.update({ publicKey: "original-public", secretKey: "original-secret" })
+    const saved = await readFile(path, "utf8")
+    expect(safeStorage.isEncryptionAvailable()).toBe(true)
+    const encrypt = vi.spyOn(safeStorage, "encryptString").mockImplementation(() => { throw new Error("keychain locked") })
+    try {
+      await expect(service.update({ secretKey: "replacement-secret" })).rejects.toThrow("OS keychain encryption failed")
+      expect(await readFile(path, "utf8")).toBe(saved)
+      expect(service.status().hasSecretKey).toBe(true)
+      expect(saved).not.toContain("plain:v1:")
+    } finally { encrypt.mockRestore() }
+    await service.update({ metadataOnly: false })
+    expect(service.status().metadataOnly).toBe(false)
+    expect(service.status().hasSecretKey).toBe(true)
   } finally { await service.exporter.stop(); await rm(dir, { recursive: true, force: true }) }
 })
