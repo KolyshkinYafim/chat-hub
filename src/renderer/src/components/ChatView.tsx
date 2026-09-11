@@ -52,6 +52,8 @@ import { PlanSteps, toPlanSteps } from "./PlanSteps"
 import { ComposerMenu } from "./ComposerMenu"
 import { FeedLabel, FeedRunRow } from "./ToolFeed"
 import { LiveStepTicker } from "./LiveStepTicker"
+import { TurnOutcomeStrip } from "./TurnOutcomeStrip"
+import { turnOutcome } from "../lib/turn-outcome"
 import { TurnTimeline } from "./TurnTimeline"
 import { buildTranscript } from "../lib/tool-runs"
 import {
@@ -729,6 +731,11 @@ export function ChatView({
     return null
   }, [liveMessage, session])
 
+  const restOutcome = useMemo(
+    () => (session && !liveTicker ? turnOutcome(session, messages, usage) : null),
+    [session, liveTicker, messages, usage],
+  )
+
   // A pending question is drawn above the transcript, where the turn that
   // raised it is often already scrolled away — so the card carries its own.
   const askedAfter = useMemo(() => {
@@ -938,8 +945,12 @@ export function ChatView({
 
   function jumpToLiveCard() {
     if (!liveMessage) return
+    jumpToMessage(liveMessage.id)
+  }
+
+  function jumpToMessage(messageId: string) {
     const card = transcriptRef.current?.querySelector(
-      `[data-mid="${CSS.escape(liveMessage.id)}"]`,
+      `[data-mid="${CSS.escape(messageId)}"]`,
     )
     card?.scrollIntoView({ behavior: "smooth", block: "nearest" })
   }
@@ -1723,6 +1734,8 @@ export function ChatView({
             plan={liveTicker.plan}
             onJump={jumpToLiveCard}
           />
+        ) : restOutcome ? (
+          <TurnOutcomeStrip outcome={restOutcome} onJump={jumpToMessage} />
         ) : null}
         <ContextMeter usage={usage} model={session.model} />
         <AllowanceMeter limits={limits} />

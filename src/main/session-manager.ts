@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { RESTART_CUT_DETAIL, RESTART_CUT_TITLE } from "@shared/notices"
 import type {
   ChatMessage,
   CreateSessionInput,
@@ -776,6 +777,10 @@ export class SessionManager {
       const resolved = this.settings.resolveInstance(
         session.instanceId ?? session.provider,
       )
+      // Every adapter announces itself ready with an "idle" status, which
+      // would erase the error a cut turn was restored with — and with it the
+      // sidebar's request for attention. Put it back once the adapter is up.
+      const cut = this.sessions.get(session.id)?.status === "error"
       await adapter.start(
         {
           sessionId: session.id,
@@ -786,6 +791,9 @@ export class SessionManager {
         },
         this.callbacks(),
       )
+      if (cut && this.sessions.get(session.id)?.status === "idle") {
+        this.applyStatus(session.id, "error")
+      }
     } catch (err) {
       // Missing binary / login — session stays visible; send() surfaces the error.
       console.warn(
@@ -2159,9 +2167,7 @@ function cwdLooksReal(cwd: string): boolean {
   }
 }
 
-export const RESTART_CUT_TITLE = "Chat Hub restarted while the agent was working"
-export const RESTART_CUT_DETAIL =
-  "The turn stopped here. Send \u201ccontinue\u201d to pick it up from this point."
+export { RESTART_CUT_DETAIL, RESTART_CUT_TITLE }
 
 /**
  * Close the last assistant turn the way an abort would: every step still open

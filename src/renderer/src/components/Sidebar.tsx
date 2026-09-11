@@ -8,6 +8,7 @@ import {
   type TranscriptHit,
 } from "@shared/search"
 import { formatRelative, statusLabel } from "../lib/format"
+import { sessionStateLine } from "../lib/session-state-line"
 import { keyHint } from "../lib/key-hint"
 import { sessionPhase } from "../lib/live-step"
 import { PROJECT_MIME, SESSION_MIME } from "../lib/pane-layout"
@@ -338,6 +339,9 @@ export function Sidebar({
       s.status === "waiting_input" ||
       s.status === "error"
     const hit = hits.get(s.id)
+    // The state gets its own line: on the title's line it squeezed the title
+    // down to a letter or two as soon as a chat started working.
+    const stateLine = live ? sessionStateLine(s, messagesBySession[s.id]) : null
     const editing = editingId === s.id
     const regen = regenerating.has(s.id)
     return (
@@ -367,7 +371,6 @@ export function Sidebar({
           {live ? (
             <StatusDot
               status={s.status}
-              showLabel
               attention={needsAction(s)}
               phase={sessionPhase(s, messagesBySession[s.id])}
             />
@@ -397,6 +400,11 @@ export function Sidebar({
           )}
           <span className="session-row-time">{formatRelative(s.updatedAt)}</span>
         </div>
+        {stateLine ? (
+          <div className={`session-row-state is-${s.status}`} title={stateLine}>
+            {stateLine}
+          </div>
+        ) : null}
         {hit ? (
           <button
             type="button"

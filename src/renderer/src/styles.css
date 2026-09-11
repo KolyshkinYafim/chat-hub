@@ -874,6 +874,26 @@ select:focus-visible {
   font-weight: 520;
 }
 
+/* Second line of a live row: the step it is on, or why it stopped. */
+.session-row-state {
+  flex-basis: 100%;
+  padding-left: 17px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--working);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-row-state.is-waiting_input {
+  color: var(--waiting);
+}
+
+.session-row-state.is-error {
+  color: var(--danger);
+}
+
 .session-row-time {
   font-size: 10.5px;
   color: var(--text-faint);
@@ -7701,6 +7721,84 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   cursor: pointer;
   overflow: hidden;
   white-space: nowrap;
+}
+
+/* The live ticker's counterpart when nobody is streaming: same slot, same
+   shape, a tone per outcome — so the reader always finds the chat's state in
+   one place, whether the agent is working or done. */
+.turn-outcome {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: var(--column-w);
+  margin: 0 auto 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: 11.5px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.turn-outcome:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-2);
+}
+
+.turn-outcome-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.turn-outcome.is-done .turn-outcome-dot {
+  background: var(--ok);
+}
+
+.turn-outcome.is-waiting .turn-outcome-dot {
+  background: var(--waiting);
+}
+
+.turn-outcome.is-error .turn-outcome-dot,
+.turn-outcome.is-interrupted .turn-outcome-dot {
+  background: var(--danger);
+}
+
+.turn-outcome-label {
+  flex: none;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.turn-outcome.is-waiting .turn-outcome-label {
+  color: var(--waiting);
+}
+
+.turn-outcome.is-error .turn-outcome-label,
+.turn-outcome.is-interrupted .turn-outcome-label {
+  color: var(--danger);
+}
+
+.turn-outcome-fact {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.turn-outcome-hint {
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .live-ticker:hover {

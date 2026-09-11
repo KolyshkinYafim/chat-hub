@@ -1131,6 +1131,32 @@ describe("activity stamps", () => {
     expect(after?.updatedAt).toBeGreaterThan(before ?? Number.MAX_SAFE_INTEGER)
   })
 
+  it("keeps a cut turn's error through the adapter's ready signal", async () => {
+    const { sm, dir, persistence } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    await sm.flush()
+
+    const saved = await persistence.loadIndex()
+    saved.sessions = saved.sessions.map((s) =>
+      s.id === session.id ? { ...s, status: "running" } : s,
+    )
+    await persistence.saveIndex(saved)
+
+    const restarted = new SessionManager(
+      new EventBus(),
+      persistence,
+      new SessionMonitorBridge(join(dir, "events.jsonl")),
+      { handle: () => {} } as unknown as NotificationService,
+      new SettingsStore(join(dir, "settings.json")),
+      { intervalMs: 60_000, silenceMs: 60_000 },
+      { titleGenerator: async () => null },
+    )
+    await restarted.init()
+    await sleep(20)
+
+    expect(restarted.getSession(session.id)?.status).toBe("error")
+  })
+
   it("restores done as idle and keeps or seeds the persisted stamp", async () => {
     const { sm, dir, persistence } = await makeManager()
     const done = await sm.createSession({ provider: "mock", cwd: dir })
