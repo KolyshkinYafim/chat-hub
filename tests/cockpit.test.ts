@@ -77,11 +77,13 @@ describe("parseCockpitFlags", () => {
 describe("surface mapping", () => {
   it("maps cockpit tabs onto the dock registry and back", () => {
     expect(surfaceForCockpitTab("chat")).toBeNull()
+    expect(surfaceForCockpitTab("panels")).toBeNull()
+    expect(cockpitTabForSurface("design")).toBe("panels")
     expect(surfaceForCockpitTab("terminal")).toBe("terminal")
     expect(surfaceForCockpitTab("diff")).toBe("diff")
     expect(surfaceForCockpitTab("browser")).toBe("browser")
-    expect(cockpitTabForSurface(null)).toBe("chat")
-    expect(cockpitTabForSurface("files")).toBe("chat")
+    expect(cockpitTabForSurface(null)).toBe("panels")
+    expect(cockpitTabForSurface("files")).toBe("panels")
     expect(cockpitTabForSurface("terminal")).toBe("terminal")
     expect(cockpitTabForSurface("browser")).toBe("browser")
   })

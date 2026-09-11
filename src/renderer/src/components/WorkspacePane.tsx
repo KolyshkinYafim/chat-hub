@@ -1,5 +1,5 @@
 import { OriginBadge } from "./OriginBadge"
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef } from "react"
 import type { DragEvent, HTMLAttributes } from "react"
 import type { HookRun } from "@shared/hooks"
 import type {
@@ -139,7 +139,7 @@ type Props = {
     directory: boolean
     at: number
   } | null
-  designFocus: { path: string; at: number } | null
+  designFocus: { path: string; at: number; url?: string } | null
   /** Whole-app state the fleet surface lists; only read when that tab is open. */
   sessions: SessionMeta[]
   usageBySession: Record<string, SessionUsage>
@@ -199,12 +199,7 @@ function PaneView({
   const sessionId = session?.id ?? null
   const cwd = session?.cwd ?? null
   const dockOpen = pane.dockOpen && session !== null
-  const [tab, setTab] = useState<CockpitTab>("chat")
-
-  useEffect(() => {
-    if (!cockpit) return
-    setTab(cockpitTabForSurface(surface))
-  }, [cockpit, surface])
+  const tab: CockpitTab = dockOpen ? cockpitTabForSurface(surface) : "chat"
 
   // The diff surface reads the same tool cards the transcript already parsed,
   // so there is one answer to "what did this turn change" rather than two.
@@ -250,8 +245,9 @@ function PaneView({
     (kind: SurfaceKind | null) => {
       if (!sessionId) return
       actions.onSelectSurface(paneId, sessionId, kind)
+      if (kind !== null && !dockOpen) actions.onToggleDock(paneId)
     },
-    [actions, paneId, sessionId],
+    [actions, paneId, sessionId, dockOpen],
   )
 
   const chat = (
@@ -325,12 +321,11 @@ function PaneView({
 
   const pickTab = useCallback(
     (next: CockpitTab) => {
-      setTab(next)
-      const kind = surfaceForCockpitTab(next)
       if (!sessionId) return
-      actions.onSelectSurface(paneId, sessionId, kind)
+      if (next !== "chat") actions.onSelectSurface(paneId, sessionId, surfaceForCockpitTab(next))
+      if (dockOpen !== (next !== "chat")) actions.onToggleDock(paneId)
     },
-    [actions, paneId, sessionId],
+    [actions, paneId, sessionId, dockOpen],
   )
 
   const chatNode = cockpit ? (
@@ -355,13 +350,13 @@ function PaneView({
   )
 
   const dockSession = session
-  const stageDock = cockpit && tab !== "chat" && dockSession
+  const stageDock = cockpit && dockOpen && dockSession
   const sideDock = !cockpit && dockOpen && dockSession
   const dock =
     (stageDock || sideDock) && dockSession ? (
       <SurfaceDock
         session={dockSession}
-        kind={surface ?? surfaceForCockpitTab(tab)}
+        kind={surface}
         width={dockWidth}
         sidebarWidth={sidebarWidth}
         gitRefreshKey={gitRefresh}

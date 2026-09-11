@@ -15,18 +15,19 @@ export const COCKPIT_TABS = [
   { id: "terminal", label: "Terminal" },
   { id: "diff", label: "Diff" },
   { id: "browser", label: "Browser" },
+  { id: "panels", label: "Panels" },
 ] as const
 
 export type CockpitTab = (typeof COCKPIT_TABS)[number]["id"]
 
 export function surfaceForCockpitTab(tab: CockpitTab): SurfaceKind | null {
-  if (tab === "chat") return null
+  if (tab === "chat" || tab === "panels") return null
   return tab
 }
 
 export function cockpitTabForSurface(kind: SurfaceKind | null): CockpitTab {
   if (kind === "terminal" || kind === "diff" || kind === "browser") return kind
-  return "chat"
+  return "panels"
 }
 
 function lastMatching(
