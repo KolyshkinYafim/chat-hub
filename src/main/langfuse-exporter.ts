@@ -1,3 +1,4 @@
+import { assistantExportText } from "@shared/export-text"
 import { createHash } from "node:crypto"
 import type { ChatMessage, SessionMeta } from "@shared/types"
 import type { LangfuseConfig } from "@shared/langfuse"
@@ -40,7 +41,7 @@ export function turnSpan(session: SessionMeta, messages: ChatMessage[], userMess
   }
   if (!metadataOnly) {
     values["langfuse.observation.input"] = JSON.stringify(user.content.slice(0, 100_000))
-    values["langfuse.observation.output"] = JSON.stringify((last?.content ?? "").slice(0, 100_000))
+    values["langfuse.observation.output"] = JSON.stringify(assistantExportText(last?.content ?? "").slice(0, 100_000))
   }
   return {
     traceId: hash(session.id, 32), spanId: hash(`${session.id}:${user.id}`, 16),
