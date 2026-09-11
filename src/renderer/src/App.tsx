@@ -1576,6 +1576,17 @@ export default function App() {
     [],
   )
 
+  const sendQueuedNow = useCallback((sessionId: string, queuedId: string) => {
+    void window.chatHub
+      .sendQueuedNow(sessionId, queuedId)
+      .then((queued) =>
+        setQueuedBySession((curr) => ({ ...curr, [sessionId]: queued })),
+      )
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : String(err))
+      })
+  }, [])
+
   const renameSession = useCallback((sessionId: string) => {
     const session = sessionsRef.current.find((s) => s.id === sessionId)
     if (!session) return
@@ -1717,6 +1728,7 @@ export default function App() {
       onCancelQueued: cancelQueued,
       onEditQueued: editQueued,
       onReorderQueued: reorderQueued,
+      onSendQueuedNow: sendQueuedNow,
       onRenameSession: renameSession,
       onUnsettle: (id) => setSessionSettled(id, false),
       onModelChange: changeModel,
@@ -1767,6 +1779,7 @@ export default function App() {
       refreshGit,
       renameSession,
       reorderQueued,
+      sendQueuedNow,
       runScript,
       saveScripts,
       sendMessage,

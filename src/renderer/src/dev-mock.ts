@@ -1743,12 +1743,17 @@ export function installDevMock(): void {
     reorderQueued: async (sessionId, queuedId, direction) => {
       const list = queued[sessionId] ?? []
       const from = list.findIndex((q) => q.id === queuedId)
-      const to = direction === "up" ? from - 1 : from + 1
+      const to =
+        direction === "up" ? from - 1 : direction === "down" ? from + 1 : 0
       if (from !== -1 && to >= 0 && to < list.length) {
         const [entry] = list.splice(from, 1)
         list.splice(to, 0, entry)
       }
       return list
+    },
+    sendQueuedNow: async (sessionId, queuedId) => {
+      queued[sessionId] = (queued[sessionId] ?? []).filter((q) => q.id !== queuedId)
+      return queued[sessionId]
     },
     abortSession: async () => {},
     deleteSession: async () => {},

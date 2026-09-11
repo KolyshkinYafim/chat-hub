@@ -145,6 +145,7 @@ type Props = {
   onCancelQueued: (id: string) => void
   onEditQueued: (id: string, text: string) => void
   onReorderQueued: (id: string, direction: QueueMoveDirection) => void
+  onSendQueuedNow: (id: string) => void
   onShowShortcuts: () => void
   onModelChange: (model: string) => void
   onPermissionChange: (mode: PermissionMode) => void
@@ -621,6 +622,7 @@ export function ChatView({
   onCancelQueued,
   onEditQueued,
   onReorderQueued,
+  onSendQueuedNow,
   onShowShortcuts,
   onModelChange,
   onPermissionChange,
@@ -1071,6 +1073,13 @@ export function ChatView({
       return
     }
     if (e.key !== "Enter") return
+    // ⌥Enter jumps the queue: stop the turn and send the first queued message.
+    // Only while something is queued — otherwise it is just Enter.
+    if (e.altKey && queued.length > 0) {
+      e.preventDefault()
+      onSendQueuedNow(queued[0].id)
+      return
+    }
     // ⌘Enter sends from anywhere in the draft; Shift+Enter stays a newline.
     if (e.shiftKey && !(e.metaKey || e.ctrlKey)) return
     e.preventDefault()
@@ -1690,6 +1699,28 @@ export function ChatView({
                     </button>
                   </>
                 ) : null}
+                {i > 0 ? (
+                  <button
+                    type="button"
+                    className="icon-chip xs ghost"
+                    title="Send next — move to the front of the queue"
+                    onClick={() => onReorderQueued(q.id, "front")}
+                  >
+                    ⤒
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="icon-chip xs ghost"
+                  title={
+                    i === 0
+                      ? `Send now — stops the current turn (${keyHint("⌥↩")} in the composer)`
+                      : "Send now — stops the current turn; the rest stay queued"
+                  }
+                  onClick={() => onSendQueuedNow(q.id)}
+                >
+                  ⏵
+                </button>
                 <button
                   type="button"
                   className="icon-chip xs ghost danger"
@@ -1732,7 +1763,9 @@ export function ChatView({
             value={draft}
             placeholder={
               running
-                ? "Agent is working — Enter queues this for the next turn (Esc stops)"
+                ? queued.length > 0
+                  ? `Agent is working — Enter queues this (${keyHint("⌥↩")} sends the first queued now · Esc stops)`
+                  : "Agent is working — Enter queues this for the next turn (Esc stops)"
                 : answering
                   ? "Answer the agent here or in the form above (Enter sends the answer)"
                   : "Ask the agent… (Enter send · Shift+Enter newline)"

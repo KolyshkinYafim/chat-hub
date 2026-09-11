@@ -1495,11 +1495,47 @@ export class SessionManager {
     const queue = this.queued.get(sessionId)
     const from = queue?.findIndex((q) => q.id === queuedId) ?? -1
     if (!queue || from === -1) return this.listQueued(sessionId)
-    const to = direction === "up" ? from - 1 : from + 1
-    if (to < 0 || to >= queue.length) return this.listQueued(sessionId)
+    const to =
+      direction === "up" ? from - 1 : direction === "down" ? from + 1 : 0
+    if (to === from || to < 0 || to >= queue.length) {
+      return this.listQueued(sessionId)
+    }
     const [entry] = queue.splice(from, 1)
     queue.splice(to, 0, entry)
     this.emitQueue(sessionId)
+    return this.listQueued(sessionId)
+  }
+
+  /**
+   * Stop the live turn and dispatch this queued message in its place. The
+   * owner asked for the interruption, so the rest of the queue stays put and
+   * follows once this turn ends — only Stop itself throws the queue away.
+   */
+  async sendQueuedNow(
+    sessionId: string,
+    queuedId: string,
+  ): Promise<QueuedMessage[]> {
+    const queue = this.queued.get(sessionId)
+    const at = queue?.findIndex((q) => q.id === queuedId) ?? -1
+    if (!queue || at === -1) return this.listQueued(sessionId)
+    const [entry] = queue.splice(at, 1)
+    if (queue.length === 0) this.queued.delete(sessionId)
+    this.emitQueue(sessionId)
+    // Same witness sendMessage uses: a turn the adapter has not reported
+    // running yet is still a turn we are about to cut short.
+    const wasLive =
+      this.turns.has(sessionId) ||
+      this.sessions.get(sessionId)?.status === "running"
+    await this.abortTurn(sessionId, { keepQueue: true })
+    if (wasLive) {
+      this.systemNote(
+        sessionId,
+        "The turn was stopped to send the next message now.",
+      )
+    }
+    // Fire-and-forget, as flushQueued hands a turn over: the fresh queue must
+    // reach the renderer while the CLI is still spinning up.
+    void this.dispatch(sessionId, entry.content, entry.opts, entry.userMessageId)
     return this.listQueued(sessionId)
   }
 
@@ -1511,7 +1547,20 @@ export class SessionManager {
     })
   }
 
+  /** Stop: the user killed the turn, and whatever was queued behind it goes too. */
   async abortSession(sessionId: string): Promise<void> {
+    await this.abortTurn(sessionId, { keepQueue: false })
+  }
+
+  /**
+   * Kill the live turn and hand the session over to the next send. Stop drops
+   * the queue — firing it at a turn the user just killed would be a surprise —
+   * while Send-now keeps it, because that send is the queue's own next entry.
+   */
+  private async abortTurn(
+    sessionId: string,
+    { keepQueue }: { keepQueue: boolean },
+  ): Promise<void> {
     const session = this.sessions.get(sessionId)
     if (!session) return
     this.turns.delete(sessionId)
@@ -1521,7 +1570,7 @@ export class SessionManager {
     this.permissions?.cancelForSession(sessionId)
     await getAdapter(session.provider).abort(sessionId)
     this.applyStatus(sessionId, "idle")
-    this.dropQueued(sessionId, "the turn was stopped")
+    if (!keepQueue) this.dropQueued(sessionId, "the turn was stopped")
   }
 
   /**
