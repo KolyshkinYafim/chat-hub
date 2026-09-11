@@ -124,6 +124,12 @@ export class SessionManager {
   private messages = new Map<string, ChatMessage[]>()
   private hotLoaded = new Set<string>()
   private hotLoads = new Map<string, Promise<void>>()
+  /**
+   * Sessions that were mid-turn when the previous process died. The CLI is our
+   * child, so a restart takes the turn with it; the transcript is patched when
+   * it is first loaded so the cut shows where it happened.
+   */
+  private cutOnBoot = new Set<string>()
   private hotWrites = new Map<string, Promise<void>>()
   private dirtyIndex = false
   private dirtySessions = new Set<string>()
@@ -688,10 +694,15 @@ export class SessionManager {
       }
       // Never restore as stuck running without a live process, and never as a
       // finished turn nobody watched end: a restart is not fresh agent output.
+      // A turn that was running died with us — surface it as needing action
+      // rather than quietly idling, which read as the agent going silent.
       const status: SessionStatus =
-        session.status === "running" || session.status === "done"
-          ? "idle"
-          : session.status
+        session.status === "running"
+          ? "error"
+          : session.status === "done"
+            ? "idle"
+            : session.status
+      if (session.status === "running") this.cutOnBoot.add(session.id)
       const restored: SessionMeta = {
         ...session,
         cwd,
@@ -855,8 +866,10 @@ export class SessionManager {
         this.hotLoaded.add(sessionId)
         const pending = this.messages.get(sessionId) ?? []
         const restored = stored.map((m) => ({ ...m, streaming: false }))
+        const cut = this.cutOnBoot.delete(sessionId)
+        if (cut) markTurnCutByRestart(restored)
         this.messages.set(sessionId, [...restored, ...pending])
-        if (pending.length > 0) this.scheduleSessionSave(sessionId)
+        if (pending.length > 0 || cut) this.scheduleSessionSave(sessionId)
       })
       .finally(() => {
         if (this.hotLoads.get(sessionId) === load) {
@@ -2091,4 +2104,48 @@ function cwdLooksReal(cwd: string): boolean {
   } catch {
     return false
   }
+}
+
+export const RESTART_CUT_TITLE = "Chat Hub restarted while the agent was working"
+export const RESTART_CUT_DETAIL =
+  "The turn stopped here. Send \u201ccontinue\u201d to pick it up from this point."
+
+/**
+ * Close the last assistant turn the way an abort would: every step still open
+ * becomes interrupted, and a notice marks the cut so the reader knows the
+ * silence was a restart, not the agent finishing.
+ */
+export function markTurnCutByRestart(messages: ChatMessage[]): void {
+  const tail = messages[messages.length - 1]
+  if (!tail) return
+  // Died before the model said anything: the prompt is the last thing in the
+  // transcript, so the notice needs a turn of its own to sit in.
+  const last: ChatMessage =
+    tail.role === "assistant"
+      ? tail
+      : {
+          id: randomUUID(),
+          sessionId: tail.sessionId,
+          role: "assistant",
+          content: "",
+          createdAt: Date.now(),
+        }
+  if (last !== tail) messages.push(last)
+  const items = (last.items ?? []).map((item) =>
+    item.status === "running" || item.status === "pending"
+      ? { ...item, status: "interrupted" as const }
+      : item,
+  )
+  if (items.some((item) => item.kind === "notice" && item.title === RESTART_CUT_TITLE)) {
+    return
+  }
+  items.push({
+    id: `restart-cut-${last.id}`,
+    kind: "notice",
+    status: "interrupted",
+    level: "warning",
+    title: RESTART_CUT_TITLE,
+    detail: RESTART_CUT_DETAIL,
+  })
+  last.items = items
 }
