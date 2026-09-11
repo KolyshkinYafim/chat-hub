@@ -310,6 +310,26 @@ describe("PrStatusWatcher", () => {
     }
   })
 
+  it("polls visible nested repositories once and releases their window subscriptions", async () => {
+    const fetch = vi.fn(async (_cwd: string) => open)
+    const { watcher } = harness(fetch, ["/workspace"])
+    watcher.watch(1, "panel-a", "/workspace/repository")
+    watcher.watch(1, "panel-b", "/workspace/repository")
+    watcher.watch(2, "panel-a", "/workspace/repository")
+    await watcher.tick()
+    expect(fetch.mock.calls.map(([cwd]) => cwd)).toEqual(["/workspace", "/workspace/repository"])
+    watcher.watch(1, "panel-a", null)
+    watcher.releaseWindow(2)
+    fetch.mockClear()
+    await watcher.tick()
+    expect(fetch).toHaveBeenCalledWith("/workspace/repository")
+    watcher.watch(1, "panel-b", null)
+    fetch.mockClear()
+    await watcher.tick()
+    expect(fetch.mock.calls.map(([cwd]) => cwd)).toEqual(["/workspace"])
+    expect(watcher.snapshot()["/workspace/repository"]).toBeUndefined()
+  })
+
   it("stops polling once gh is missing, but an explicit refresh still probes", async () => {
     vi.useFakeTimers()
     try {

@@ -1,3 +1,4 @@
+import { LangfuseSettings } from "./LangfuseSettings"
 import { Fragment, useCallback, useEffect, useState } from "react"
 import type {
   ProviderId,
@@ -1973,6 +1974,7 @@ export function SettingsModal({
 
           {tab === "connections" ? (
             <div className="settings-section">
+              <LangfuseSettings projectCwd={projectCwd ?? undefined} />
               <h2 className="section-label">Session Monitor</h2>
               <p className="modal-lead">
                 How Chat Hub reaches the rest of the desktop suite — the island /
@@ -2225,6 +2227,10 @@ export function SettingsModal({
                               </span>
                             </div>
                             <p className="mcp-preset-note">{preset.note}</p>
+                            {preset.id.startsWith("figma") || preset.id === "framelink" ? <p className="mcp-preset-note">
+                              Active: {mcpServers.filter((server) => server.enabled && (server.id.startsWith("figma") || server.id === "framelink")).map((server) => server.transport === "http" ? "desktop" : "Framelink").join(" + ") || "none"}
+                              {" · "}Preview key: {mcpServers.some((server) => server.enabled && (mcpEnvKeys[server.id] ?? []).includes("FIGMA_API_KEY")) ? "set" : "not set"}
+                            </p> : null}
                             <div className="mcp-preset-foot">
                               <a
                                 className="mcp-preset-docs"

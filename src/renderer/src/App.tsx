@@ -230,7 +230,7 @@ export default function App() {
     >
   >({})
   const [designFocusBySession, setDesignFocusBySession] = useState<
-    Record<string, { path: string; at: number }>
+    Record<string, { path: string; at: number; url?: string }>
   >({})
   const [projectSearch, setProjectSearch] = useState<ProjectSearchMode | null>(
     null,
@@ -1032,10 +1032,10 @@ export default function App() {
           },
         }))
       }
-      if (request.path !== null && surface === "design") {
+      if ((request.path !== null || request.url) && surface === "design") {
         setDesignFocusBySession((curr) => ({
           ...curr,
-          [request.sessionId]: { path: request.path as string, at: request.at },
+          [request.sessionId]: { path: request.path ?? "", url: request.url, at: request.at },
         }))
       }
       if (surface === "browser") setBrowserClaim(target.id)
@@ -1101,6 +1101,8 @@ export default function App() {
     },
     [],
   )
+
+  useEffect(() => window.chatHub.onFigmaWarning(showToast), [showToast])
 
   function setSessionArchived(id: string, archive: boolean) {
     void window.chatHub
@@ -1321,6 +1323,7 @@ export default function App() {
         model: draft.model,
         title: draft.title,
         worktree: draft.worktree,
+        origin: draft.origin,
       })
       setLayout((curr) => assignSession(curr, intoPane, session.id))
       activeIdRef.current = session.id
@@ -1330,6 +1333,13 @@ export default function App() {
       })
       attachTranscripts({ [session.id]: [] })
       noteRecent(session.id)
+      if (draft.firstPrompt) {
+        try {
+          await window.chatHub.sendMessage(session.id, draft.firstPrompt)
+        } catch (err) {
+          setError(`Chat created, but the first message failed: ${err instanceof Error ? err.message : String(err)}`)
+        }
+      }
       // The folder is auto-pinned as a project in main — reflect it.
       void window.chatHub.listProjects().then(setProjects)
     } catch (err) {

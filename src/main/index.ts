@@ -1,5 +1,7 @@
+import { LangfuseService } from "./langfuse"
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from "electron"
-import { join } from "node:path"
+import { basename, join } from "node:path"
+import { resolveContainedPath } from "./surfaces/paths"
 import { realpathSync, statSync } from "node:fs"
 import { IpcChannels } from "@shared/ipc"
 import { attentionEligible } from "@shared/attention"
@@ -59,7 +61,7 @@ import {
   type ProbeInput,
 } from "./provider-probe"
 import { existsSync } from "node:fs"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises"
 import { openLoginTerminal } from "./terminal-launch"
 import { HOME_ENV } from "./instances"
 import type { ProviderInstance } from "@shared/settings-types"
@@ -117,6 +119,8 @@ import {
   toggleHandyTranscription,
 } from "./voice-handy"
 import { inspectAttachmentPaths } from "./attachments"
+import { FigmaPreviewService } from "./figma-preview"
+import { figmaKeyForProject } from "./figma-project-key"
 import { ProviderStatusCacheStore } from "./provider-status-cache"
 import { ProviderStatusRefresher } from "./provider-status-refresh"
 import { PrStatusWatcher } from "./pr-status"
@@ -392,9 +396,11 @@ async function createPinnedSession(
 ): Promise<SessionMeta> {
   const session = await sm.createSession(input)
   await projects.ensure(session.baseCwd ?? session.cwd, session.project)
-  void materializeMcpForProject(session.cwd, (serverId) =>
-    settings.getMcpEnv(serverId),
-  ).catch((err) => console.error("[mcp] materialize on create failed", err))
+  if (!session.origin) {
+    void materializeMcpForProject(session.cwd, (serverId) =>
+      settings.getMcpEnv(serverId),
+    ).catch((err) => console.error("[mcp] materialize on create failed", err))
+  }
   return session
 }
 
@@ -924,7 +930,30 @@ export function registerIpc(
       project: typeof raw.project === "string" ? raw.project : undefined,
       model: typeof raw.model === "string" ? raw.model : undefined,
       worktree: raw.worktree === true,
+      origin: raw.origin,
     })
+  })
+  ipcMain.handle(IpcChannels.exportDesign, async (_e, cwd: unknown, path: unknown) => {
+    const source = resolveContainedPath(cwd, path)
+    if (!source.relativePath.endsWith(".dc.html")) throw new Error("Choose a .dc.html artboard to export.")
+    const picked = await dialog.showSaveDialog({ title: "Export artboard", defaultPath: basename(source.absolutePath), filters: [{ name: "HTML artboard", extensions: ["html"] }] })
+    if (picked.canceled || !picked.filePath) return false
+    if (picked.filePath !== source.absolutePath) await copyFile(source.absolutePath, picked.filePath)
+    return true
+  })
+  const figma = new FigmaPreviewService({
+    directory: join(app.getPath("userData"), "attachments", "figma"),
+    keyForProject: (cwd) => figmaKeyForProject(
+      cwd,
+      sm.listSessions().find((session) => session.cwd === cwd)?.baseCwd,
+      readMcpConfig,
+      (serverId) => settings.getMcpEnv(serverId),
+    ),
+  })
+  ipcMain.handle(IpcChannels.figmaPreview, async (_e, cwd: unknown, url: unknown, refresh: unknown) => {
+    await ready
+    if (typeof cwd !== "string" || typeof url !== "string") throw new Error("Invalid Figma preview request")
+    return figma.preview(cwd, url, 1, refresh === true)
   })
   ipcMain.handle(
     IpcChannels.sendMessage,
@@ -936,7 +965,12 @@ export function registerIpc(
       if (typeof text !== "string") {
         throw new Error("Invalid message")
       }
-      return sm.sendMessage(sessionId, text, normalizeSendOpts(opts))
+      const session = sm.getSession(sessionId)
+      if (!session) throw new Error("Unknown session")
+      const clean = normalizeSendOpts(opts)
+      const enriched = await figma.enrich(session.cwd, text, clean?.attachments)
+      await sm.sendMessage(sessionId, enriched.text, { ...clean, attachments: enriched.attachments })
+      if (enriched.warning) _e.sender.send(IpcChannels.figmaWarning, enriched.warning)
     },
   )
   ipcMain.handle(
@@ -1214,6 +1248,26 @@ export function registerIpc(
   ipcMain.handle(IpcChannels.gitPrStatus, (_e, cwd: unknown) =>
     prStatus.refresh(gitCwd(cwd)),
   )
+  const prWatchedWindows = new Set<number>()
+  ipcMain.on(IpcChannels.gitPrWatch, (event, subscriptionId: unknown, cwd: unknown) => {
+    if (typeof subscriptionId !== "string" || !/^\d{1,16}$/.test(subscriptionId)) return
+    const windowId = event.sender.id
+    if (cwd === null) {
+      prStatus.watch(windowId, subscriptionId, null)
+      return
+    }
+    let directory: string
+    try { directory = gitCwd(cwd) } catch { return }
+    if (!prWatchedWindows.has(windowId)) {
+      prWatchedWindows.add(windowId)
+      event.sender.once("destroyed", () => {
+        prWatchedWindows.delete(windowId)
+        prStatus.releaseWindow(windowId)
+      })
+      event.sender.on("render-process-gone", () => prStatus.releaseWindow(windowId))
+    }
+    prStatus.watch(windowId, subscriptionId, directory)
+  })
   ipcMain.handle(IpcChannels.gitPrStatuses, () => prStatus.snapshot())
   ipcMain.handle(IpcChannels.gitChecksAcknowledge, (_e, cwd: unknown) =>
     prStatus.acknowledge(gitCwd(cwd)),
@@ -2097,6 +2151,10 @@ async function bootstrap(): Promise<void> {
     () => settings.general.completionSound === true,
     focusSession,
   )
+  const tracing = new LangfuseService(join(userData, "data", "langfuse.json"))
+  await tracing.load()
+  tracing.register()
+  langfuseService = tracing
   const usageLedger = new UsageLedger(UsageLedger.defaultPath(userData))
   const sm = new SessionManager(
     bus,
@@ -2105,7 +2163,7 @@ async function bootstrap(): Promise<void> {
     notifications,
     settings,
     undefined,
-    { usageLedger },
+    { usageLedger, onTurnComplete: (session, messages, messageId, failed) => tracing.exporter.enqueue(session, messages, messageId, failed) },
   )
   manager = sm
 
@@ -2214,6 +2272,7 @@ async function bootstrap(): Promise<void> {
   })
 }
 
+let langfuseService: LangfuseService | null = null
 let quitting = false
 
 /**
@@ -2260,7 +2319,7 @@ function onBeforeQuit(e: { preventDefault: () => void }): void {
   // A wedged child must not hold ⌘Q hostage: quit anyway once the kill+flush
   // has had a fair chance.
   const hardExit = setTimeout(() => app.exit(0), 3000)
-  void sm.shutdown().finally(() => {
+  void Promise.allSettled([sm.shutdown(), langfuseService?.exporter.stop()]).finally(() => {
     clearTimeout(hardExit)
     app.exit(0)
   })

@@ -11,7 +11,7 @@ export const HUB_OPS = {
   openSurface: "hub.open-surface",
   arrange: "hub.arrange",
 }
-export const HUB_SURFACE_CHOICES = ["diff", "terminal", "editor", "browser"]
+export const HUB_SURFACE_CHOICES = ["diff", "terminal", "editor", "browser", "design"]
 export const HUB_PRESETS = ["review", "monitor", "deep-work"]
 
 import { fileURLToPath } from "node:url"
@@ -109,7 +109,7 @@ const TOOLS = [
     name: "hub_open_surface",
     op: HUB_OPS.openSurface,
     description:
-      "Open a side panel for a session: diff, terminal, editor or browser. Only moves the panel when that session is on screen.",
+      "Open a side panel for a session: diff, terminal, editor, browser or design. Only moves the panel when that session is on screen.",
     inputSchema: {
       type: "object",
       properties: {
@@ -119,6 +119,8 @@ const TOOLS = [
           enum: HUB_SURFACE_CHOICES,
           description: "Which panel to show.",
         },
+        url: { type: "string", description: "Figma frame URL with node-id (design only)." },
+        path: { type: "string", description: "Project-relative design folder or editor/diff path." },
       },
       required: ["sessionId", "surface"],
       additionalProperties: false,

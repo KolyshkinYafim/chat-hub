@@ -87,7 +87,7 @@ describe("readUsage context window", () => {
 })
 
 describe("contextUsedTokens", () => {
-  it("sums input plus both cache directions of the last turn (claude result)", () => {
+  it("does not infer occupancy from cumulative result counters", () => {
     expect(
       contextUsedTokens({
         inputTokens: 4,
@@ -95,7 +95,7 @@ describe("contextUsedTokens", () => {
         cacheCreateTokens: 679,
         outputTokens: 180,
       }),
-    ).toBe(351_779)
+    ).toBeNull()
   })
 
   it("handles a codex app-server last-turn breakdown", () => {
@@ -106,6 +106,7 @@ describe("contextUsedTokens", () => {
         cacheCreateTokens: 0,
         outputTokens: 500,
         contextWindow: 272_000,
+        contextUsedTokens: 129_000,
       }),
     ).toBe(129_000)
   })
@@ -120,7 +121,14 @@ describe("contextUsedTokens", () => {
       },
     })
     expect(usage).not.toBeNull()
-    expect(contextUsedTokens(usage!)).toBe(3_500)
+    expect(contextUsedTokens(usage!)).toBeNull()
+  })
+
+  it("rejects invalid context snapshots", () => {
+    for (const value of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(contextUsedTokens({ contextUsedTokens: value })).toBeNull()
+    }
+    expect(contextUsedTokens({ contextUsedTokens: 0 })).toBe(0)
   })
 
   it("returns null when a turn reported nothing about its input side", () => {
@@ -213,6 +221,7 @@ describe("codex cached-input normalization", () => {
   it("keeps a codex turn under its window once normalized", () => {
     const used = contextUsedTokens({
       inputTokens: uncachedInput(155_023, 24_320),
+      contextUsedTokens: 155_023,
       outputTokens: 470,
       cacheReadTokens: 24_320,
     })

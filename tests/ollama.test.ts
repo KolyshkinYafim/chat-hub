@@ -121,6 +121,7 @@ describe("parseOllamaChatLine", () => {
     expect(event?.done).toBe(true)
     expect(event?.usage).toEqual({
       inputTokens: 12,
+      contextUsedTokens: 12,
       outputTokens: 34,
       durationMs: 1500,
     })
@@ -296,7 +297,7 @@ describe("OllamaAdapter.send", () => {
     expect(cb.onStreamDone).toHaveBeenCalledTimes(1)
     expect(cb.onUsage).toHaveBeenCalledWith(
       "s1",
-      { inputTokens: 7, outputTokens: 9, durationMs: 2000 },
+      { inputTokens: 7, contextUsedTokens: 7, outputTokens: 9, durationMs: 2000 },
       cb.onMessage.mock.calls[0][0].id,
     )
   })

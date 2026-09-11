@@ -40,7 +40,7 @@ type Props = {
   diffFocus: { path: string; at: number } | null
   /** File (and optional line) project search asked the Files panel to show. */
   filesFocus: { path: string; line: number | null; at: number } | null
-  designFocus: { path: string; at: number } | null
+  designFocus: { path: string; at: number; url?: string } | null
   /** Project hooks that have fired for this session (terminal banner). */
   hookRuns?: HookRun[]
   /** Tool calls from the transcript for the Diff audit trail. */

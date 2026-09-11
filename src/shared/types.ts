@@ -1,3 +1,4 @@
+import type { SessionOrigin } from "./task-sources"
 import type { PermissionMode } from "./permission"
 import type { HookRun } from "./hooks"
 import type { ProviderStatus } from "./settings-types"
@@ -35,6 +36,7 @@ export type ProviderInfo = {
 }
 
 export type SessionMeta = {
+  origin?: SessionOrigin
   id: string
   title: string
   /**
@@ -519,6 +521,7 @@ export type HubEvent =
   | { type: "git.pr"; cwd: string; status: GitPrStatus }
 
 export type CreateSessionInput = {
+  origin?: SessionOrigin
   provider: ProviderId
   instanceId?: string
   title?: string

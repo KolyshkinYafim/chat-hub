@@ -12,6 +12,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import * as checkpoints from "../src/main/checkpoints"
+
 import type { AdapterCallbacks, AdapterStartOpts } from "../src/main/adapters/types"
 import type { NotificationService } from "../src/main/notifications"
 import {
@@ -267,6 +269,33 @@ describe("session-manager checkpoints", () => {
     await expect(
       exec("git", ["show", `${stamped}:written-by-the-agent.txt`], { cwd: repo }),
     ).rejects.toThrow()
+  })
+
+  it("keeps the agent behind a slow snapshot instead of capturing its writes", async () => {
+    const sm = await makeManager()
+    const repo = await makeRepo()
+    const session = await sm.createSession({ provider: "mock", cwd: repo })
+    let finishSnapshot!: (value: null) => void
+    const snapshot = vi.spyOn(checkpoints, "createCheckpoint").mockImplementationOnce(
+      () => new Promise((resolve) => { finishSnapshot = resolve }),
+    )
+    const onSend = vi.fn()
+    state.onSend = onSend
+    const sending = sm.sendMessage(session.id, "slow snapshot")
+    try {
+      await vi.waitFor(() => expect(snapshot).toHaveBeenCalled())
+      // The former 2.5s gate dispatched here while git add was still reading.
+      await new Promise((resolve) => setTimeout(resolve, 2700))
+      expect(onSend).not.toHaveBeenCalled()
+      finishSnapshot(null)
+      await sending
+      expect(onSend).toHaveBeenCalledTimes(1)
+    } finally {
+      finishSnapshot(null)
+      await sending
+      state.pending?.resolve()
+      snapshot.mockRestore()
+    }
   })
 
   it("stamps a checkpointRef on the user message and truncates on revert", { timeout: 30_000 }, async () => {

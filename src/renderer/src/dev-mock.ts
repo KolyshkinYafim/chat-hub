@@ -1,3 +1,4 @@
+import { DEFAULT_LANGFUSE } from "@shared/langfuse"
 /**
  * Dev-only mock of the preload `window.chatHub` bridge so the real React UI
  * can be rendered (and screenshotted) in a plain browser tab without Electron.
@@ -1620,6 +1621,9 @@ export function installDevMock(): void {
     listProjects: async () => projects,
     getBridgePath: async () => dataPaths.bridgePath,
     getDataPaths: async () => dataPaths,
+    langfuseGet: async () => ({ ...DEFAULT_LANGFUSE, hasPublicKey: false, hasSecretKey: false, pending: 0, lastError: null, lastSentAt: null }),
+    langfuseUpdate: async (patch) => ({ ...DEFAULT_LANGFUSE, ...patch, hasPublicKey: false, hasSecretKey: false, pending: 0, lastError: null, lastSentAt: null }),
+    langfuseTest: async () => "Demo mode — no network request sent.",
     automationStatus: async () => ({
       enabled: settings.general.automationServer === true,
       port: settings.general.automationServer ? 51234 : null,
@@ -1730,6 +1734,9 @@ export function installDevMock(): void {
     readImageDataUrl: async (path) => mockImage(path),
     savePastedImage: async () => "/mock/pasted.png",
     createSession: async () => sessions[0],
+    exportDesign: async () => false,
+    figmaPreview: async () => { throw new Error("Figma previews need the desktop app and a configured API key.") },
+    onFigmaWarning: () => () => {},
     sendMessage: async () => {},
     cancelQueued: async (sessionId, queuedId) => {
       queued[sessionId] = (queued[sessionId] ?? []).filter((q) => q.id !== queuedId)
@@ -1822,6 +1829,7 @@ export function installDevMock(): void {
     gitPush: async () => ({ ok: true, output: "Everything up-to-date" }),
     gitCreatePr: async () => ({ ok: true, output: "https://github.com/example/chat-hub/pull/1" }),
     gitPrStatus: async () => mockPrStatus,
+    watchGitPr: () => () => {},
     gitPrStatuses: async () => ({}),
     gitChecksAcknowledge: async () => null,
     gitCheckLog: async (_cwd, runId) =>

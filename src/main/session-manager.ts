@@ -1,3 +1,5 @@
+import { agentDesktopCommandsPath, agentDesktopSocketPath } from "@shared/bridge-path"
+import { normalizeSessionOrigin } from "@shared/task-sources"
 import { randomUUID } from "node:crypto"
 import type {
   ChatMessage,
@@ -47,7 +49,12 @@ import {
 import { createSessionWorktree, removeSessionWorktree } from "./git"
 import { heuristicTitle, looksDefaultTitle } from "@shared/title"
 import { generateTitle } from "./title-llm"
-import { listUnignoredMcpNativeFiles } from "./mcp"
+import {
+  listUnignoredMcpNativeFiles,
+  materializeMcpForProject,
+  readMcpConfig,
+  writeMcpConfig,
+} from "./mcp"
 import {
   createCheckpoint,
   deleteSessionCheckpoints,
@@ -57,13 +64,6 @@ import {
 
 /** Retention window: how many per-turn checkpoints a session keeps. */
 export const MAX_CHECKPOINTS_PER_SESSION = 20
-
-/**
- * How long a turn waits for its own snapshot before it stops waiting. Ordering
- * the snapshot ahead of the agent is what makes a checkpoint mean "before this
- * turn"; the cap keeps a repo too large to hash in time from delaying the send.
- */
-export const CHECKPOINT_GATE_MS = 2500
 
 const ARCHIVE_REFILL_LIMIT = 50
 import { runWorktreeCreateScripts } from "./surfaces/scripts"
@@ -154,6 +154,7 @@ export class SessionManager {
   /** Sessions already told their workspace carries an unignored CLI config. */
   private configNoted = new Set<string>()
   private readonly generateTitleFn: TitleGenerator
+  private readonly onTurnComplete?: (session: SessionMeta, messages: ChatMessage[], userMessageId: string, failed: boolean) => void
   private readonly usageLedger: UsageLedger | null
   private readonly worktreeSetup: WorktreeSetupRunner
   private readonly liveActivity = new LiveActivityTracker()
@@ -170,6 +171,7 @@ export class SessionManager {
       maxMessages?: number
       titleGenerator?: TitleGenerator
       worktreeSetup?: WorktreeSetupRunner
+      onTurnComplete?: (session: SessionMeta, messages: ChatMessage[], userMessageId: string, failed: boolean) => void
       usageLedger?: UsageLedger
     },
   ) {
@@ -187,6 +189,7 @@ export class SessionManager {
       opts?.titleGenerator ?? ((user, assistant) => generateTitle(user, assistant))
     this.worktreeSetup = opts?.worktreeSetup ?? runWorktreeCreateScripts
     this.usageLedger = opts?.usageLedger ?? null
+    this.onTurnComplete = opts?.onTurnComplete
   }
 
   /**
@@ -904,6 +907,7 @@ export class SessionManager {
       )
     }
 
+    const origin = normalizeSessionOrigin(input.origin)
     const now = Date.now()
     const id = randomUUID()
     const baseCwd = resolveSessionCwd(input.cwd)
@@ -918,6 +922,7 @@ export class SessionManager {
       input.model?.trim() || resolved.defaultModel || undefined
     const session: SessionMeta = {
       id,
+      ...(origin ? { origin } : {}),
       title: input.title?.trim() || defaultTitle(provider, project, now),
       titleOrigin: input.title?.trim() ? "user" : "default",
       project,
@@ -942,6 +947,15 @@ export class SessionManager {
 
     const cb = this.callbacks()
     try {
+      if (origin && worktree) {
+        await writeMcpConfig(session.cwd, await readMcpConfig(baseCwd))
+      }
+      if (origin) {
+        const mcp = await materializeMcpForProject(session.cwd, (serverId) =>
+          this.settings.getMcpEnv(serverId),
+        )
+        if (!mcp.ok) throw new Error(mcp.error || "Unable to prepare source MCP connection")
+      }
       await this.prepareBrowserTools(session)
       void this.noteUnignoredConfigs(session.id, session.cwd)
       await adapter.start(
@@ -1108,6 +1122,10 @@ export class SessionManager {
     ])
     // Stopping during the gate must not resurrect the turn it just killed.
     if (!this.ownsTurn(sessionId, token)) return
+    // Queued user messages already exist in the transcript; they are not turn
+    // boundaries. Capture assistant IDs at dispatch to associate only this reply.
+    const turnStartedAt = Date.now()
+    const priorAssistantIds = new Set(this.getMessages(sessionId).filter((m) => m.role === "assistant").map((m) => m.id))
     // Fire-and-forget: stream/status arrive via event bus; UI stays responsive.
     void adapter
       .send(sessionId, content || "Please review the attached files.", this.callbacks(), {
@@ -1132,6 +1150,7 @@ export class SessionManager {
         if (!failed && this.sessions.get(sessionId)?.status === "running") {
           this.applyStatus(sessionId, "idle")
         }
+        this.reportTurnComplete(sessionId, userMessageId, failed, priorAssistantIds, turnStartedAt)
         this.flushQueued(sessionId)
         if (failed) return
         this.maybeRefineTitle(sessionId)
@@ -1147,8 +1166,17 @@ export class SessionManager {
           id: sessionId,
           reason: "error",
         })
+        this.reportTurnComplete(sessionId, userMessageId, true, priorAssistantIds, turnStartedAt)
         this.dropQueued(sessionId, "the turn failed")
       })
+  }
+
+  private reportTurnComplete(sessionId: string, messageId: string | undefined, failed: boolean, priorAssistantIds: Set<string>, startedAt: number): void {
+    const session = this.sessions.get(sessionId)
+    if (!session || !messageId || !this.onTurnComplete) return
+    const messages = this.getMessages(sessionId).filter((m) => m.id === messageId || (m.role === "assistant" && !priorAssistantIds.has(m.id))).map((m) => m.id === messageId ? { ...m, createdAt: startedAt } : m)
+    try { this.onTurnComplete(session, messages, messageId, failed) }
+    catch { console.warn("[session-manager] turn observer failed") }
   }
 
   private conversationBefore(
@@ -1187,26 +1215,17 @@ export class SessionManager {
   }
 
   /**
-   * Hold the send until the snapshot is on disk, so the checkpoint holds the
-   * tree as it was before the agent could touch it. A repo slower than the gate
-   * keeps the old best-effort behaviour: the send goes out and the snapshot
-   * still stamps its message, just without the ordering guarantee.
+   * Git commands have their own timeouts. Await their completion before letting
+   * the agent write: racing a wall-clock gate against git add can capture edits
+   * from the turn and incorrectly present them as a pre-turn checkpoint.
+   * Failed snapshots remain best-effort and do not prevent dispatch.
    */
   private snapshotGate(
     session: SessionMeta,
     content: string,
     userMessageId?: string,
   ): Promise<void> {
-    const snapshot = this.snapshotTurn(session, content, userMessageId).catch(
-      () => undefined,
-    )
-    return new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, CHECKPOINT_GATE_MS)
-      void snapshot.then(() => {
-        clearTimeout(timer)
-        resolve()
-      })
-    })
+    return this.snapshotTurn(session, content, userMessageId).catch(() => undefined)
   }
 
   /**
@@ -1317,6 +1336,11 @@ export class SessionManager {
    */
   private hookIdentityEnv(session: SessionMeta): Record<string, string> {
     return {
+      ...(process.env.CHAT_HUB_USER_DATA ? {
+        AGENT_DESKTOP_EVENTS: this.bridge.path,
+        AGENT_DESKTOP_COMMANDS: agentDesktopCommandsPath(),
+        AGENT_DESKTOP_SOCKET: this.permissions?.socketPath ?? agentDesktopSocketPath(),
+      } : {}),
       AGENT_DESKTOP_HUB_SESSION: session.id,
       AGENT_DESKTOP_HUB_BUNDLE: "com.agentdesktop.ChatHub",
     }

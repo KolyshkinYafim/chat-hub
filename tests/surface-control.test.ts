@@ -430,3 +430,25 @@ describe("unknown ops", () => {
     expect(result.text).toContain("surface.teleport")
   })
 })
+
+
+describe("Figma Design targets", () => {
+  const url = "https://figma.com/design/AbC123/Frame?node-id=1-2"
+  it("opens a validated frame and preserves its URL", async () => {
+    const result = await call(SURFACE_OPS.open, { surface: "design", url })
+    expect(result.ok).toBe(true)
+    expect(opens[0]).toMatchObject({ surface: "design", path: null, url })
+  })
+  it.each([
+    { surface: "design", url: "https://evil.test/frame" },
+    { surface: "browser", url },
+    { surface: "design", url, path: "src" },
+  ])("rejects invalid or ambiguous targets %j", async (params) => {
+    expect((await call(SURFACE_OPS.open, params)).ok).toBe(false)
+    expect(opens).toHaveLength(0)
+  })
+  it("does not change the visible frame for a background session", async () => {
+    expect((await call(SURFACE_OPS.open, { surface: "design", url }, AWAY)).ok).toBe(true)
+    expect(opens[0].url).toBeUndefined()
+  })
+})

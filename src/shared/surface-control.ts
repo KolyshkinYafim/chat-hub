@@ -56,6 +56,7 @@ export type SurfaceOpenRequest = {
   surface: SurfaceKind | null
   /** Workspace-relative target for the diff, files and design surfaces. */
   path: string | null
+  url?: string
   /** `path` is a folder to expand, not a file to open (files surface only). */
   directory: boolean
   /** 1-based line for the files surface. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { ClaudeActivityStream, mergeClaudeUsage } from "../src/main/adapters/claude"
+import { ClaudeActivityStream, mergeClaudeUsage, readClaudeRequestContext } from "../src/main/adapters/claude"
 import { safeJson, structuredPatchToDiff } from "../src/main/adapters/stream-parse"
 import { readUsage } from "../src/main/adapters/usage"
 import { describeItem } from "@shared/live"
@@ -295,5 +295,38 @@ describe("persisted transcripts", () => {
   it("describes an item kind this build has never seen without throwing", () => {
     const future = { id: "x", kind: "hologram", status: "completed" } as unknown
     expect(() => describeItem(future as AgentTurnItem)).not.toThrow()
+  })
+})
+
+describe("Claude latest request context", () => {
+  const start = (input: number, cache: number) => ({ type: "stream_event", event: { type: "message_start", message: { usage: { input_tokens: input, cache_read_input_tokens: cache, cache_creation_input_tokens: 300 } } }, parent_tool_use_id: null })
+
+  it("reads message_start and full assistant snapshots without counting output", () => {
+    expect(readClaudeRequestContext(start(10, 42_000))).toEqual({ contextUsedTokens: 42_310 })
+    expect(readClaudeRequestContext({ type: "assistant", message: { usage: { input_tokens: 15, cache_read_input_tokens: 43_000, cache_creation_input_tokens: 400, output_tokens: 9000 } } })).toEqual({ contextUsedTokens: 43_415 })
+  })
+
+  it("keeps the latest request context while repeated tool steps increase billable totals", () => {
+    let totals: ReturnType<typeof mergeClaudeUsage> = null
+    let latest: number | undefined
+    for (const event of [start(10, 42_000), { type: "result", usage: { input_tokens: 1000, cache_read_input_tokens: 500_000, output_tokens: 300 }, total_cost_usd: 0.1 }, start(20, 45_000), { type: "result", usage: { input_tokens: 1100, cache_read_input_tokens: 600_000, output_tokens: 400 }, total_cost_usd: 0.2 }]) {
+      const request = readClaudeRequestContext(event)
+      if (request !== null) latest = request.contextUsedTokens
+      if (event.type === "result") totals = mergeClaudeUsage(totals, readUsage(event))
+    }
+    expect({ ...totals, contextUsedTokens: latest }).toMatchObject({ inputTokens: 2100, cacheReadTokens: 1_100_000, outputTokens: 700, costUsd: 0.2, contextUsedTokens: 45_320 })
+  })
+
+  it("ignores subagent context and cumulative result envelopes", () => {
+    expect(readClaudeRequestContext({ ...start(20, 180_000), parent_tool_use_id: "child" })).toBeNull()
+    expect(readClaudeRequestContext({ type: "assistant", parent_tool_use_id: "child", message: { usage: { input_tokens: 50_000 } } })).toBeNull()
+    expect(readClaudeRequestContext({ type: "result", usage: { input_tokens: 1_200_000 } })).toBeNull()
+  })
+
+  it("clears stale context when the latest request omits reliable input usage", () => {
+    expect(readClaudeRequestContext({ type: "stream_event", event: { type: "message_start", message: {} } })).toEqual({})
+    expect(readClaudeRequestContext({ type: "assistant", message: { usage: { output_tokens: 5 } } })).toEqual({})
+    expect(readClaudeRequestContext({ type: "assistant", message: { usage: { input_tokens: -1 } } })).toEqual({})
+    expect(readClaudeRequestContext({ type: "assistant", message: { usage: { input_tokens: Number.NaN } } })).toEqual({})
   })
 })

@@ -212,7 +212,7 @@ function ContextMeter({
   return (
     <div
       className={`context-meter${tone}`}
-      title={`Context after last turn · ${usageDetail(last)}`}
+      title={`Latest request context · ${usageDetail(last)}`}
     >
       <span className="context-meter-bar" aria-hidden>
         <span
@@ -1750,6 +1750,8 @@ export function ChatView({
           <div className="composer-toolbar">
             <div className="composer-chips">
               <ComposerMenu
+                draft={draft}
+                onInsertPrompt={(prompt) => setDraft((current) => current.trim() ? `${current}\n\n${prompt}` : prompt)}
                 providerLabel={
                   providers.find((p) => p.id === session.provider)?.label ??
                   session.provider

@@ -213,7 +213,7 @@ export class HubControl {
     this.requireSession(sessionId)
     const surface = surfaceForChoice(choice)
     return this.deps.openSurface(
-      { ...request, sessionId, params: { surface } },
+      { ...request, sessionId, params: { surface, ...(params.url !== undefined ? { url: params.url } : {}), ...(params.path !== undefined ? { path: params.path } : {}) } },
       surface,
     )
   }

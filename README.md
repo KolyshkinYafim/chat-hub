@@ -2,13 +2,15 @@
 
 [![CI](https://github.com/KolyshkinYafim/chat-hub/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/KolyshkinYafim/chat-hub/actions/workflows/ci.yml)
 
-Chat Hub is a desktop cockpit for AI coding agents: one window that runs Claude Code, Codex, Grok and OpenCode sessions side by side, each in its own project and, optionally, its own git worktree. Around the transcript it adds the working context a coding session actually needs — files, terminal, browser, diffs, a project board — and it stays wired into Session Monitor, the Swift menu-bar app in the sibling repo, so session status and permission prompts follow you outside the window.
+Chat Hub is a desktop cockpit for AI coding agents: multiple windows that run Claude Code, Codex, Grok, OpenCode and Ollama sessions side by side, each in its own project and, optionally, its own git worktree. Around the transcript it adds the working context a coding session actually needs — files, terminal, browser, diffs, a project board — and it stays wired into Session Monitor, the Swift menu-bar app in the sibling repo, so session status and permission prompts follow you outside the window.
 
 Electron · TypeScript · React · pnpm — macOS first.
 
 ![Chat Hub workbench](docs/screenshots/workbench.png)
 
 ## Features
+
+Recent changes: [September 11 update](CHANGELOG.md).
 
 - **Multi-provider sessions** — adapters for **Claude Code**, **Codex**, **Grok** and **OpenCode** CLIs (auto-detected on PATH), plus a mock provider for UI work. Streaming transcripts with tool cards, diffs, plans, mermaid diagrams and usage stats; honest status driven by process events, never a stuck "Working".
 - **Surfaces dock** — per-session panels next to the chat: file browser with code editor and image/media/PDF preview, real terminal (node-pty + xterm), git diff / source control with per-hunk staging, project board (todos and notes the agent can edit too), embedded browser, and session history.
@@ -70,7 +72,7 @@ packaging/           macOS build/install scripts
 
 | What | Where |
 |------|-------|
-| Sessions + messages | `~/Library/Application Support/chat-hub/data/state.json` |
+| Sessions + messages | `~/Library/Application Support/chat-hub/data/index.json` + `sessions/<id>/hot.json` + `archive.jsonl` |
 | Settings | `~/Library/Application Support/chat-hub/data/settings.json` |
 | Session Monitor bridge (JSONL) | `~/Library/Application Support/agent-desktop/events.jsonl` (override: `AGENT_DESKTOP_EVENTS`) |
 | Per-project MCP servers | `<project>/.chathub/mcp.json` |

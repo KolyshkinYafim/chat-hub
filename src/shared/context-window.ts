@@ -27,22 +27,11 @@ const FALLBACK_WINDOWS: ReadonlyArray<readonly [string, number]> = [
  * An adapter that saw the turn's individual API requests reports the last
  * request's occupancy in `contextUsedTokens`, and that number wins: the summed
  * fields below count the cached prompt once per tool call, which is a cost
- * figure, not a window figure.
+ * figure, not a window figure. Without a reliable snapshot the value is unknown.
  */
 export function contextUsedTokens(usage: TurnUsage): number | null {
-  if (usage.contextUsedTokens !== undefined) return usage.contextUsedTokens
-  if (
-    usage.inputTokens === undefined &&
-    usage.cacheReadTokens === undefined &&
-    usage.cacheCreateTokens === undefined
-  ) {
-    return null
-  }
-  return (
-    (usage.inputTokens ?? 0) +
-    (usage.cacheReadTokens ?? 0) +
-    (usage.cacheCreateTokens ?? 0)
-  )
+  const used = usage.contextUsedTokens
+  return typeof used === "number" && Number.isFinite(used) && used >= 0 ? used : null
 }
 
 /**

@@ -1,3 +1,4 @@
+import { OriginBadge } from "./OriginBadge"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { ChatMessage, Project, SessionMeta } from "@shared/types"
 import {
@@ -397,6 +398,7 @@ export function Sidebar({
           )}
           <span className="session-row-time">{formatRelative(s.updatedAt)}</span>
         </div>
+        <OriginBadge origin={s.origin} />
         {hit ? (
           <button
             type="button"

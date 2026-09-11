@@ -7,11 +7,12 @@ import {
   itemPlanProgress,
   itemStep,
   livePhase,
+  sessionPhase,
   planProgress,
   stepPhase,
 } from "@renderer/lib/live-step"
 import { summarizeToolArgs } from "@shared/tool-card"
-import type { AgentTurnItem, ChatMessage } from "@shared/types"
+import type { AgentTurnItem, ChatMessage, SessionMeta } from "@shared/types"
 
 function stepFor(src: string) {
   return currentStep(buildTranscript(src).blocks)
@@ -402,5 +403,24 @@ describe("stepPhase", () => {
     expect(stepPhase({ ...base, kind: "thinking" })).toBe("thinking")
     expect(stepPhase({ ...base, kind: "writing" })).toBe("thinking")
     expect(stepPhase({ ...base, kind: "tool" })).toBe("tool")
+  })
+})
+
+
+describe("background session phase", () => {
+  const session: SessionMeta = {
+    id: "background", title: "Background task", project: "hub", cwd: "/hub",
+    provider: "mock", status: "running", createdAt: 1, updatedAt: 1,
+    live: { phase: "tool", stepLabel: "Running tests", since: 2, startedAt: 1 },
+  }
+
+  it("uses live metadata without loading the transcript", () => {
+    expect(sessionPhase(session)).toBe("tool")
+    expect(sessionPhase(session, [])).toBe("tool")
+  })
+
+  it("does not keep a stale live phase after the turn ends", () => {
+    expect(sessionPhase({ ...session, status: "idle" })).toBeNull()
+    expect(sessionPhase({ ...session, status: "error" })).toBeNull()
   })
 })

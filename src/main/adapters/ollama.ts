@@ -72,6 +72,7 @@ function usageFromDoneLine(event: Record<string, unknown>): TurnUsage | undefine
   const usage: TurnUsage = {}
   if (typeof event.prompt_eval_count === "number") {
     usage.inputTokens = event.prompt_eval_count
+    usage.contextUsedTokens = event.prompt_eval_count
   }
   if (typeof event.eval_count === "number") {
     usage.outputTokens = event.eval_count

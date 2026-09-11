@@ -1,3 +1,4 @@
+import type { LangfuseStatus, LangfusePatch } from "@shared/langfuse"
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron"
 import { IpcChannels } from "@shared/ipc"
 import { parseWindowIntent } from "@shared/window-identity"
@@ -75,6 +76,8 @@ const cockpit =
   process.argv.includes("--chat-hub-cockpit=1") ||
   process.argv.includes("--chat-hub-cockpit")
 
+let nextPrWatchId = 0
+
 const api = {
   windowIntent,
   cockpit,
@@ -137,6 +140,14 @@ const api = {
     ),
   createSession: (input: CreateSessionInput): Promise<SessionMeta> =>
     ipcRenderer.invoke(IpcChannels.createSession, input),
+  exportDesign: (cwd: string, path: string): Promise<boolean> => ipcRenderer.invoke(IpcChannels.exportDesign, cwd, path),
+  figmaPreview: (cwd: string, url: string, refresh = false): Promise<import("@shared/figma-link").FigmaPreview> =>
+    ipcRenderer.invoke(IpcChannels.figmaPreview, cwd, url, refresh),
+  onFigmaWarning: (cb: (text: string) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, text: string) => cb(text)
+    ipcRenderer.on(IpcChannels.figmaWarning, handler)
+    return () => { ipcRenderer.removeListener(IpcChannels.figmaWarning, handler) }
+  },
   sendMessage: (
     sessionId: string,
     text: string,
@@ -262,6 +273,11 @@ const api = {
     ipcRenderer.invoke(IpcChannels.gitPruneWorktrees, repoCwd),
   gitPrStatus: (cwd: string): Promise<GitPrStatus> =>
     ipcRenderer.invoke(IpcChannels.gitPrStatus, cwd),
+  watchGitPr: (cwd: string): (() => void) => {
+    const id = String(++nextPrWatchId)
+    ipcRenderer.send(IpcChannels.gitPrWatch, id, cwd)
+    return () => ipcRenderer.send(IpcChannels.gitPrWatch, id, null)
+  },
   gitPrStatuses: (): Promise<Record<string, GitPrStatus>> =>
     ipcRenderer.invoke(IpcChannels.gitPrStatuses),
   gitCheckLog: (cwd: string, runId: string): Promise<string> =>
@@ -388,6 +404,9 @@ const api = {
     ipcRenderer.invoke(IpcChannels.setGeneralConfig, patch),
   getDataPaths: (): Promise<DataPaths> =>
     ipcRenderer.invoke(IpcChannels.getDataPaths),
+  langfuseGet: (): Promise<LangfuseStatus> => ipcRenderer.invoke(IpcChannels.langfuseGet),
+  langfuseUpdate: (patch: LangfusePatch): Promise<LangfuseStatus> => ipcRenderer.invoke(IpcChannels.langfuseUpdate, patch),
+  langfuseTest: (): Promise<string> => ipcRenderer.invoke(IpcChannels.langfuseTest),
   automationStatus: (): Promise<AutomationStatus> =>
     ipcRenderer.invoke(IpcChannels.automationStatus),
   automationToken: (): Promise<string> =>
