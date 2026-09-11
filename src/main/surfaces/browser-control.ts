@@ -188,6 +188,16 @@ function isPrintableKey(key: string): boolean {
   return key.length === 1 && key.charCodeAt(0) >= 32 && key.charCodeAt(0) !== 127
 }
 
+/**
+ * A key the page hears as a keypress, not only keydown/keyup. Chromium fires
+ * keypress from the `char` event, and implicit form submission listens for
+ * the Enter keypress — so an Enter without a `char` lands in the input and
+ * submits nothing.
+ */
+function producesChar(key: string): boolean {
+  return isPrintableKey(key) || key === "Enter" || key === "Return"
+}
+
 export function consoleLevelFrom(value: unknown): BrowserConsoleMessage["level"] {
   if (typeof value === "number") {
     if (value <= 0) return "debug"
@@ -378,6 +388,14 @@ export class BrowserControl {
     const params = request.params ?? {}
     switch (request.op) {
       case "navigate":
+        // Recording starts with the first navigation, not the first
+        // browser_network call — otherwise that call always answers "no
+        // requests" for the page it was asked about.
+        try {
+          this.startNetworkCapture(binding, guest)
+        } catch {
+          /* browser_network will explain if the debugger is taken */
+        }
         return this.navigate(guest, params)
       case "snapshot":
         return this.snapshot(guest, params)
@@ -751,7 +769,7 @@ export class BrowserControl {
     modifiers: BrowserModifier[],
   ): void {
     guest.sendInputEvent({ type: "keyDown", keyCode: key, modifiers })
-    if (isPrintableKey(key)) {
+    if (producesChar(key)) {
       guest.sendInputEvent({ type: "char", keyCode: key, modifiers })
     }
     guest.sendInputEvent({ type: "keyUp", keyCode: key, modifiers })

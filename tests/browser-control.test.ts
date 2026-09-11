@@ -434,8 +434,20 @@ describe("keyboard", () => {
     expect((await send("type", { ref: "ref_1", text: "hello", submit: true })).ok).toBe(true)
 
     expect(guest.inserted).toEqual(["hello"])
-    expect(guest.input.map((event) => event.type)).toEqual(["keyDown", "keyUp"])
+    // The char event is what the page hears as a keypress; without it Enter
+    // never reaches implicit form submission.
+    expect(guest.input.map((event) => event.type)).toEqual(["keyDown", "char", "keyUp"])
     expect(guest.input[0]).toMatchObject({ keyCode: "Enter" })
+  })
+
+  it("sends Enter from browser_key with the char a form submit listens for", async () => {
+    expect((await send("key", { key: "Enter" })).ok).toBe(true)
+    expect(guest.input.map((event) => event.type)).toEqual(["keyDown", "char", "keyUp"])
+  })
+
+  it("sends a bare modifier or arrow without a char", async () => {
+    expect((await send("key", { key: "ArrowDown" })).ok).toBe(true)
+    expect(guest.input.map((event) => event.type)).toEqual(["keyDown", "keyUp"])
   })
 
   it("does not type into a ref it could not focus", async () => {
@@ -655,6 +667,19 @@ describe("network buffer", () => {
       request: { method: "GET", url },
     })
   }
+
+  it("starts recording at the first navigation so the page load is on record", async () => {
+    expect(guest.debugger.attached).toBe(false)
+    const pending = send("navigate", { url: "https://example.com/" })
+    guest.emit("did-stop-loading")
+    await pending
+    expect(guest.debugger.attached).toBe(true)
+    request("doc", "https://example.com/")
+    const requests = resultOf(await send("network")).requests as Array<
+      Record<string, unknown>
+    >
+    expect(requests.map((r) => r.url)).toEqual(["https://example.com/"])
+  })
 
   it("attaches the debugger lazily and records requests and responses", async () => {
     expect(guest.debugger.attached).toBe(false)
