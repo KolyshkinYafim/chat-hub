@@ -92,6 +92,20 @@ export function DesignSurface({ cwd, focus = null }: Props) {
     const run = async () => {
       const bridge = surfaceBridge()
       try {
+        if (source.implicit) {
+          // The default folder is a convention, not a promise: look for it in
+          // the project root first so a project without one is an empty
+          // canvas, not a rejected IPC call logged on every mount.
+          const root = await bridge.listDir(source.root, "")
+          if (cancelled) return
+          const present = root.entries.some(
+            (e) => e.kind === "dir" && e.name === source.rel,
+          )
+          if (!present) {
+            setLoad({ phase: "empty" })
+            return
+          }
+        }
         const listing = await bridge.listDir(source.root, source.rel)
         if (cancelled) return
         const files = listing.entries
