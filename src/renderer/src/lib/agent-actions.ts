@@ -1,4 +1,5 @@
 import type { AgentTurnItem, ChatMessage } from "@shared/types"
+import { hashDiff } from "@shared/diff-hash"
 import {
   buildTranscript,
   isFailed,
@@ -15,6 +16,13 @@ export type AgentAction = {
   exitCode?: number
   paths?: string[]
   messageId: string
+}
+
+export type MessageEditSignal = {
+  /** Paths in first-seen order; the last one is the most recent focus target. */
+  paths: string[]
+  /** Changes when an in-flight edit gains a patch or settles. */
+  revision: string
 }
 
 const DEFAULT_LIMIT = 40
@@ -56,20 +64,77 @@ export function collectAgentActions(
  * Paths this assistant turn has written to so far, from the same parse the
  * transcript cards use. Reads, searches and shell calls never contribute.
  */
-export function editedPathsInMessage(message: ChatMessage): string[] {
+export function editSignalInMessage(
+  message: ChatMessage,
+): MessageEditSignal | null {
   const paths: string[] = []
+  const revisions: string[] = []
   const add = (path: string) => {
     if (path && !paths.includes(path)) paths.push(path)
   }
   if (message.content) {
-    const { changed } = buildTranscript(message.content, message.id)
+    const { blocks, changed } = buildTranscript(message.content, message.id)
     for (const file of changed.files) add(file.path)
+    for (const block of blocks) {
+      if (block.kind !== "tools") continue
+      for (const call of block.calls) {
+        if (!call.meta.paths?.length || isFailed(call)) continue
+        revisions.push(
+          [
+            call.key,
+            call.result === null ? "running" : "settled",
+            call.diff ?? "",
+            call.meta.paths.join("\u0000"),
+          ].join("\u0001"),
+        )
+      }
+    }
   }
   for (const item of message.items ?? []) {
     if (item.kind !== "file_change") continue
     for (const change of item.changes) add(change.path)
+    for (const path of pathsInUnifiedDiff(item.aggregateDiff ?? "")) add(path)
+    revisions.push(
+      [
+        item.id,
+        item.status,
+        item.aggregateDiff ?? "",
+        ...item.changes.flatMap((change) => [
+          change.path,
+          change.kind ?? "",
+          change.diff ?? "",
+        ]),
+      ].join("\u0001"),
+    )
   }
-  return paths
+  if (revisions.length === 0) return null
+  return { paths, revision: hashDiff(revisions.join("\u0002")) }
+}
+
+/** Paths this assistant turn has written to so far. */
+export function editedPathsInMessage(message: ChatMessage): string[] {
+  return editSignalInMessage(message)?.paths ?? []
+}
+
+/**
+ * Codex can publish a live aggregate patch before its per-file change item.
+ * Pull its paths from ordinary git headers so that preview can open immediately.
+ */
+function pathsInUnifiedDiff(text: string): string[] {
+  const out: string[] = []
+  const add = (path: string) => {
+    const clean = path.replace(/^[ab]\//, "")
+    if (clean && clean !== "/dev/null" && !out.includes(clean)) out.push(clean)
+  }
+  for (const line of text.split("\n")) {
+    const git = /^diff --git (?:"?a\/.*?"?) (?:"?b\/(.*?)"?)$/.exec(line)
+    if (git?.[1]) {
+      add(git[1])
+      continue
+    }
+    if (line.startsWith("+++ ")) add(line.slice(4).trim().replace(/^"|"$/g, ""))
+  }
+  return out
 }
 
 function actionFromItem(item: AgentTurnItem, messageId: string): AgentAction | null {

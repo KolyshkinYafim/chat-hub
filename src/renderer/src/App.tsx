@@ -1080,6 +1080,13 @@ export default function App() {
         autoOpenDockRef.current,
       )
       if (!decision) return
+      const focusPath = edited[edited.length - 1]
+      if (focusPath) {
+        setDiffFocusBySession((curr) => ({
+          ...curr,
+          [sessionId]: { path: focusPath, at: Date.now() },
+        }))
+      }
       setSurfaceBySession((curr) => {
         const next = { ...curr, [sessionId]: decision }
         saveSurfaceBySession(next)

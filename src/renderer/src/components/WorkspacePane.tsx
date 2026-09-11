@@ -17,7 +17,7 @@ import type { PermissionMode } from "@shared/permission"
 import { needsAction } from "@shared/attention"
 import type { EffortLevel, Mode, ModelInfo } from "@shared/settings-types"
 import type { ProjectScript } from "@shared/scripts"
-import { collectAgentActions, editedPathsInMessage } from "../lib/agent-actions"
+import { collectAgentActions, editSignalInMessage } from "../lib/agent-actions"
 import type { AttentionSeen } from "../lib/attention"
 import { sessionPhase } from "../lib/live-step"
 import type { SurfaceKind } from "../lib/surface-bridge"
@@ -213,9 +213,9 @@ function PaneView({
     [messages, session],
   )
 
-  const autoOpenSeenRef = useRef<{ messageId: string; count: number }>({
+  const autoOpenSeenRef = useRef<{ messageId: string; revision: string }>({
     messageId: "",
-    count: 0,
+    revision: "",
   })
 
   // A turn that edits files pulls this pane's dock onto the diff. Only this
@@ -225,12 +225,12 @@ function PaneView({
     if (!sessionId) return
     const last = messages[messages.length - 1]
     if (!last || last.role !== "assistant" || !last.streaming) return
-    const edited = editedPathsInMessage(last)
+    const edit = editSignalInMessage(last)
+    if (!edit) return
     const seen = autoOpenSeenRef.current
-    const known = seen.messageId === last.id ? seen.count : 0
-    if (edited.length <= known) return
-    autoOpenSeenRef.current = { messageId: last.id, count: edited.length }
-    actions.onAutoOpenDiff(paneId, sessionId, edited)
+    if (seen.messageId === last.id && seen.revision === edit.revision) return
+    autoOpenSeenRef.current = { messageId: last.id, revision: edit.revision }
+    actions.onAutoOpenDiff(paneId, sessionId, edit.paths)
   }, [actions, messages, paneId, sessionId])
 
   const focus = useCallback(() => {
