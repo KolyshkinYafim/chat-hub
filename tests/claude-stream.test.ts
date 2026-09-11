@@ -275,6 +275,20 @@ describe("Claude Code turn totals", () => {
       contextWindow: 200000,
     })
   })
+
+  it("keeps the last request's window occupancy while the token sums grow", () => {
+    const merged = mergeClaudeUsage(
+      { inputTokens: 10, cacheReadTokens: 500_000, contextUsedTokens: 44_000 },
+      { inputTokens: 18, cacheReadTokens: 600_000 },
+    )
+    expect(merged).toMatchObject({
+      cacheReadTokens: 1_100_000,
+      contextUsedTokens: 44_000,
+    })
+    expect(
+      mergeClaudeUsage(merged, { contextUsedTokens: 52_000 }),
+    ).toMatchObject({ contextUsedTokens: 52_000 })
+  })
 })
 
 describe("persisted transcripts", () => {

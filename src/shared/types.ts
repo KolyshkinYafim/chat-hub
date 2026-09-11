@@ -116,6 +116,12 @@ export type TurnUsage = {
   costUsd?: number
   durationMs?: number
   contextWindow?: number
+  /**
+   * Window occupancy after the turn's last API request. The token fields above
+   * are per-turn sums — a turn of N tool calls counts its cached prompt N
+   * times — so the context meter must not be derived from them when this is set.
+   */
+  contextUsedTokens?: number
 }
 
 /** Running total over every turn of a session that reported usage. */

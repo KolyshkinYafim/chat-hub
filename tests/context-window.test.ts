@@ -127,6 +127,20 @@ describe("contextUsedTokens", () => {
     expect(contextUsedTokens({ outputTokens: 79, costUsd: 0.1 })).toBeNull()
     expect(contextUsedTokens({})).toBeNull()
   })
+
+  it("prefers the adapter's last-request occupancy over the per-turn sums", () => {
+    // A 25-tool-call turn sums its cached prompt 25 times — over 1M "read"
+    // tokens while the window never held more than ~46k.
+    expect(
+      contextUsedTokens({
+        inputTokens: 2_100,
+        cacheReadTokens: 1_100_000,
+        cacheCreateTokens: 18_000,
+        outputTokens: 9_400,
+        contextUsedTokens: 46_300,
+      }),
+    ).toBe(46_300)
+  })
 })
 
 describe("contextWindowFor", () => {

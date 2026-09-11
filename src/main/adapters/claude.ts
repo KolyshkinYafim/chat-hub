@@ -26,6 +26,7 @@ import {
   type StreamTurn,
 } from "./stream-parse"
 import { readUsage } from "./usage"
+import { contextUsedTokens } from "@shared/context-window"
 import { DEFAULT_PERMISSION_MODE } from "@shared/permission"
 import {
   isPlanToolName,
@@ -155,6 +156,7 @@ export class ClaudeAdapter implements AgentAdapter {
     let turn: StreamTurn | null = null
     let sawText = false
     let usage: TurnUsage | null = null
+    let lastContextUsed: number | undefined
     const activity = new ClaudeActivityStream(state.cwd)
     const stderr: string[] = []
 
@@ -195,10 +197,23 @@ export class ClaudeAdapter implements AgentAdapter {
           cb.onAgentSession?.(sessionId, sid)
         }
 
+        // Each main-thread assistant message carries the usage of one API
+        // request; the last one seen is the window's true occupancy. Subagent
+        // lines (non-null parent_tool_use_id) run in their own window.
+        if (asText(ev.type) === "assistant" && !str(ev.parent_tool_use_id)) {
+          const msg = record(ev.message)
+          const perRequest = msg ? readUsage(msg) : null
+          const occupied = perRequest ? contextUsedTokens(perRequest) : null
+          if (occupied !== null) lastContextUsed = occupied
+        }
+
         if (asText(ev.type) === "result") {
           // One `result` per internal turn, and an async subagent makes several
           // in one run: the token counts add up, the cost is already a total.
           usage = mergeClaudeUsage(usage, readUsage(ev))
+          if (usage && lastContextUsed !== undefined) {
+            usage.contextUsedTokens = lastContextUsed
+          }
           publish(activity.push(ev))
           // Final envelope; the text is normally already streamed.
           if (!turn && typeof ev.result === "string") pushAssistantText(ev.result)
@@ -1118,6 +1133,9 @@ export function mergeClaudeUsage(
   }
   if (next.costUsd !== undefined) merged.costUsd = next.costUsd
   if (next.contextWindow !== undefined) merged.contextWindow = next.contextWindow
+  if (next.contextUsedTokens !== undefined) {
+    merged.contextUsedTokens = next.contextUsedTokens
+  }
   return merged
 }
 
