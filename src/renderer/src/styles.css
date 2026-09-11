@@ -6576,13 +6576,23 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   width: 18px;
   height: 18px;
   margin-top: 1px;
+  /* The button reset keeps the UA padding; drop it so the box is the cell. */
+  padding: 0;
   border-radius: 5px;
   border: 1.5px solid var(--border);
   color: var(--ok);
-  font-size: 12px;
-  line-height: 1;
   display: grid;
   place-items: center;
+}
+
+.board-check svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .board-todo.done .board-check {
