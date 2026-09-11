@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   columnAlign,
   isNumericCell,
+  labelColumnAbsorbsSlack,
   readTable,
   splitRow,
   tableToMarkdown,
@@ -151,5 +152,31 @@ describe("tableToTsv", () => {
       rows: [["one\ttwo"]],
     }
     expect(tableToTsv(table)).toBe("a\none two")
+  })
+})
+
+describe("labelColumnAbsorbsSlack", () => {
+  const t = (head: string[], rows: string[][]) => ({
+    head,
+    align: head.map(() => "auto" as const),
+    rows,
+  })
+
+  it("lets the label column take the room in a label | value table", () => {
+    expect(
+      labelColumnAbsorbsSlack(t(["Metric", "Value"], [["Input tokens", "12,400"], ["Cost", "$1.17"]])),
+    ).toBe(true)
+  })
+
+  it("keeps the room for a column that carries prose", () => {
+    expect(
+      labelColumnAbsorbsSlack(
+        t(["Tool", "Result", "Note"], [["hub_set_layout", "failed", "The hub knows only one session; the same one twice is refused."]]),
+      ),
+    ).toBe(false)
+  })
+
+  it("ignores a single-column table", () => {
+    expect(labelColumnAbsorbsSlack(t(["Only"], [["x"]]))).toBe(false)
   })
 })

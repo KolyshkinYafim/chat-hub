@@ -734,14 +734,16 @@
   vertical-align: top;
 }
 
-/* The label column absorbs the slack so the data stays next to its header. */
-.md-table th:first-child,
-.md-table td:first-child {
+/* In a label | value table the label column absorbs the slack so the data
+   stays next to its header. A table with prose further right keeps the
+   browser's own distribution, or that prose wraps a word per line. */
+.md-table-labeled th:first-child,
+.md-table-labeled td:first-child {
   width: 100%;
 }
 
-.md-table th:first-child.align-right,
-.md-table td:first-child.align-right {
+.md-table-labeled th:first-child.align-right,
+.md-table-labeled td:first-child.align-right {
   width: auto;
 }
 

@@ -187,3 +187,24 @@ export function tableToTsv(table: MarkdownTable): string {
     .map((row) => row.map(flat).join("\t"))
     .join("\n")
 }
+
+/** A cell that reads as a value or a badge, not a sentence. */
+const COMPACT_CELL_CHARS = 24
+
+/**
+ * Whether the first column should soak up the table's spare width. True for
+ * the label | value shape — every later column holds short cells, so the
+ * numbers stay next to their labels. False as soon as a later column carries
+ * prose: that column needs the room, or its sentences wrap one word per line.
+ */
+export function labelColumnAbsorbsSlack(table: MarkdownTable): boolean {
+  if (table.head.length < 2) return false
+  const rows = [table.head, ...table.rows]
+  for (let c = 1; c < table.head.length; c += 1) {
+    for (const row of rows) {
+      const cell = row[c] ?? ""
+      if (cell.length > COMPACT_CELL_CHARS) return false
+    }
+  }
+  return true
+}

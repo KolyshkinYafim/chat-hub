@@ -3,6 +3,7 @@ import { useExpanded } from "../lib/expansion"
 import {
   columnAlign,
   isNumericCell,
+  labelColumnAbsorbsSlack,
   tableToMarkdown,
   tableToTsv,
   type MarkdownTable,
@@ -25,6 +26,7 @@ export function DataTable({
     () => table.head.map((_, i) => columnAlign(table, i)),
     [table],
   )
+  const labeled = useMemo(() => labelColumnAbsorbsSlack(table), [table])
   const long = table.rows.length > COLLAPSE_OVER
   const [open, toggle] = useExpanded(`${expandKey}:table`, false)
   const rows = long && !open ? table.rows.slice(0, HEAD_ROWS) : table.rows
@@ -59,7 +61,7 @@ export function DataTable({
         role="region"
         aria-label={`Table, ${table.rows.length} rows`}
       >
-        <table className="md-table">
+        <table className={`md-table${labeled ? " md-table-labeled" : ""}`}>
           <thead>
             <tr>
               {table.head.map((cell, i) => (
