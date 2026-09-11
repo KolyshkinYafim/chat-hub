@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { join } from "node:path"
 import {
   BROWSER_MCP_SERVER_NAME,
@@ -23,6 +24,8 @@ const MARKER_BLOCK_PROVIDERS = new Set(["codex", "grok"])
 type EnvLookup = (serverId: string) => Record<string, string>
 
 export type BrowserMcpLocation = {
+  /** Test seam; defaults to the filesystem. */
+  exists?: (path: string) => boolean
   packaged: boolean
   resourcesPath: string
   appPath: string
@@ -53,9 +56,23 @@ export type UnregisterBrowserMcpOptions = {
 }
 
 export function browserMcpServerPath(opts: BrowserMcpLocation): string {
-  return opts.packaged
-    ? join(opts.resourcesPath, "mcp", BROWSER_MCP_SCRIPT)
-    : join(opts.appPath, "resources", "mcp", BROWSER_MCP_SCRIPT)
+  return mcpScriptPath(opts, BROWSER_MCP_SCRIPT)
+}
+
+/**
+ * Packaged: the script ships under Resources. Dev: electron-vite sets appPath
+ * to the repo root. A build started as `electron out/main/index.js` (the E2E
+ * harness, a hand-run of the output) gets appPath = out/main instead, and the
+ * repo's resources/ is two levels up — so the MCP servers registered for its
+ * agents pointed at a file that did not exist and every tool was unavailable.
+ */
+export function mcpScriptPath(opts: BrowserMcpLocation, script: string): string {
+  if (opts.packaged) return join(opts.resourcesPath, "mcp", script)
+  const direct = join(opts.appPath, "resources", "mcp", script)
+  if (opts.exists ? opts.exists(direct) : existsSync(direct)) return direct
+  const fromBuild = join(opts.appPath, "..", "..", "resources", "mcp", script)
+  if (opts.exists ? opts.exists(fromBuild) : existsSync(fromBuild)) return fromBuild
+  return direct
 }
 
 export function browserMcpEnv(

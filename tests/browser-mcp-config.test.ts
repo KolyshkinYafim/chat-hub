@@ -60,6 +60,18 @@ describe("browserMcpServerPath", () => {
         packaged: false,
         resourcesPath: "/unused",
         appPath: "/repo/chat-hub",
+        exists: (path) => path === "/repo/chat-hub/resources/mcp/browser-mcp.mjs",
+      }),
+    ).toBe("/repo/chat-hub/resources/mcp/browser-mcp.mjs")
+  })
+
+  it("finds the repo copy when the build output is run directly", () => {
+    expect(
+      browserMcpServerPath({
+        packaged: false,
+        resourcesPath: "/unused",
+        appPath: "/repo/chat-hub/out/main",
+        exists: (path) => path === "/repo/chat-hub/resources/mcp/browser-mcp.mjs",
       }),
     ).toBe("/repo/chat-hub/resources/mcp/browser-mcp.mjs")
   })

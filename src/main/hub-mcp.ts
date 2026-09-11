@@ -1,8 +1,8 @@
-import { join } from "node:path"
 import { HUB_MCP_SERVER_NAME } from "@shared/hub-control"
 import type { McpServerDef } from "@shared/mcp"
 import {
   browserMcpEnv,
+  mcpScriptPath,
   type BrowserMcpLocation,
   type BrowserMcpSpawn,
 } from "./browser-mcp"
@@ -10,9 +10,7 @@ import {
 const HUB_MCP_SCRIPT = "hub-mcp.mjs"
 
 export function hubMcpServerPath(opts: BrowserMcpLocation): string {
-  return opts.packaged
-    ? join(opts.resourcesPath, "mcp", HUB_MCP_SCRIPT)
-    : join(opts.appPath, "resources", "mcp", HUB_MCP_SCRIPT)
+  return mcpScriptPath(opts, HUB_MCP_SCRIPT)
 }
 
 export function hubMcpEnv(
