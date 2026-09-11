@@ -23,10 +23,27 @@ export class PrStatusWatcher {
   private readonly cache = new Map<string, GitPrStatus>()
   private readonly inflight = new Map<string, Promise<GitPrStatus>>()
   private readonly acknowledged = new Map<string, string>()
+  private readonly panels = new Map<number, Map<string, string>>()
   private timer: NodeJS.Timeout | null = null
   private ghMissing = false
 
   constructor(private readonly opts: Options) {}
+
+  watch(windowId: number, subscriptionId: string, cwd: string | null): void {
+    if (cwd === null) {
+      const subscriptions = this.panels.get(windowId)
+      subscriptions?.delete(subscriptionId)
+      if (subscriptions?.size === 0) this.panels.delete(windowId)
+      return
+    }
+    const subscriptions = this.panels.get(windowId) ?? new Map<string, string>()
+    subscriptions.set(subscriptionId, cwd)
+    this.panels.set(windowId, subscriptions)
+  }
+
+  releaseWindow(windowId: number): void {
+    this.panels.delete(windowId)
+  }
 
   snapshot(): Record<string, GitPrStatus> {
     return Object.fromEntries(this.cache)
@@ -94,6 +111,9 @@ export class PrStatusWatcher {
 
   async tick(): Promise<void> {
     const live = new Set(this.opts.liveCwds())
+    for (const subscriptions of this.panels.values()) {
+      for (const cwd of subscriptions.values()) live.add(cwd)
+    }
     for (const cwd of [...this.cache.keys()]) {
       if (live.has(cwd)) continue
       this.cache.delete(cwd)

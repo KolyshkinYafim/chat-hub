@@ -76,6 +76,8 @@ const cockpit =
   process.argv.includes("--chat-hub-cockpit=1") ||
   process.argv.includes("--chat-hub-cockpit")
 
+let nextPrWatchId = 0
+
 const api = {
   windowIntent,
   cockpit,
@@ -263,6 +265,11 @@ const api = {
     ipcRenderer.invoke(IpcChannels.gitPruneWorktrees, repoCwd),
   gitPrStatus: (cwd: string): Promise<GitPrStatus> =>
     ipcRenderer.invoke(IpcChannels.gitPrStatus, cwd),
+  watchGitPr: (cwd: string): (() => void) => {
+    const id = String(++nextPrWatchId)
+    ipcRenderer.send(IpcChannels.gitPrWatch, id, cwd)
+    return () => ipcRenderer.send(IpcChannels.gitPrWatch, id, null)
+  },
   gitPrStatuses: (): Promise<Record<string, GitPrStatus>> =>
     ipcRenderer.invoke(IpcChannels.gitPrStatuses),
   gitCheckLog: (cwd: string, runId: string): Promise<string> =>

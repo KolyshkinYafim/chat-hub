@@ -1218,6 +1218,26 @@ export function registerIpc(
   ipcMain.handle(IpcChannels.gitPrStatus, (_e, cwd: unknown) =>
     prStatus.refresh(gitCwd(cwd)),
   )
+  const prWatchedWindows = new Set<number>()
+  ipcMain.on(IpcChannels.gitPrWatch, (event, subscriptionId: unknown, cwd: unknown) => {
+    if (typeof subscriptionId !== "string" || !/^\d{1,16}$/.test(subscriptionId)) return
+    const windowId = event.sender.id
+    if (cwd === null) {
+      prStatus.watch(windowId, subscriptionId, null)
+      return
+    }
+    let directory: string
+    try { directory = gitCwd(cwd) } catch { return }
+    if (!prWatchedWindows.has(windowId)) {
+      prWatchedWindows.add(windowId)
+      event.sender.once("destroyed", () => {
+        prWatchedWindows.delete(windowId)
+        prStatus.releaseWindow(windowId)
+      })
+      event.sender.on("render-process-gone", () => prStatus.releaseWindow(windowId))
+    }
+    prStatus.watch(windowId, subscriptionId, directory)
+  })
   ipcMain.handle(IpcChannels.gitPrStatuses, () => prStatus.snapshot())
   ipcMain.handle(IpcChannels.gitChecksAcknowledge, (_e, cwd: unknown) =>
     prStatus.acknowledge(gitCwd(cwd)),

@@ -1826,6 +1826,7 @@ export function installDevMock(): void {
     gitPush: async () => ({ ok: true, output: "Everything up-to-date" }),
     gitCreatePr: async () => ({ ok: true, output: "https://github.com/example/chat-hub/pull/1" }),
     gitPrStatus: async () => mockPrStatus,
+    watchGitPr: () => () => {},
     gitPrStatuses: async () => ({}),
     gitChecksAcknowledge: async () => null,
     gitCheckLog: async (_cwd, runId) =>

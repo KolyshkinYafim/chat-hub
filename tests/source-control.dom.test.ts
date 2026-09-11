@@ -18,6 +18,8 @@ afterEach(async () => {
 
 async function mount() {
   const listeners = new Set<(event: HubEvent) => void>()
+  const stopWatching = vi.fn()
+  const watchGitPr = vi.fn(() => stopWatching)
   const gitPrStatus = vi.fn(async () => ({ pr: null }))
   const gitDiff = vi.fn(async () => "@@ -1 +1 @@\n-old\n+new\n")
   const gitStage = vi.fn(async () => ({ root: "/workspace/repo", branch: "main", ahead: 0, behind: 0, files: [] }))
@@ -30,7 +32,7 @@ async function mount() {
     gitWorktrees: async () => [],
     gitHunkSummary: async () => ({}),
     gitPrStatuses: async () => ({ "/workspace/repo": { pr: null }, "/workspace": { pr: null } }),
-    gitPrStatus, gitDiff, gitStage,
+    gitPrStatus, gitDiff, gitStage, watchGitPr,
     onHubEvent: (listener: (event: HubEvent) => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
   } as unknown as typeof window.chatHub
   container = document.createElement("div")
@@ -42,7 +44,7 @@ async function mount() {
       onSend: async () => {}, onClose: () => {}, onChanged: () => {},
     }))
   })
-  return { listeners, gitPrStatus, gitDiff, gitStage }
+  return { listeners, gitPrStatus, gitDiff, gitStage, watchGitPr, stopWatching }
 }
 
 async function click(label: string) {
@@ -72,7 +74,7 @@ describe("source control", () => {
 
   it("uses cached PR status and live events without a second polling timer", async () => {
     vi.useFakeTimers()
-    const { listeners, gitPrStatus } = await mount()
+    const { listeners, gitPrStatus, watchGitPr, stopWatching } = await mount()
     expect(container.textContent).toContain("No pull request for this branch")
     await act(async () => { await vi.advanceTimersByTimeAsync(120_000) })
     expect(gitPrStatus).not.toHaveBeenCalled()
@@ -83,6 +85,8 @@ describe("source control", () => {
     await act(async () => { root?.unmount() })
     root = undefined
     expect(listeners.size).toBe(0)
+    expect(watchGitPr).toHaveBeenCalledWith("/workspace/repo")
+    expect(stopWatching).toHaveBeenCalledTimes(watchGitPr.mock.calls.length)
   })
 
   it("stages in the repository selected from the workspace", async () => {

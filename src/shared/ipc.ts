@@ -44,6 +44,7 @@ export const IpcChannels = {
   gitRemoveWorktree: "git:remove-worktree",
   gitPruneWorktrees: "git:prune-worktrees",
   gitPrStatus: "git:pr-status",
+  gitPrWatch: "git:pr-watch",
   gitPrStatuses: "git:pr-statuses",
   gitCheckLog: "git:check-log",
   gitChecksAcknowledge: "git:checks-acknowledge",

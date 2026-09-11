@@ -401,6 +401,7 @@ export function SourceControl({
     setPr(null)
     // Subscribe before reading the cache so an older snapshot cannot replace a
     // fresh push. The main-process watcher owns the only polling timer.
+    const stopWatching = window.chatHub.watchGitPr(repoCwd)
     const unsubscribe = window.chatHub.onHubEvent((event) => {
       if (event.type !== "git.pr" || event.cwd !== repoCwd) return
       receivedEvent = true
@@ -415,6 +416,7 @@ export function SourceControl({
     })
     return () => {
       cancelled = true
+      stopWatching()
       unsubscribe()
     }
   }, [repoCwd])
