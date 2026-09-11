@@ -561,6 +561,7 @@ select:focus-visible {
   font-size: 13px;
   font-weight: 600;
   letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 
 .alpha {
@@ -862,6 +863,7 @@ select:focus-visible {
 }
 
 .session-row-title {
+  min-width: 6ch;
   font-size: 12.5px;
   color: var(--text-secondary);
   overflow: hidden;
@@ -4468,9 +4470,19 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   padding: 0 4px;
   font-size: 11px;
   color: var(--text-faint);
+}
+
+/* One line, always: in a narrow column the pieces trim from the right rather
+   than wrapping the checkout label onto two lines. */
+.composer-footer > * {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .checkout {
@@ -4970,16 +4982,26 @@ ol.activity-plan li[data-status="completed"] { color: var(--text-faint); text-de
 }
 
 /* Destructive and permanent — never sitting under the cursor unasked. */
+/* The actions float over the row's right edge instead of sitting in its flow:
+   five invisible buttons used to reserve ~120px on every row, and in a narrow
+   sidebar that left the title no room at all — only the timestamp survived. */
 .session-row-actions {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
   display: flex;
   gap: 2px;
+  padding-left: 10px;
+  background: inherit;
   opacity: 0;
-  flex-shrink: 0;
+  pointer-events: none;
 }
 
 .session-row:hover .session-row-actions,
 .session-row:focus-within .session-row-actions {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .palette-panel {
