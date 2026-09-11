@@ -6,7 +6,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import type { HubEvent } from "../src/shared/types"
+import type { AgentInputQuestion, HubEvent } from "../src/shared/types"
 import type { AdapterCallbacks, AdapterStartOpts } from "../src/main/adapters/types"
 import type { NotificationService } from "../src/main/notifications"
 import type { WatchdogConfig } from "../src/main/session-manager"
@@ -917,6 +917,117 @@ describe("waiting_input from pendingInputs", () => {
     await vi.waitFor(() =>
       expect(sm.getSession(session.id)?.status).toBe("running"),
     )
+    state.pending?.resolve()
+  })
+})
+
+describe("a sent message answers the pending question", () => {
+  function wireBroker(
+    sm: InstanceType<typeof SessionManager>,
+    bus: EventBus,
+    sessionId: string,
+  ) {
+    const broker = new PermissionBroker(
+      bus,
+      () => sessionId,
+      join(tmpdir(), `island-${Math.random()}.sock`),
+      join(tmpdir(), `hub-${Math.random()}.sock`),
+    )
+    sm.setPermissionBroker(broker)
+    return broker
+  }
+
+  // A Claude/Grok question: the CLI has exited and the turn waits on the form.
+  async function askInOwnWords(
+    sm: InstanceType<typeof SessionManager>,
+    bus: EventBus,
+    sessionId: string,
+    question: Partial<AgentInputQuestion> = {},
+  ) {
+    const broker = wireBroker(sm, bus, sessionId)
+    await sm.sendMessage(sessionId, "go")
+    const answered = broker.requestInputFromAdapter({
+      requestId: "ask-1",
+      sessionId,
+      source: "claude",
+      questions: [{
+        id: "answer",
+        header: "Lockfile",
+        prompt: "Which one?",
+        options: [{ label: "pnpm" }],
+        allowOther: true,
+        ...question,
+      }],
+    })
+    await vi.waitFor(() =>
+      expect(sm.getSession(sessionId)?.status).toBe("waiting_input"),
+    )
+    return { broker, answered }
+  }
+
+  it("delivers composer text as the answer instead of queueing it behind the form", async () => {
+    const { sm, dir, bus } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    const { answered } = await askInOwnWords(sm, bus, session.id)
+
+    await sm.sendMessage(session.id, "yarn, actually")
+
+    await expect(answered).resolves.toEqual({ answer: ["yarn, actually"] })
+    expect(sm.listQueued(session.id)).toEqual([])
+    // The adapter echoes the answer into the transcript itself, so the manager
+    // must not add a second user bubble for the same words.
+    expect(
+      sm.getMessages(session.id)
+        .filter((m) => m.role === "user")
+        .map((m) => m.content),
+    ).toEqual(["go"])
+    expect(state.sent).toEqual(["go"])
+    await vi.waitFor(() =>
+      expect(sm.getSession(session.id)?.status).toBe("running"),
+    )
+    state.pending?.resolve()
+  })
+
+  it("folds attachments into the answer the way a prompt would carry them", async () => {
+    const { sm, dir, bus } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    const { answered } = await askInOwnWords(sm, bus, session.id, { options: undefined })
+    const shot = join(dir, "shot.png")
+    await writeFile(shot, "png")
+
+    await sm.sendMessage(session.id, "like this", { attachments: [shot] })
+
+    await expect(answered).resolves.toEqual({
+      answer: [`like this\n\nAttached files:\n@${shot}`],
+    })
+    state.pending?.resolve()
+  })
+
+  it("still queues when the question has no own-words slot", async () => {
+    const { sm, dir, bus } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    const { broker } = await askInOwnWords(sm, bus, session.id, {
+      allowOther: undefined,
+    })
+
+    await sm.sendMessage(session.id, "yarn")
+
+    expect(sm.listQueued(session.id).map((q) => q.text)).toEqual(["yarn"])
+    expect(broker.listInputs()).toHaveLength(1)
+    broker.resolveInput("ask-1", { answer: ["pnpm"] })
+    state.pending?.resolve()
+  })
+
+  it("keeps a hook prompt out of the answer", async () => {
+    const { sm, dir, bus } = await makeManager()
+    const session = await sm.createSession({ provider: "mock", cwd: dir })
+    const { broker } = await askInOwnWords(sm, bus, session.id)
+
+    await sm.sendMessage(session.id, "run the tests", { fromHook: true })
+
+    expect(sm.listQueued(session.id).map((q) => q.text)).toEqual(["run the tests"])
+    expect(broker.listInputs()).toHaveLength(1)
+    broker.resolveInput("ask-1", { answer: ["pnpm"] })
     state.pending?.resolve()
   })
 })

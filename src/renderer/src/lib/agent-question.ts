@@ -76,6 +76,18 @@ export function toQuestionCards(
 }
 
 /**
+ * Whether a composer message would land as the answer to what is pending:
+ * main routes it there when one question is open and it takes the owner's own
+ * words. Anything else — several questions, a pick-one, a secret — needs the
+ * form, and the composer keeps queueing.
+ */
+export function composerAnswers(requests: AgentInputRequestInfo[]): boolean {
+  if (requests.length !== 1) return false
+  const [card, ...more] = toQuestionCards(requests[0])
+  return card !== undefined && more.length === 0 && card.allowOther && !card.secret
+}
+
+/**
  * Who is asking, for the card's kicker. An MCP server asks under its own name
  * rather than under the protocol's ("Docs (MCP) asks", not "Mcp asks").
  */

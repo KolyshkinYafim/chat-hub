@@ -4,6 +4,7 @@ import {
   answerValue,
   answersReady,
   askerLabel,
+  composerAnswers,
   EMPTY_ANSWER,
   questionContext,
   toQuestionCards,
@@ -227,5 +228,40 @@ describe("questionContext", () => {
       command: "pnpm test",
     }))
     expect(questionContext(assistant("", items)).steps).toEqual(["Shell · pnpm test"])
+  })
+})
+
+describe("composerAnswers", () => {
+  it("is true for one question the owner may answer in their own words", () => {
+    expect(
+      composerAnswers([
+        request({ id: "a", header: "Lockfile", prompt: "Which?", options: [{ label: "pnpm" }], allowOther: true }),
+      ]),
+    ).toBe(true)
+    expect(composerAnswers([request({ id: "a", header: "Q", prompt: "Say?" })])).toBe(true)
+  })
+
+  it("is false when the form is the only way to answer", () => {
+    // Pick-one with no own-words slot.
+    expect(
+      composerAnswers([
+        request({ id: "a", header: "Lockfile", prompt: "Which?", options: [{ label: "pnpm" }] }),
+      ]),
+    ).toBe(false)
+    // A secret belongs in the masked field, not the transcript.
+    expect(composerAnswers([request({ id: "a", header: "Token", prompt: "Paste it", secret: true })])).toBe(false)
+    // Several questions, or several requests, cannot share one message.
+    expect(
+      composerAnswers([
+        request({ id: "a", header: "A", prompt: "a?" }, { id: "b", header: "B", prompt: "b?" }),
+      ]),
+    ).toBe(false)
+    expect(
+      composerAnswers([
+        request({ id: "a", header: "A", prompt: "a?" }),
+        { ...request({ id: "b", header: "B", prompt: "b?" }), requestId: "req-2" },
+      ]),
+    ).toBe(false)
+    expect(composerAnswers([])).toBe(false)
   })
 })

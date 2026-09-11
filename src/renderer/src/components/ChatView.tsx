@@ -78,6 +78,7 @@ import {
   answerPayload,
   answersReady,
   askerLabel,
+  composerAnswers,
   EMPTY_ANSWER,
   questionContext,
   toQuestionCards,
@@ -1285,6 +1286,8 @@ export function ChatView({
   const supportsEffort = effortCapabilities.supports
   const availableEfforts = effortCapabilities.available
   const running = session.status === "running"
+  // The turn is parked on a question the composer can answer in prose.
+  const answering = !running && composerAnswers(pendingInputRequests)
   const usageLabel = usage ? formatSessionUsage(usage) : null
   const headPhase = running
     ? liveTicker
@@ -1724,7 +1727,9 @@ export function ChatView({
             placeholder={
               running
                 ? "Agent is working — Enter queues this for the next turn (Esc stops)"
-                : "Ask the agent… (Enter send · Shift+Enter newline)"
+                : answering
+                  ? "Answer the agent here or in the form above (Enter sends the answer)"
+                  : "Ask the agent… (Enter send · Shift+Enter newline)"
             }
             rows={2}
             onChange={(e) => {
@@ -1903,7 +1908,9 @@ export function ChatView({
                 title={
                   running
                     ? "Agent is working — this is queued until the turn ends"
-                    : "Send (Enter · ⌘Enter)"
+                    : answering
+                      ? "Send as the answer (Enter · ⌘Enter)"
+                      : "Send (Enter · ⌘Enter)"
                 }
               >
                 {running ? "⏱" : "↑"}
