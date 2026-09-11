@@ -1,5 +1,6 @@
 import { createServer, type Server, type Socket } from "node:net"
 import { chmodSync, mkdirSync, unlinkSync } from "node:fs"
+import { clearStaleSocket } from "./socket-owner"
 import { dirname } from "node:path"
 import type { BrowserRequest, BrowserResponse } from "@shared/browser"
 
@@ -60,11 +61,9 @@ export class BrowserSocketServer {
   async start(): Promise<void> {
     if (this.server) return
     mkdirSync(dirname(this.socketPath), { recursive: true })
-    try {
-      unlinkSync(this.socketPath)
-    } catch {
-      /* nothing to clear */
-    }
+    // A socket file left by a crash refuses bind; one another Hub still answers
+    // on must stay — see socket-owner.ts.
+    await clearStaleSocket(this.socketPath)
 
     const server = createServer((socket) => this.adopt(socket))
     await new Promise<void>((resolve, reject) => {

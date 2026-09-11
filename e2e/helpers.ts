@@ -42,6 +42,13 @@ export async function launchApp(
     env: {
       ...process.env,
       CHAT_HUB_USER_DATA: userData,
+      // The bridge lives outside user-data; keep a test run off the sockets
+      // and event log of a Hub the developer has open.
+      CHAT_HUB_SOCKET: join(userData, "hub.sock"),
+      CHATHUB_BROWSER_SOCKET: join(userData, "browser.sock"),
+      AGENT_DESKTOP_EVENTS: join(userData, "events.jsonl"),
+      AGENT_DESKTOP_COMMANDS: join(userData, "commands.jsonl"),
+      AGENT_DESKTOP_SOCKET: join(userData, "monitor.sock"),
       ELECTRON_ENABLE_LOGGING: "1",
     },
   })
