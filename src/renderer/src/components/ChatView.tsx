@@ -27,6 +27,7 @@ import type {
 import type { PermissionMode } from "@shared/permission"
 import type { ProjectScript } from "@shared/scripts"
 import type { Mode, ModelInfo } from "@shared/settings-types"
+import type { SlashCommand } from "@shared/slash-commands"
 import { formatClock, formatRelative } from "../lib/format"
 import { keyHint } from "../lib/key-hint"
 import { useOutsideDismiss } from "../lib/use-outside-dismiss"
@@ -49,6 +50,13 @@ import {
 } from "../lib/voice-state"
 import { PlanSteps, toPlanSteps } from "./PlanSteps"
 import { ComposerMenu } from "./ComposerMenu"
+import { SlashCommandPopover } from "./SlashCommandPopover"
+import {
+  filterSlashCommands,
+  insertSlashCommand,
+  slashQuery,
+} from "../lib/slash-commands"
+import { moveCursor } from "../lib/use-overlay"
 import { FeedLabel, FeedRunRow } from "./ToolFeed"
 import { LiveStepTicker } from "./LiveStepTicker"
 import { TurnOutcomeStrip } from "./TurnOutcomeStrip"
@@ -692,6 +700,13 @@ export function ChatView({
   const [stashedFlash, setStashedFlash] = useState(false)
   const stashRef = useRef<HTMLDivElement | null>(null)
   const stashFlashTimer = useRef<number | undefined>(undefined)
+  // `/name` completion: the CLI's skills and prompts for this project, fetched
+  // when a draft starts with a slash. Esc hides the list until the draft changes.
+  const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([])
+  const [slashCursor, setSlashCursor] = useState(0)
+  const [slashHidden, setSlashHidden] = useState(false)
+  const slashKeyRef = useRef("")
+  const slashLoadedRef = useRef("")
 
   // Oldest→newest list of what you actually sent this session — the shell-style
   // ↑/↓ recall reads from it so you can re-run a prompt without retyping.
@@ -798,6 +813,43 @@ export function ChatView({
   useEffect(() => {
     draftRef.current = draft
   }, [draft])
+
+  const slashName = slashQuery(draft)
+  const slashOpen = slashName !== null && !slashHidden && slashCommands.length > 0
+  const slashHits = useMemo(
+    () => (slashOpen ? filterSlashCommands(slashCommands, slashName) : []),
+    [slashOpen, slashCommands, slashName],
+  )
+  const slashActive = Math.min(slashCursor, Math.max(slashHits.length - 1, 0))
+  const slashDrafting = slashName !== null
+  const sessionProvider = session?.provider
+  const sessionCwd = session?.cwd
+  useEffect(() => {
+    if (!slashDrafting || !sessionProvider || !sessionCwd) {
+      slashKeyRef.current = ""
+      return
+    }
+    // One fetch per slash-draft per session; main caches the disk scan.
+    const key = `${sessionProvider}:${sessionCwd}`
+    if (slashKeyRef.current === key) return
+    slashKeyRef.current = key
+    // Another project's list must not flash while this one loads.
+    if (slashLoadedRef.current !== key) setSlashCommands([])
+    let alive = true
+    window.chatHub
+      .slashCommandsList(sessionProvider, sessionCwd)
+      .then((list) => {
+        if (!alive || slashKeyRef.current !== key) return
+        slashLoadedRef.current = key
+        setSlashCommands(list)
+      })
+      .catch(() => {
+        if (alive) setSlashCommands([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [slashDrafting, sessionProvider, sessionCwd])
 
   useEffect(() => {
     attachmentsRef.current = attachments
@@ -1060,7 +1112,51 @@ export function ChatView({
     taRef.current?.focus()
   }
 
+  function pickSlash(cmd: SlashCommand) {
+    setDraft(insertSlashCommand(cmd.name))
+    setHistIndex(-1)
+    setSlashCursor(0)
+    taRef.current?.focus()
+  }
+
+  /** ↑/↓/Tab/Enter/Esc while the slash list is up; false lets typing through. */
+  function slashKey(e: KeyboardEvent<HTMLTextAreaElement>): boolean {
+    if (!slashOpen) return false
+    if (e.key === "Escape") {
+      e.stopPropagation()
+      setSlashHidden(true)
+      return true
+    }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      const next = moveCursor(
+        slashActive,
+        e.key === "ArrowDown" ? 1 : -1,
+        slashHits.length,
+        true,
+      )
+      if (next !== null) setSlashCursor(next)
+      return true
+    }
+    const hit = slashHits[slashActive]
+    if (!hit) return false
+    if (e.key === "Tab") {
+      pickSlash(hit)
+      return true
+    }
+    // Enter completes a partial name; on the full name it sends, as in the CLI.
+    if (e.key === "Enter" && !e.shiftKey && !(e.metaKey || e.ctrlKey)) {
+      if (hit.name === slashName) return false
+      pickSlash(hit)
+      return true
+    }
+    return false
+  }
+
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (slashKey(e)) {
+      e.preventDefault()
+      return
+    }
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
       e.preventDefault()
       stashDraft()
@@ -1727,6 +1823,15 @@ export function ChatView({
         <ContextMeter usage={usage} model={session.model} />
         <AllowanceMeter limits={limits} />
         <div className="composer-shell">
+          {slashOpen ? (
+            <SlashCommandPopover
+              commands={slashHits}
+              query={slashName}
+              active={slashActive}
+              onMove={setSlashCursor}
+              onPick={pickSlash}
+            />
+          ) : null}
           <textarea
             ref={taRef}
             value={draft}
@@ -1746,6 +1851,8 @@ export function ChatView({
               // so the transcription behaves exactly like typed text.
               if (voicePhase === "waiting") dispatchVoice({ type: "text-arrived" })
               setDraft(e.target.value)
+              setSlashHidden(false)
+              setSlashCursor(0)
             }}
             onKeyDown={onKeyDown}
             onPaste={(e) => {

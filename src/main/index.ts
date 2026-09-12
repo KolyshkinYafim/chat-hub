@@ -53,6 +53,7 @@ import type {
 } from "@shared/settings-types"
 import { readBuildInfo } from "./build-info"
 import { dirStats } from "./storage-stats"
+import { invalidateSlashCommands, listSlashCommands } from "./slash-commands"
 import {
   probeAllProviders,
   testProvider,
@@ -1379,6 +1380,21 @@ export function registerIpc(
         arch: process.arch,
       }),
   )
+
+  ipcMain.handle(
+    IpcChannels.slashCommandsList,
+    (_e, provider: unknown, cwd: unknown) => {
+      if (typeof provider !== "string" || !PROVIDER_IDS.has(provider as ProviderId)) {
+        throw new Error("Invalid provider")
+      }
+      if (typeof cwd !== "string" || !cwd) throw new Error("Invalid cwd")
+      return listSlashCommands(provider as ProviderId, cwd)
+    },
+  )
+
+  ipcMain.handle(IpcChannels.slashCommandsInvalidate, () => {
+    invalidateSlashCommands()
+  })
 
   ipcMain.handle(
     IpcChannels.getStorageStats,

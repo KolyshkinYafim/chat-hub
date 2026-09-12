@@ -1902,6 +1902,24 @@ export function installDevMock(): void {
       )
       return 0
     },
+    slashCommandsList: async (provider) =>
+      provider === "claude"
+        ? [
+            {
+              name: "review",
+              description: "Review the current diff for bugs",
+              source: "project",
+              provider,
+            },
+            {
+              name: "changelog",
+              description: "Human changelog for this branch",
+              source: "user",
+              provider,
+            },
+          ]
+        : [],
+    slashCommandsInvalidate: async () => {},
   } satisfies Partial<ChatHubApi>
   // Typed, never cast: a preload method with no stub here is a compile error
   // rather than a mock that crashes the moment a component calls it.

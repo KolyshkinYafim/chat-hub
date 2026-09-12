@@ -106,6 +106,8 @@ export const IpcChannels = {
   projectSearch: "surface:project-search",
   scriptsList: "scripts:list",
   scriptsSave: "scripts:save",
+  slashCommandsList: "slash-commands:list",
+  slashCommandsInvalidate: "slash-commands:invalidate",
   browserAttach: "surface:browser-attach",
   browserDetach: "surface:browser-detach",
   browserActivity: "surface:browser-activity",

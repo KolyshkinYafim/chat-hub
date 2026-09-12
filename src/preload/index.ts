@@ -65,6 +65,7 @@ import type {
 } from "@shared/surface-control"
 import type { HubLayoutCommand } from "@shared/hub-control"
 import type { ProjectScript, ScriptsFile } from "@shared/scripts"
+import type { SlashCommand } from "@shared/slash-commands"
 import type { ContextDocId, ProjectContext } from "@shared/project-context"
 
 const windowIntent = parseWindowIntent(
@@ -372,6 +373,11 @@ const api = {
     ipcRenderer.invoke(IpcChannels.scriptsList, cwd),
   scriptsSave: (cwd: string, scripts: ProjectScript[]): Promise<ScriptsFile> =>
     ipcRenderer.invoke(IpcChannels.scriptsSave, cwd, scripts),
+  /** `/name` skills and prompts the CLI knows for this project (discovery only). */
+  slashCommandsList: (provider: ProviderId, cwd: string): Promise<SlashCommand[]> =>
+    ipcRenderer.invoke(IpcChannels.slashCommandsList, provider, cwd),
+  slashCommandsInvalidate: (): Promise<void> =>
+    ipcRenderer.invoke(IpcChannels.slashCommandsInvalidate),
   listProjects: (): Promise<Project[]> =>
     ipcRenderer.invoke(IpcChannels.listProjects),
   addProject: (
