@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import type { SessionMeta } from "@shared/types"
 import {
   AGENT_INBOX_KEY,
@@ -45,6 +45,7 @@ export function CommandPalette({
   onSendFailingChecks,
   onClose,
 }: Props) {
+  const panelRef = useRef<HTMLDivElement>(null)
   const [query, setQuery] = useState("")
   const [cursor, setCursor] = useState<PaletteCursor>({ key: null, index: 0 })
 
@@ -84,6 +85,7 @@ export function CommandPalette({
 
   useOverlay({
     onClose,
+    scopeRef: panelRef,
     cursor: {
       count: entries.length,
       active,
@@ -100,6 +102,7 @@ export function CommandPalette({
   return (
     <div className="modal-backdrop" onClick={onClose} role="presentation">
       <div
+        ref={panelRef}
         className="modal-panel palette-panel"
         role="dialog"
         aria-modal="true"

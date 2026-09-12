@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from "react"
+import { useEffect, useLayoutEffect, useRef, type RefObject } from "react"
 
 const FOCUSABLE =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -15,6 +15,8 @@ export type OverlayCursor = {
 export type OverlayOptions = {
   onClose: () => void
   enabled?: boolean
+  exclusive?: boolean
+  scopeRef?: RefObject<HTMLElement | null>
   trapRef?: RefObject<HTMLElement | null>
   cursor?: OverlayCursor
 }
@@ -60,21 +62,33 @@ function trapTab(root: HTMLElement, event: KeyboardEvent): void {
 
 export function useOverlay(options: OverlayOptions): void {
   const latest = useRef(options)
-  useEffect(() => {
+  useLayoutEffect(() => {
     latest.current = options
   })
 
   const enabled = options.enabled !== false
+  const exclusive = options.exclusive !== false
   useEffect(() => {
     if (!enabled) return
     const onKey = (event: KeyboardEvent) => {
-      const { onClose, trapRef, cursor } = latest.current
+      const { onClose, scopeRef, trapRef, cursor } = latest.current
+      const scope = scopeRef?.current
+      if (
+        scope &&
+        !(event.target instanceof Node && scope.contains(event.target))
+      ) {
+        return
+      }
       if (event.key === "Escape") {
-        event.preventDefault()
-        event.stopPropagation()
+        if (exclusive) {
+          event.preventDefault()
+          event.stopPropagation()
+        }
         onClose()
         return
       }
+      if (!exclusive) return
+      const wrap = cursor ? (cursor.wrap ?? cursor.keys === "tab") : false
       if (event.key === "Tab") {
         if (cursor?.keys === "tab") {
           event.preventDefault()
@@ -83,7 +97,7 @@ export function useOverlay(options: OverlayOptions): void {
             cursor.active,
             event.shiftKey ? -1 : 1,
             cursor.count,
-            cursor.wrap !== false,
+            wrap,
           )
           if (next !== null) cursor.onMove(next)
           return
@@ -97,20 +111,19 @@ export function useOverlay(options: OverlayOptions): void {
         (cursor.keys ?? "arrows") === "arrows" &&
         (event.key === "ArrowDown" || event.key === "ArrowUp")
       ) {
+        event.preventDefault()
         const next = moveCursor(
           cursor.active,
           event.key === "ArrowDown" ? 1 : -1,
           cursor.count,
-          cursor.wrap === true,
+          wrap,
         )
-        if (next === null) return
-        event.preventDefault()
-        cursor.onMove(next)
+        if (next !== null) cursor.onMove(next)
         return
       }
       if (event.key === "Enter") cursor?.onCommit?.(event)
     }
-    window.addEventListener("keydown", onKey, true)
-    return () => window.removeEventListener("keydown", onKey, true)
-  }, [enabled])
+    window.addEventListener("keydown", onKey, exclusive)
+    return () => window.removeEventListener("keydown", onKey, exclusive)
+  }, [enabled, exclusive])
 }
