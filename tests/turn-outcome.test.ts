@@ -60,10 +60,22 @@ describe("sessionStateLine", () => {
   const meta = (status: SessionMeta["status"], live?: SessionMeta["live"]): SessionMeta =>
     ({ id: "s", title: "t", project: "p", provider: "claude", cwd: "/", status, createdAt: 0, updatedAt: 0, live }) as SessionMeta
 
-  it("shows the step a working chat is on", () => {
+  it("leads with the phase of the step a working chat is on", () => {
     expect(
       sessionStateLine(meta("running", { phase: "tool", stepLabel: "Shell", stepDetail: "git status", since: 0, startedAt: 0 })),
-    ).toBe("Shell · git status")
+    ).toBe("Exploring · git status")
+    expect(
+      sessionStateLine(meta("running", { phase: "tool", stepLabel: "Shell", stepDetail: "pnpm vitest run", since: 0, startedAt: 0 })),
+    ).toBe("Testing · pnpm vitest run")
+  })
+
+  it("keeps the tool's own name when the step fits no phase", () => {
+    expect(
+      sessionStateLine(meta("running", { phase: "tool", stepLabel: "Shell", stepDetail: "git commit -m x", since: 0, startedAt: 0 })),
+    ).toBe("Shell · git commit -m x")
+    expect(
+      sessionStateLine(meta("running", { phase: "thinking", stepLabel: "Thinking", since: 0, startedAt: 0 })),
+    ).toBe("Thinking")
   })
 
   it("says nothing for a chat at rest", () => {

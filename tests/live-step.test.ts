@@ -7,8 +7,10 @@ import {
   itemPlanProgress,
   itemStep,
   livePhase,
+  metaStep,
   planProgress,
   stepPhase,
+  stepPhaseLabel,
 } from "@renderer/lib/live-step"
 import { summarizeToolArgs } from "@shared/tool-card"
 import type { AgentTurnItem, ChatMessage } from "@shared/types"
@@ -106,6 +108,18 @@ describe("currentStep", () => {
       call + toolResultBlock("Bash", "2 passed", { id: "toolu_a" }) + "Done.",
     )
     expect(during.key).not.toBe(after.key)
+  })
+
+  it("carries the phase of the open call, with the coarse label as fallback", () => {
+    const testing = stepFor(toolUseBlock("Bash", { command: "pnpm vitest run" }, "a"))
+    expect(testing.phase).toBe("testing")
+    expect(stepPhaseLabel(testing)).toBe("Testing")
+    const reading = stepFor(toolUseBlock("Read", { file_path: "a.ts" }, "b"))
+    expect(stepPhaseLabel(reading)).toBe("Exploring")
+    const unknown = stepFor(toolUseBlock("mcp__slack__users_search", {}, "c"))
+    expect(unknown.phase).toBe("working")
+    expect(stepPhaseLabel(unknown)).toBe("Running a tool")
+    expect(stepPhaseLabel(stepFor(""))).toBe("Connecting")
   })
 })
 
@@ -272,6 +286,34 @@ describe("itemStep", () => {
 
   it("changes its key with the item so the clock restarts", () => {
     expect(itemStep([readFile])?.key).not.toBe(itemStep([shell])?.key)
+  })
+
+  it("names the phase of the item it points at", () => {
+    expect(itemStep([readFile])?.phase).toBe("exploring")
+    expect(itemStep([shell])?.phase).toBe("exploring")
+    expect(
+      itemStep([{ id: "t", kind: "command", status: "running", command: "pnpm test" }])?.phase,
+    ).toBe("testing")
+    expect(
+      itemStep([{ id: "r", kind: "reasoning", status: "running", summary: "next" }])?.phase,
+    ).toBe("thinking")
+  })
+})
+
+describe("metaStep", () => {
+  it("classifies from the label and detail the main process relayed", () => {
+    const step = metaStep({
+      phase: "tool",
+      stepLabel: "Shell",
+      stepDetail: "pnpm vitest run",
+      since: 0,
+      startedAt: 0,
+    })
+    expect(step.phase).toBe("testing")
+    expect(stepPhaseLabel(step)).toBe("Testing")
+    expect(
+      metaStep({ phase: "connecting", stepLabel: "Connecting", since: 0, startedAt: 0 }).phase,
+    ).toBeNull()
   })
 })
 
