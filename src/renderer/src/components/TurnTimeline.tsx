@@ -56,7 +56,7 @@ export function TurnTimeline({
   const active = activeIndex === null ? null : (rows[activeIndex - 1] ?? null)
   const activeKey = active?.id ?? "idle"
   const pickedSegment =
-    picked === null ? null : (phases.segments[picked] ?? null)
+    picked === null ? null : (phases.rail[picked] ?? null)
   const liveSegment =
     streaming && phases.activeIndex !== null
       ? (phases.segments[phases.activeIndex] ?? null)
@@ -107,13 +107,17 @@ export function TurnTimeline({
 
   return (
     <section className={`turn-timeline is-${state}`}>
-      {phases.segments.length > 0 ? (
-        <div className="turn-phase-rail" role="group" aria-label="Phases">
-          {phases.segments.map((segment, at) => (
+      {phases.rail.length > 0 ? (
+        <div
+          className="turn-phase-rail"
+          role="group"
+          aria-label={phases.overview ? "Phases, totalled" : "Phases in order"}
+        >
+          {phases.rail.map((segment, at) => (
             <PhaseChip
               key={`${at}-${segment.phase}`}
               segment={segment}
-              live={streaming && at === phases.activeIndex}
+              live={streaming && at === phases.railActive}
               picked={at === picked}
               onPick={() => setPicked((current) => (current === at ? null : at))}
             />

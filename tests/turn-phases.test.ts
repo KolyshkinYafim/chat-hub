@@ -122,6 +122,11 @@ describe("toolPhase", () => {
     )
   })
 
+  it("counts looking up tools as exploring", () => {
+    expect(toolPhase("ToolSearch")).toBe("exploring")
+    expect(toolPhase("list_tools")).toBe("exploring")
+  })
+
   it("has no opinion about a tool it has never seen", () => {
     expect(toolPhase("mcp__slack__users_search")).toBe("working")
     expect(toolPhase("Task")).toBe("working")
@@ -284,6 +289,124 @@ describe("buildTurnPhases", () => {
   })
 
   it("is empty for a turn with nothing in it", () => {
-    expect(buildTurnPhases(undefined)).toEqual({ segments: [], activeIndex: null })
+    expect(buildTurnPhases(undefined)).toMatchObject({
+      segments: [],
+      activeIndex: null,
+      rail: [],
+      railActive: null,
+      overview: false,
+    })
+  })
+})
+
+describe("buildTurnPhases blip absorption", () => {
+  const surface = (id: string) => tool(id, "mcp__chat-hub__surface_open", {})
+  const click = (id: string) => tool(id, "mcp__chat-hub-browser__browser_click", {})
+
+  it("folds a one-step blip into the run around it, keeping every step", () => {
+    const { segments } = buildTurnPhases([
+      surface("1"),
+      surface("2"),
+      shell("3", "git commit -m x"),
+      surface("4"),
+      surface("5"),
+    ])
+    expect(segments.map((segment) => segment.label)).toEqual(["Verifying 5"])
+    expect(segments[0]!.itemIds).toEqual(["1", "2", "3", "4", "5"])
+  })
+
+  it("folds two steps only between long runs", () => {
+    const long = [click("1"), click("2"), click("3"), click("4")]
+    const tail = [click("7"), click("8"), click("9"), click("10")]
+    const blip = [shell("5", "git commit"), shell("6", "git push")]
+    expect(
+      buildTurnPhases([...long, ...blip, ...tail]).segments.map((s) => s.label),
+    ).toEqual(["Browsing 10"])
+    expect(
+      buildTurnPhases([...long.slice(0, 2), ...blip, ...tail]).segments.map((s) => s.label),
+    ).toEqual(["Browsing 2", "Working 2", "Browsing 4"])
+  })
+
+  it("keeps a blip whose neighbours disagree", () => {
+    const { segments } = buildTurnPhases([surface("1"), shell("2", "git push"), click("3")])
+    expect(segments.map((segment) => segment.label)).toEqual([
+      "Verifying",
+      "Working",
+      "Browsing",
+    ])
+  })
+
+  it("keeps absorbing once a merge exposes the next blip", () => {
+    const { segments } = buildTurnPhases([
+      surface("1"),
+      shell("2", "git push"),
+      surface("3"),
+      click("4"),
+      surface("5"),
+    ])
+    expect(segments.map((segment) => segment.label)).toEqual(["Verifying 5"])
+  })
+
+  it("carries an open blip's state into the merged chip", () => {
+    const { segments, activeIndex } = buildTurnPhases([
+      surface("1"),
+      { ...shell("2", "curl x"), status: "running" },
+      surface("3"),
+    ])
+    expect(segments[0]!.open).toBe(true)
+    expect(activeIndex).toBe(0)
+  })
+})
+
+describe("buildTurnPhases overview", () => {
+  const surface = (id: string) => tool(id, "mcp__chat-hub__surface_open", {})
+  const read = (id: string) => tool(id, "Read", { file_path: `${id}.ts` })
+  // Eight alternating runs of two: too many chips to read in sequence.
+  const alternating = (runs: number) =>
+    Array.from({ length: runs }, (_, run) =>
+      run % 2 === 0
+        ? [read(`${run}a`), read(`${run}b`)]
+        : [surface(`${run}a`), surface(`${run}b`)],
+    ).flat()
+
+  it("keeps the sequence up to seven segments", () => {
+    const phases = buildTurnPhases(alternating(7))
+    expect(phases.overview).toBe(false)
+    expect(phases.rail).toBe(phases.segments)
+    expect(phases.rail).toHaveLength(7)
+  })
+
+  it("totals per phase, in first-seen order, past seven", () => {
+    const phases = buildTurnPhases(alternating(8))
+    expect(phases.overview).toBe(true)
+    expect(phases.segments).toHaveLength(8)
+    expect(phases.rail.map((segment) => segment.label)).toEqual([
+      "Exploring 8",
+      "Verifying 8",
+    ])
+    expect(phases.rail[0]!.itemIds).toEqual(["0a", "0b", "2a", "2b", "4a", "4b", "6a", "6b"])
+  })
+
+  it("points the live chip at the phase the agent is in", () => {
+    const items = alternating(8)
+    items.push({ ...shell("t", "pnpm test", { output: "1 failed" }), status: "running" })
+    const phases = buildTurnPhases(items)
+    expect(phases.rail.map((segment) => segment.label)).toEqual([
+      "Exploring 8",
+      "Verifying 8",
+      "Testing",
+    ])
+    expect(phases.railActive).toBe(2)
+    expect(phases.activeIndex).toBe(8)
+  })
+
+  it("keeps the test verdict on a totalled chip", () => {
+    const items = alternating(8)
+    items.splice(4, 0, shell("t1", "pnpm test", { exitCode: 1, output: "2 failed | 9 passed" }))
+    items.push(shell("t2", "pnpm test", { exitCode: 0, output: "11 passed" }))
+    const phases = buildTurnPhases(items)
+    expect(phases.rail.find((segment) => segment.phase === "testing")?.label).toBe(
+      "Testing ✗ 2",
+    )
   })
 })

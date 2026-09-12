@@ -59,10 +59,21 @@ export type PhaseSegment = {
 }
 
 export type TurnPhases = {
+  /** Every segment in order, one-step blips folded into their neighbours. */
   segments: PhaseSegment[]
   /** Index of the segment the agent is in; null once everything settled. */
   activeIndex: number | null
+  /**
+   * What the rail draws: `segments` while they fit a glance, else one total
+   * per phase in first-seen order. `railActive` indexes into `rail`.
+   */
+  rail: PhaseSegment[]
+  railActive: number | null
+  overview: boolean
 }
+
+/** More chips than this and the sequence stops being readable at a glance. */
+export const RAIL_MAX = 7
 
 const EXPLORE_TOOLS = new Set([
   "read",
@@ -86,6 +97,13 @@ const EXPLORE_TOOLS = new Set([
   "web_search",
   "web_fetch",
   "fetch",
+  // Looking up which tools exist is looking around, not doing anything.
+  "toolsearch",
+  "tool_search",
+  "search_tools",
+  "list_tools",
+  "tools_list",
+  "get_tool_schema",
 ])
 
 const EDIT_TOOLS = new Set([
@@ -231,21 +249,79 @@ export function buildTurnPhases(items: AgentTurnItem[] | undefined): TurnPhases 
   }
   if (thoughts.length > 0) drafts.push({ phase: "thinking", items: thoughts })
 
-  const segments = drafts.map(toSegment)
-  let activeIndex: number | null = null
-  for (let at = segments.length - 1; at >= 0; at -= 1) {
-    if (segments[at]!.open) {
-      activeIndex = at
-      break
-    }
+  const absorbed = absorbBlips(drafts)
+  const segments = absorbed.map(toSegment)
+  const activeIndex = lastOpen(segments)
+  if (segments.length <= RAIL_MAX) {
+    return { segments, activeIndex, rail: segments, railActive: activeIndex, overview: false }
   }
-  return { segments, activeIndex }
+  const rail = totalsByPhase(absorbed).map(toSegment)
+  const activePhase = activeIndex === null ? null : segments[activeIndex]!.phase
+  const railActive = rail.findIndex((segment) => segment.phase === activePhase)
+  return {
+    segments,
+    activeIndex,
+    rail,
+    railActive: railActive === -1 ? null : railActive,
+    overview: true,
+  }
 }
 
 type Draft = {
   phase: WorkPhase
   /** Thoughts and steps, in arrival order. */
   items: AgentTurnItem[]
+}
+
+const steps = (draft: Draft) =>
+  draft.items.filter((item) => item.kind !== "reasoning").length
+
+/**
+ * A lone `curl` inside a run of surface checks, a screenshot inside a browser
+ * run: one step (two, between long runs) of another phase does not change
+ * what the agent was doing, so the rail folds it into the run around it. The
+ * steps themselves keep their own kind — only the chip is merged. Repeats
+ * until stable, because a merge can expose the next blip.
+ */
+function absorbBlips(drafts: Draft[]): Draft[] {
+  const out = [...drafts]
+  let at = 1
+  while (at < out.length - 1) {
+    const before = out[at - 1]!
+    const blip = out[at]!
+    const after = out[at + 1]!
+    const small =
+      steps(blip) <= 1 ||
+      (steps(blip) <= 2 && steps(before) >= 4 && steps(after) >= 4)
+    if (before.phase === after.phase && blip.phase !== before.phase && small) {
+      out.splice(at - 1, 3, {
+        phase: before.phase,
+        items: [...before.items, ...blip.items, ...after.items],
+      })
+      at = Math.max(1, at - 1)
+      continue
+    }
+    at += 1
+  }
+  return out
+}
+
+/** One draft per phase, in the order the phases were first seen. */
+function totalsByPhase(drafts: Draft[]): Draft[] {
+  const byPhase = new Map<WorkPhase, Draft>()
+  for (const draft of drafts) {
+    const total = byPhase.get(draft.phase)
+    if (total) total.items.push(...draft.items)
+    else byPhase.set(draft.phase, { phase: draft.phase, items: [...draft.items] })
+  }
+  return [...byPhase.values()]
+}
+
+function lastOpen(segments: PhaseSegment[]): number | null {
+  for (let at = segments.length - 1; at >= 0; at -= 1) {
+    if (segments[at]!.open) return at
+  }
+  return null
 }
 
 function toSegment(draft: Draft): PhaseSegment {
