@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { Mode } from "@shared/settings-types"
 import { useOutsideDismiss } from "../lib/use-outside-dismiss"
 
@@ -24,7 +24,20 @@ function fallbackDescription(mode: Mode): string {
 export function SessionModePicker({ modes, modeId, onSelect }: Props) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
   useOutsideDismiss(rootRef, open, () => setOpen(false))
+
+  useEffect(() => {
+    if (!open) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      event.stopPropagation()
+      setOpen(false)
+      triggerRef.current?.focus()
+    }
+    window.addEventListener("keydown", closeOnEscape)
+    return () => window.removeEventListener("keydown", closeOnEscape)
+  }, [open])
 
   const active = useMemo(
     () =>
@@ -40,6 +53,7 @@ export function SessionModePicker({ modes, modeId, onSelect }: Props) {
   return (
     <div className="session-mode-picker" ref={rootRef}>
       <button
+        ref={triggerRef}
         type="button"
         className={`session-mode-trigger mode-${active.id}`}
         aria-haspopup="menu"

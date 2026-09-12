@@ -49,18 +49,13 @@ import {
 } from "../lib/voice-state"
 import { PlanSteps, toPlanSteps } from "./PlanSteps"
 import { ComposerMenu } from "./ComposerMenu"
-import { FeedLabel, FeedRunRow } from "./ToolFeed"
+import { FeedLabel } from "./ToolFeed"
 import { LiveStepTicker } from "./LiveStepTicker"
 import { TurnOutcomeStrip } from "./TurnOutcomeStrip"
 import { turnOutcome } from "../lib/turn-outcome"
 import { TurnTimeline } from "./TurnTimeline"
 import { buildTranscript } from "../lib/tool-runs"
-import {
-  groupFeed,
-  statusWord,
-  stepsFromItems,
-  type FeedStep,
-} from "../lib/tool-feed"
+import { statusWord, stepsFromItems, type FeedStep } from "../lib/tool-feed"
 import {
   currentStep,
   itemPlanProgress,
@@ -361,37 +356,34 @@ function TurnItems({
   streaming?: boolean
   onJumpToItem: (itemId: string) => void
 }) {
+  const [detailItemId, setDetailItemId] = useState<string | null>(null)
   if (!items?.length && !streaming) return null
   const byId = new Map((items ?? []).map((item) => [item.id, item]))
-  const nodes = groupFeed(stepsFromItems(items))
+  const steps = stepsFromItems(items)
+  const detailStep = steps.find((step) => step.id === detailItemId) ?? null
+
+  const revealItem = (itemId: string) => {
+    setDetailItemId((current) => (current === itemId ? null : itemId))
+    // The detail row is mounted by the state update above. Give React one
+    // frame to commit it before the transcript tries to bring it into view.
+    window.requestAnimationFrame(() => onJumpToItem(itemId))
+  }
+
   return (
     <div className="turn-activity">
-      {/* The header is the whole sequence, at a height that does not move. The
-          cards below it are the detail behind each of its rows, and none of
-          them opens or closes on its own while the turn streams. */}
+      {/* The timeline is the sequence. A clicked row reveals only that step's
+          detail, so commands are not printed twice down the whole transcript. */}
       <TurnTimeline
         items={items}
         content={content}
         streaming={streaming}
-        onJump={onJumpToItem}
+        onJump={revealItem}
       />
-      {nodes.map((node) => {
-        if (node.kind === "step") {
-          return <ItemCard key={node.key} step={node.step} byId={byId} />
-        }
-        if (node.steps.length === 1) {
-          return <ItemCard key={node.key} step={node.steps[0]!} byId={byId} quiet />
-        }
-        return (
-          <FeedRunRow key={node.key} run={node}>
-            {node.steps.map((step) => (
-              <li key={step.id} className="feed-quiet-row">
-                <ItemCard step={step} byId={byId} quiet />
-              </li>
-            ))}
-          </FeedRunRow>
-        )
-      })}
+      {detailStep ? (
+        <div className="turn-step-detail">
+          <ItemCard step={detailStep} byId={byId} open />
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -400,11 +392,14 @@ function ItemCard({
   step,
   byId,
   quiet = false,
+  open = false,
 }: {
   step: FeedStep
   byId: Map<string, AgentTurnItem>
   /** A cheap step is one dense line, whether it is alone or inside a run. */
   quiet?: boolean
+  /** Timeline-selected detail opens immediately; errors still open by default. */
+  open?: boolean
 }) {
   const item = byId.get(step.id)
   if (!item) return null
@@ -415,7 +410,7 @@ function ItemCard({
       data-item-id={item.id}
       data-level={item.kind === "notice" ? item.level : undefined}
       className={`activity-item activity-${item.kind}${quiet ? " is-quiet" : ""}`}
-      open={item.kind === "error" || (item.kind === "notice" && item.level === "warning")}
+      open={open || item.kind === "error" || (item.kind === "notice" && item.level === "warning")}
     >
       <summary>
         <span className="activity-index">{step.index}</span>
