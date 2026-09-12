@@ -1,6 +1,6 @@
 import { oneLine } from "@shared/text"
 import { splitToolName, type PlanStep } from "@shared/tool-card"
-import { describeItem } from "@shared/live"
+import { describeItem, phaseLabel } from "@shared/live"
 import type {
   AgentTurnItem,
   ChatMessage,
@@ -14,6 +14,13 @@ import {
   type ToolCall,
   type TranscriptBlock,
 } from "./tool-runs"
+import {
+  callPhase,
+  itemPhase,
+  toolPhase,
+  workPhaseLabel,
+  type WorkPhase,
+} from "./turn-phases"
 
 export type { LivePhase }
 
@@ -23,12 +30,24 @@ export type LiveStep = {
   label: string
   detail: string | null
   server: string | null
+  /** What the step is for — exploring, testing…; null when nothing better than `kind` is known. */
+  phase: WorkPhase | null
 }
 
 export function stepPhase(step: LiveStep): LivePhase {
   if (step.kind === "starting") return "connecting"
   if (step.kind === "tool") return "tool"
   return "thinking"
+}
+
+/**
+ * The word in front of the step: "Testing", "Editing". Falls back to the
+ * coarse phase for a step nobody could classify better, so the ticker never
+ * says "Working · Working".
+ */
+export function stepPhaseLabel(step: LiveStep): string {
+  if (step.phase && step.phase !== "working") return workPhaseLabel[step.phase]
+  return phaseLabel[stepPhase(step)]
 }
 
 export function livePhase(
@@ -67,6 +86,14 @@ export function metaStep(live: SessionLiveActivity): LiveStep {
     label: live.stepLabel,
     detail: live.stepDetail ? clampDetail(live.stepDetail) : null,
     server: null,
+    // The main process only relays a label and a detail, so the tool name
+    // and its argument are all there is to classify from.
+    phase:
+      kind === "tool"
+        ? toolPhase(live.stepLabel, live.stepDetail ?? "")
+        : kind === "thinking"
+          ? "thinking"
+          : null,
   }
 }
 
@@ -99,6 +126,7 @@ export function itemStep(items: AgentTurnItem[] | undefined): LiveStep | null {
       label,
       detail: detail ? clampDetail(detail) : null,
       server,
+      phase: itemPhase(action),
     }
   }
   if (open.length === 0) return null
@@ -108,6 +136,7 @@ export function itemStep(items: AgentTurnItem[] | undefined): LiveStep | null {
     label: "Thinking",
     detail: null,
     server: null,
+    phase: "thinking",
   }
 }
 
@@ -139,18 +168,19 @@ export function currentStep(blocks: TranscriptBlock[]): LiveStep {
       label,
       detail: callDetail(open),
       server,
+      phase: callPhase(open),
     }
   }
 
   const last = blocks[blocks.length - 1]
   if (!last) {
-    return { key: "starting", kind: "starting", label: "Starting", detail: null, server: null }
+    return { key: "starting", kind: "starting", label: "Starting", detail: null, server: null, phase: null }
   }
   const at = blocks.length - 1
   if (last.kind === "reasoning" || last.kind === "tools" || last.kind === "plan") {
-    return { key: `thinking:${at}`, kind: "thinking", label: "Thinking", detail: null, server: null }
+    return { key: `thinking:${at}`, kind: "thinking", label: "Thinking", detail: null, server: null, phase: "thinking" }
   }
-  return { key: `writing:${at}`, kind: "writing", label: "Writing", detail: null, server: null }
+  return { key: `writing:${at}`, kind: "writing", label: "Writing", detail: null, server: null, phase: null }
 }
 
 export function planProgress(blocks: TranscriptBlock[]): PlanProgress | null {
