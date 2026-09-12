@@ -321,7 +321,14 @@ export function BoardSurface({ cwd, onOpenSurface }: Props) {
                     )
                   }
                 >
-                  {status === "done" ? "✓" : ""}
+                  {status === "done" ? (
+                    // An SVG rather than a "✓" glyph: the font stack has no
+                    // check, and the fallback font's ink sits off-centre in
+                    // an 18px box.
+                    <svg viewBox="0 0 12 12" aria-hidden>
+                      <path d="M2.5 6.5 5 9l4.5-6" />
+                    </svg>
+                  ) : null}
                 </button>
                 <button
                   type="button"
