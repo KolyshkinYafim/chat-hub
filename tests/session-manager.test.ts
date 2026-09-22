@@ -330,6 +330,7 @@ describe("permission routing", () => {
     const session = await sm.createSession({ provider: "claude", cwd: dir })
     await sm.sendMessage(session.id, "hello")
 
+    expect(sm.findSessionForAgent(session.id)).toBe(session.id)
     expect(sm.findSessionForAgent("claude-xyz")).toBeNull()
     // Only the cwd is known until the CLI announces its own id.
     expect(sm.findSessionForAgent("claude-xyz", session.cwd)).toBe(session.id)
@@ -466,6 +467,7 @@ describe("message queue", () => {
       ).toBe(true)
     })
     expect(state.sent).toEqual(["first"])
+    expect(sm.getMessages(session.id).flatMap(m => m.items ?? [])).toContainEqual(expect.objectContaining({ kind: "error", message: "CLI died" }))
   })
 
   it("queues the second of two sends the adapter has not reported running yet", async () => {

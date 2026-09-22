@@ -143,7 +143,8 @@ describe("turn completion observer", () => {
     await vi.waitFor(() => expect(observer).toHaveBeenCalledTimes(2))
     const failure = observer.mock.calls[1]
     expect(failure[3]).toBe(true)
-    expect(texts(failure[1])).toEqual(["failing prompt"])
+    expect(texts(failure[1])).toEqual(["failing prompt", ""])
+    expect(failure[1][1].items).toContainEqual(expect.objectContaining({ kind: "error", message: "CLI failed" }))
     const span = turnSpan(...failure, false)!
     expect(span.status.code).toBe(2)
     expect(attr(span, "langfuse.observation.output")).toBe('""')

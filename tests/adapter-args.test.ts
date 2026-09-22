@@ -64,9 +64,9 @@ describe("buildClaudeArgs", () => {
     expect(args[1]).toContain("@/Users/me/code/mary/src/api.ts")
   })
 
-  it("omits --permission-mode for Ask — `default` is not a valid choice", () => {
+  it("selects manual for Ask regardless of the global default", () => {
     const args = buildClaudeArgs({ ...base, permissionMode: "default" })
-    expect(args).not.toContain("--permission-mode")
+    expect(flag(args, "--permission-mode")).toBe("manual")
     expect(args.join(" ")).not.toContain("default")
   })
 

@@ -15,6 +15,7 @@ import type {
   SessionUsage,
   TurnUsage,
 } from "@shared/types"
+import { redactSensitive } from "./main-log"
 import { LiveActivityTracker } from "./live-activity"
 import { normalizeProject } from "@shared/project"
 import { getAdapter } from "./adapters"
@@ -343,6 +344,7 @@ export class SessionManager {
    * before the CLI has told us its session id at all.
    */
   findSessionForAgent(agentSessionId: string, cwd?: string): string | null {
+    if (this.sessions.has(agentSessionId)) return agentSessionId
     const bare = agentSessionId.replace(/^(claude|codex|grok|opencode)-/, "")
     for (const s of this.sessions.values()) {
       if (!s.agentSessionId) continue
@@ -1160,6 +1162,11 @@ export class SessionManager {
         this.turns.delete(sessionId)
         console.error("[session-manager] send failed", err)
         this.unsettle(sessionId)
+        const message = redactSensitive(err instanceof Error ? err.message : String(err))
+        this.callbacks().onMessage({
+          id: randomUUID(), sessionId, role: "assistant", content: "", createdAt: Date.now(),
+          items: [{ id: randomUUID(), kind: "error", status: "failed", message: message || "The agent failed to start this turn." }],
+        })
         this.applyStatus(sessionId, "error")
         this.publishSessionEvent({
           type: "session.ended",

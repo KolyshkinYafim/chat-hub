@@ -9,6 +9,8 @@ import {
 } from "./interactive-input"
 import { runProcess, type RunningProcess } from "./process-runner"
 import { randomUUID } from "node:crypto"
+import { existsSync } from "node:fs"
+import { join } from "node:path"
 import {
   beginAssistant,
   emitTurnItem,
@@ -145,6 +147,20 @@ export class ClaudeAdapter implements AgentAdapter {
       attachments: opts?.attachments,
       resumeId: state.claudeSessionId,
     })
+    const socketPath = opts?.env?.AGENT_DESKTOP_SOCKET
+    if (mode !== "yolo" && socketPath) {
+      const packaged = join(process.resourcesPath ?? "", "mcp", "permissions-mcp.mjs")
+      const script = existsSync(packaged) ? packaged : join(__dirname, "../../resources/mcp/permissions-mcp.mjs")
+      args.push("--permission-prompt-tool", "mcp__chathub-permissions__approve", "--mcp-config", JSON.stringify({
+        mcpServers: {
+          "chathub-permissions": {
+            command: process.execPath,
+            args: [script],
+            env: { ELECTRON_RUN_AS_NODE: "1", AGENT_DESKTOP_SOCKET: socketPath, AGENT_DESKTOP_HUB_SESSION: sessionId, CHAT_HUB_PERMISSION_CWD: state.cwd },
+          },
+        },
+      }))
+    }
 
     cb.onSessionEvent({
       type: "session.status",

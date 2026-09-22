@@ -40,10 +40,8 @@ describe("permission modes", () => {
     }
   })
 
-  it("passes no --permission-mode for Claude's Ask mode", () => {
-    // Claude 2.x's choices do not include "default" and commander hard-fails,
-    // so Ask has to be expressed by omitting the flag.
-    expect(claudePermissionArgs("default")).toEqual([])
+  it("explicitly selects manual so global auto mode cannot override Ask", () => {
+    expect(claudePermissionArgs("default")).toEqual(["--permission-mode", "manual"])
   })
 
   it("uses Grok's own always-approve flag for YOLO only", () => {
