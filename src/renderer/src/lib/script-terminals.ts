@@ -5,24 +5,19 @@ type ScriptTerminal = {
   chunks: string[]
   size: number
   off: () => void
+  cwd?: string
 }
 
 const BACKLOG_LIMIT_CHARS = 200_000
 
 const live = new Map<string, ScriptTerminal>()
 
-/**
- * A pty that ran a script survives its surface unmounting (the dock shows one
- * surface at a time, and a dev server must outlive the switch to the browser
- * preview). This registry buffers output while the terminal surface is away so
- * a remount can replay it; plain shells keep dying with their surface.
- */
-export function registerScriptTerminal(sessionId: string, ptyId: string): void {
+export function registerScriptTerminal(sessionId: string, ptyId: string, cwd?: string, backlog = ""): void {
   const existing = live.get(sessionId)
   if (existing?.ptyId === ptyId) return
   if (existing) remove(sessionId, true)
   const bridge = surfaceBridge()
-  const record: ScriptTerminal = { ptyId, chunks: [], size: 0, off: () => {} }
+  const record: ScriptTerminal = { ptyId, cwd, chunks: backlog ? [backlog] : [], size: backlog.length, off: () => {} }
   const offData = bridge.onTerminalData((chunk) => {
     if (chunk.ptyId !== ptyId) return
     record.chunks.push(chunk.data)
@@ -45,10 +40,19 @@ export function registerScriptTerminal(sessionId: string, ptyId: string): void {
 
 export function scriptTerminalFor(
   sessionId: string,
+  cwd?: string,
 ): { ptyId: string; backlog: string } | null {
   const record = live.get(sessionId)
   if (!record) return null
+  if (cwd && record.cwd && record.cwd !== cwd) {
+    remove(sessionId, true)
+    return null
+  }
   return { ptyId: record.ptyId, backlog: record.chunks.join("") }
+}
+
+export function closeSessionTerminal(sessionId: string): void {
+  remove(sessionId, true)
 }
 
 export function isScriptTerminal(ptyId: string): boolean {

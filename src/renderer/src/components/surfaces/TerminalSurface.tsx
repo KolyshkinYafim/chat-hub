@@ -10,6 +10,7 @@ import {
 } from "../../lib/pending-run"
 import {
   isScriptTerminal,
+  closeSessionTerminal,
   registerScriptTerminal,
   scriptTerminalFor,
 } from "../../lib/script-terminals"
@@ -41,11 +42,12 @@ export function TerminalSurface({ cwd, sessionId, hookRuns = [] }: Props) {
   /** The shell is gone — the panel is a transcript until it is started again. */
   const [dead, setDead] = useState(false)
   const [restartKey, setRestartKey] = useState(0)
+  const [stopped, setStopped] = useState(false)
   const banners = useMemo(() => groupHookBanners(hookRuns), [hookRuns])
 
   useEffect(() => {
     const host = hostRef.current
-    if (!host) return
+    if (!host || stopped) return
 
     const term = new Terminal({
       allowProposedApi: true,
@@ -130,7 +132,7 @@ export function TerminalSurface({ cwd, sessionId, hookRuns = [] }: Props) {
       opened = true
       term.open(host)
       safeFit()
-      const held = sessionId ? scriptTerminalFor(sessionId) : null
+      const held = sessionId ? scriptTerminalFor(sessionId, cwd) : null
       if (held) {
         ptyId = held.ptyId
         term.write(held.backlog)
@@ -155,6 +157,7 @@ export function TerminalSurface({ cwd, sessionId, hookRuns = [] }: Props) {
             return
           }
           ptyId = started.ptyId
+          if (sessionId) registerScriptTerminal(sessionId, ptyId, cwd, early.filter(chunk => chunk.ptyId === ptyId).map(chunk => chunk.data).join(""))
           exited = false
           setStatus(null)
           for (const chunk of early) {
@@ -211,10 +214,21 @@ export function TerminalSurface({ cwd, sessionId, hookRuns = [] }: Props) {
       // a callback nothing owns. Letting that frame land first costs nothing.
       requestAnimationFrame(() => term.dispose())
     }
-  }, [cwd, sessionId, restartKey])
+  }, [cwd, sessionId, restartKey, stopped])
 
   return (
     <div className="surface-terminal">
+      {sessionId && !dead && !stopped ? (
+        <div className="terminal-session-bar">
+          <span>Session terminal · stays running when hidden</span>
+          <button type="button" className="tb-btn sm" onClick={() => {
+            closeSessionTerminal(sessionId)
+            setStopped(true)
+            setDead(true)
+            setStatus("Terminal stopped")
+          }}>Stop terminal</button>
+        </div>
+      ) : null}
       {banners.length > 0 ? (
         <div className="surface-terminal-hooks" aria-label="Hook events">
           {banners.map((b) => (
@@ -245,6 +259,7 @@ export function TerminalSurface({ cwd, sessionId, hookRuns = [] }: Props) {
               onClick={() => {
                 setStatus(null)
                 setDead(false)
+                setStopped(false)
                 setRestartKey((k) => k + 1)
               }}
             >
