@@ -1,4 +1,6 @@
 import { once } from "node:events"
+import { realpathSync } from "node:fs"
+import { findBinary } from "../adapters/binary"
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { createInterface, type Interface as ReadlineInterface } from "node:readline"
 import type { Readable, Writable } from "node:stream"
@@ -297,12 +299,17 @@ export class CodexAppServerClient {
   }
 }
 
+export function resolveCodexExecutable(binary: string): string {
+  const found = findBinary([binary]) ?? binary
+  try { return realpathSync(found) } catch { return found }
+}
+
 function spawnTransport(
   binary: string,
   cwd: string | undefined,
   extraEnv: Record<string, string> | undefined,
 ): CodexRpcTransport {
-  const child = spawn(binary, ["app-server"], {
+  const child = spawn(resolveCodexExecutable(binary), ["app-server"], {
     cwd,
     env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
     stdio: ["pipe", "pipe", "pipe"],
