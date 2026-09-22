@@ -23,7 +23,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:terminal": "playwright test e2e/terminal.spec.ts",
+    "test:qa": "pnpm typecheck && pnpm test && pnpm build && pnpm test:e2e",
+    "test:providers:live": "CHAT_HUB_LIVE_UI=1 playwright test e2e/providers-live.spec.ts e2e/provider-tools.spec.ts",
+    "demo:workflow": "node e2e/workflow-demo.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",
