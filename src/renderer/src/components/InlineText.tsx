@@ -1,4 +1,10 @@
-import { createContext, useContext, useMemo, type ReactNode } from "react"
+import {
+  createContext,
+  useContext,
+  useMemo,
+  type MouseEvent,
+  type ReactNode,
+} from "react"
 import { isSafeHttpUrl, linkDisplay } from "../lib/links"
 import { parseInline, type InlineToken } from "../lib/markdown-inline"
 
@@ -6,6 +12,8 @@ import { parseInline, type InlineToken } from "../lib/markdown-inline"
 export type PathOpener = (path: string) => (() => void) | null
 
 export const PathActions = createContext<PathOpener | null>(null)
+
+export const LinkActions = createContext<((url: string) => void) | null>(null)
 
 export function InlineText({ text }: { text: string }) {
   const tokens = useMemo(() => parseInline(text), [text])
@@ -108,21 +116,50 @@ function ImageRef({ url, alt }: { url: string; alt: string }) {
   )
 }
 
+function shouldOpenInSurface(event: MouseEvent<HTMLAnchorElement>): boolean {
+  return (
+    event.button === 0 &&
+    !event.defaultPrevented &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.shiftKey &&
+    !event.altKey
+  )
+}
+
 export function InlineLink({
   url,
   children,
+  className,
 }: {
   url: string
   /** Null for a bare url — the host and path become the label instead. */
   children: ReactNode
+  className?: string
 }) {
+  const openInSurface = useContext(LinkActions)
   if (!isSafeHttpUrl(url)) return <>{children ?? url}</>
   const display = linkDisplay(url)
   const fallback = display.hint
     ? `${display.host} · ${display.hint}`
     : `${display.host}${display.label === display.host ? "" : display.label}`
   return (
-    <a className="md-link" href={url} target="_blank" rel="noreferrer" title={url}>
+    <a
+      className={className ?? "md-link"}
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      title={
+        openInSurface
+          ? `${url} — open in Browser panel (⌘/Ctrl-click opens externally)`
+          : url
+      }
+      onClick={(event) => {
+        if (!openInSurface || !shouldOpenInSurface(event)) return
+        event.preventDefault()
+        openInSurface(url)
+      }}
+    >
       {children ?? fallback}
       <span className="md-link-arrow" aria-hidden>
         ↗

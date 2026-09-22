@@ -862,13 +862,13 @@ export default function App() {
   const activeSurface = activeId ? (surfaceBySession[activeId] ?? null) : null
 
   useEffect(() => {
+    pruneScriptTerminals(new Set(sessions.map((s) => s.id)))
     if (sessions.length === 0) return
     const live = new Set(sessions.map((s) => s.id))
     prunePendingRuns(live)
     prunePendingPrompts(live)
     pruneDiffComments(live)
     prunePreviewPicks(live)
-    pruneScriptTerminals(live)
     setLayout((curr) => pruneLayout(curr, live))
     setSurfaceBySession((curr) => {
       const next = Object.fromEntries(
@@ -955,6 +955,30 @@ export default function App() {
         [sessionId]: { path, at: Date.now() },
       }))
       openSurface(paneId, sessionId, "diff")
+    },
+    [openSurface],
+  )
+
+  const openFileForSession = useCallback(
+    (paneId: string, sessionId: string, path: string) => {
+      setFilesFocusBySession((curr) => ({
+        ...curr,
+        [sessionId]: {
+          path,
+          line: null,
+          directory: false,
+          at: Date.now(),
+        },
+      }))
+      openSurface(paneId, sessionId, "files")
+    },
+    [openSurface],
+  )
+
+  const openBrowserForUrl = useCallback(
+    (paneId: string, sessionId: string, url: string) => {
+      stashBrowserUrl(sessionId, url)
+      openSurface(paneId, sessionId, "browser")
     },
     [openSurface],
   )
@@ -1730,6 +1754,9 @@ export default function App() {
       onRunScript: runScript,
       onSaveScripts: saveScripts,
       onOpenDiff: openDiffForPath,
+      onOpenBrowser: openBrowserForUrl,
+      onOpenFile: openFileForSession,
+      onOpenBoard: (paneId, sessionId) => openSurface(paneId, sessionId, "board"),
       onCreate: () => openNewSession(),
       onShowShortcuts: () => setShortcutsOpen(true),
       onOpenInbox: openInbox,
@@ -1759,6 +1786,9 @@ export default function App() {
       editQueued,
       focusPaneById,
       openDiffForPath,
+      openBrowserForUrl,
+      openFileForSession,
+      openSurface,
       openEditor,
       openFolder,
       openInbox,

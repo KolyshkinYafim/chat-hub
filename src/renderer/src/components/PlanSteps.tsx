@@ -12,6 +12,7 @@ export type PlanStepsProps = {
   expandKey?: string
   /** Start expanded (default true while a step is in_progress). */
   defaultOpen?: boolean
+  onOpenBoard?: () => void
 }
 
 const expansionRemembered = new Map<string, boolean>()
@@ -26,6 +27,7 @@ export function PlanSteps({
   toolName,
   expandKey = "plan",
   defaultOpen,
+  onOpenBoard,
 }: PlanStepsProps) {
   const { current, total } = planProgress(steps)
   const hasRunning = steps.some((s) => s.status === "in_progress")
@@ -70,6 +72,16 @@ export function PlanSteps({
         ) : null}
         {toolName ? <span className="plan-kind">{toolName}</span> : null}
       </button>
+      {onOpenBoard && steps.length > 0 ? (
+        <button
+          type="button"
+          className="link-btn plan-board-link"
+          title="Open this plan in the project Board"
+          onClick={onOpenBoard}
+        >
+          Board ↗
+        </button>
+      ) : null}
       {open ? (
         steps.length === 0 ? (
           <p className="plan-empty">No steps yet.</p>

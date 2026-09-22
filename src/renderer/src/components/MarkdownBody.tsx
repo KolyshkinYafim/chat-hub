@@ -7,7 +7,13 @@ import { ChangedFiles } from "./ChangedFiles"
 import { CodeBlock } from "./CodeBlock"
 import { DataTable } from "./DataTable"
 import { DiffBody } from "./DiffBody"
-import { InlineText, PathActions, type PathOpener } from "./InlineText"
+import {
+  InlineText,
+  InlineLink,
+  LinkActions,
+  PathActions,
+  type PathOpener,
+} from "./InlineText"
 import { MermaidDiagram } from "./MermaidDiagram"
 import { PlanSteps } from "./PlanSteps"
 import { ToolRun } from "./ToolRun"
@@ -21,6 +27,9 @@ export function MarkdownBody({
   streaming,
   cwd,
   onOpenDiff,
+  onOpenFile,
+  onOpenBrowser,
+  onOpenBoard,
 }: {
   text: string
   /** Scopes each card's remembered expansion — CLIs reuse ids across turns. */
@@ -28,6 +37,9 @@ export function MarkdownBody({
   streaming?: boolean
   cwd?: string
   onOpenDiff?: (path: string) => void
+  onOpenFile?: (path: string) => void
+  onOpenBrowser?: (url: string) => void
+  onOpenBoard?: () => void
 }) {
   const { blocks, changed } = useMemo(
     () => buildTranscript(text, messageId),
@@ -38,29 +50,33 @@ export function MarkdownBody({
   // A path in prose is only worth a click when this turn actually touched it —
   // anything else would open the Diff panel on a file that is not in the diff.
   const openPath = useMemo<PathOpener | null>(() => {
-    if (!onOpenDiff) return null
+    if (!onOpenDiff && !onOpenFile) return null
     return (path) => {
       const hit = matchPath(files, (file) => file.path, path)
-      return hit ? () => onOpenDiff(hit.path) : null
+      if (hit && onOpenDiff) return () => onOpenDiff(hit.path)
+      return onOpenFile ? () => onOpenFile(path) : null
     }
-  }, [files, onOpenDiff])
+  }, [files, onOpenDiff, onOpenFile])
 
   return (
-    <PathActions.Provider value={openPath}>
-      <div className={`md-body ${streaming ? "streaming" : ""}`}>
-        {blocks.map((block, i) => (
-          <Block
-            key={i}
-            block={block}
-            live={streaming === true}
-            scope={`${messageId ?? ""}/b${i}`}
-          />
-        ))}
-        {streaming ? null : (
-          <ChangedFiles changed={changed} cwd={cwd} onOpenDiff={onOpenDiff} />
-        )}
-      </div>
-    </PathActions.Provider>
+    <LinkActions.Provider value={onOpenBrowser ?? null}>
+      <PathActions.Provider value={openPath}>
+        <div className={`md-body ${streaming ? "streaming" : ""}`}>
+          {blocks.map((block, i) => (
+            <Block
+              key={i}
+              block={block}
+              live={streaming === true}
+              scope={`${messageId ?? ""}/b${i}`}
+              onOpenBoard={onOpenBoard}
+            />
+          ))}
+          {streaming ? null : (
+            <ChangedFiles changed={changed} cwd={cwd} onOpenDiff={onOpenDiff} />
+          )}
+        </div>
+      </PathActions.Provider>
+    </LinkActions.Provider>
   )
 }
 
@@ -68,10 +84,12 @@ function Block({
   block,
   live,
   scope,
+  onOpenBoard,
 }: {
   block: AnyBlock
   live: boolean
   scope: string
+  onOpenBoard?: () => void
 }): ReactNode {
   switch (block.kind) {
     case "tools":
@@ -83,6 +101,7 @@ function Block({
           title={"title" in block ? block.title : block.name}
           toolName={block.name}
           expandKey={"key" in block ? block.key : scope}
+          onOpenBoard={onOpenBoard}
         />
       )
     case "h":
@@ -105,7 +124,13 @@ function Block({
           {block.blocks
             .filter((child) => child.kind !== "tool" && child.kind !== "plan")
             .map((child, i) => (
-              <Block key={i} block={child} live={live} scope={`${scope}q${i}`} />
+              <Block
+                key={i}
+                block={child}
+                live={live}
+                scope={`${scope}q${i}`}
+                onOpenBoard={onOpenBoard}
+              />
             ))}
         </blockquote>
       )
@@ -232,12 +257,9 @@ function Paragraph({ text }: { text: string }) {
 function LinkCard({ url }: { url: string }) {
   const { host, label, hint } = linkDisplay(url)
   return (
-    <a
+    <InlineLink
       className="md-link-card"
-      href={url}
-      target="_blank"
-      rel="noreferrer"
-      title={url}
+      url={url}
     >
       <span className="md-link-globe" aria-hidden>
         <svg width="14" height="14" viewBox="0 0 14 14">
@@ -252,6 +274,6 @@ function LinkCard({ url }: { url: string }) {
       <span className="md-link-arrow" aria-hidden>
         ↗
       </span>
-    </a>
+    </InlineLink>
   )
 }

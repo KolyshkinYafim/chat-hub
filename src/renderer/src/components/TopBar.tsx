@@ -1,16 +1,11 @@
 import { OriginBadge } from "./OriginBadge"
 import { useState } from "react"
-import type {
-  GitCheckoutInfo,
-  ProviderRateLimits,
-  SessionMeta,
-} from "@shared/types"
+import type { GitCheckoutInfo, SessionMeta } from "@shared/types"
 import type { ProjectScript } from "@shared/scripts"
 import { attentionBadge, needsAction } from "@shared/attention"
 import { StatusDot } from "./StatusDot"
 import { ScriptsMenu } from "./ScriptsMenu"
-import { shortCwd, statusLabel } from "../lib/format"
-import { formatQuotaChip, quotaChipTitle } from "../lib/allowance"
+import { statusLabel } from "../lib/format"
 import { phaseLabel } from "@shared/live"
 import type { LivePhase } from "@shared/types"
 import { PanelIcon } from "./surfaces/SurfaceIcon"
@@ -21,7 +16,6 @@ type Props = {
   dockOpen: boolean
   scripts: ProjectScript[]
   inboxCount: number
-  limits?: ProviderRateLimits | null
   phase?: LivePhase | null
   onOpenInbox: () => void
   onRunScript: (script: ProjectScript) => void
@@ -39,7 +33,6 @@ export function TopBar({
   dockOpen,
   scripts,
   inboxCount,
-  limits = null,
   phase = null,
   onOpenInbox,
   onRunScript,
@@ -52,7 +45,6 @@ export function TopBar({
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
   const badge = attentionBadge(inboxCount)
-  const quota = formatQuotaChip(limits)
   const statusHint =
     session.status === "running" && phase !== null
       ? phaseLabel[phase]
@@ -80,10 +72,6 @@ export function TopBar({
         <OriginBadge origin={session.origin} />
         <div className="topbar-meta">
           <span className="mono-soft">{session.project}</span>
-          <span className="sep">·</span>
-          <span className="mono-soft" title={session.cwd}>
-            {shortCwd(session.cwd)}
-          </span>
           {git && git.branch !== "no-git" ? (
             <>
               <span className="sep">·</span>
@@ -93,64 +81,39 @@ export function TopBar({
               </span>
             </>
           ) : null}
-          {quota ? (
-            <>
-              <span className="sep">·</span>
-              <span
-                className="quota-chip"
-                title={quotaChipTitle(limits) ?? undefined}
-              >
-                {quota}
-              </span>
-            </>
-          ) : null}
         </div>
       </div>
       {/* No Stop here: the only Stop lives next to Send, where the hand is. */}
       <div className="topbar-actions">
-        <div className="inbox-entry">
-          <button
-            type="button"
-            className="icon-chip"
-            title="Agent inbox (⌥⇧I)"
-            aria-label={
-              inboxCount > 0
-                ? `Agent inbox, ${inboxCount} waiting`
-                : "Agent inbox"
-            }
-            onClick={onOpenInbox}
-          >
-            <InboxIcon />
-          </button>
-          {badge ? (
-            <span className="inbox-badge" aria-hidden>
-              {badge}
-            </span>
-          ) : null}
-        </div>
-        <ScriptsMenu
-          scripts={scripts}
-          onRun={onRunScript}
-          onSave={onSaveScripts}
-        />
+        {inboxCount > 0 ? (
+          <div className="inbox-entry">
+            <button
+              type="button"
+              className="icon-chip"
+              title="Agent inbox (⌥⇧I)"
+              aria-label={`Agent inbox, ${inboxCount} waiting`}
+              onClick={onOpenInbox}
+            >
+              <InboxIcon />
+            </button>
+            {badge ? (
+              <span className="inbox-badge" aria-hidden>
+                {badge}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         <div className="tb-split">
           <button
             type="button"
             className="tb-btn"
-            title="Open folder in Finder"
-            onClick={onOpenFolder}
-          >
-            Open
-          </button>
-          <button
-            type="button"
-            className="tb-btn tb-btn-narrow"
-            title="More…"
+            title="Session actions"
+            aria-label="Session actions"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((o) => !o)}
           >
-            ▾
+            •••
           </button>
           {menuOpen ? (
             <>
@@ -160,6 +123,26 @@ export function TopBar({
                 onClick={() => setMenuOpen(false)}
               />
               <div className="tb-menu" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    onRename()
+                  }}
+                >
+                  Rename session
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    onOpenInbox()
+                  }}
+                >
+                  Agent inbox
+                </button>
                 <button
                   type="button"
                   role="menuitem"
@@ -190,27 +173,25 @@ export function TopBar({
                 >
                   Reveal in Finder
                 </button>
+                <ScriptsMenu
+                  scripts={scripts}
+                  onRun={onRunScript}
+                  onSave={onSaveScripts}
+                />
               </div>
             </>
           ) : null}
         </div>
-        <button
-          type="button"
-          className="tb-btn"
-          onClick={onCommit}
-          title="Source control — stage, diff, commit (⌘G)"
-        >
-          Commit
-        </button>
-        <button
-          type="button"
-          className="icon-chip"
-          title="Rename session"
-          aria-label="Rename session"
-          onClick={onRename}
-        >
-          ✎
-        </button>
+        {git && git.branch !== "no-git" ? (
+          <button
+            type="button"
+            className="tb-btn"
+            onClick={onCommit}
+            title="Source control — stage, diff, commit (⌘G)"
+          >
+            Changes
+          </button>
+        ) : null}
         <button
           type="button"
           className={`icon-chip panel-toggle ${dockOpen ? "is-on" : ""}`}
@@ -219,6 +200,7 @@ export function TopBar({
           onClick={onToggleDock}
         >
           <PanelIcon open={dockOpen} />
+          <span>Workspace</span>
         </button>
       </div>
     </header>

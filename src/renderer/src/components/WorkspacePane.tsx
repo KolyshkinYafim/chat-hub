@@ -85,6 +85,9 @@ export type PaneActions = {
   onRunScript: (paneId: string, sessionId: string, script: ProjectScript) => void
   onSaveScripts: (cwd: string, scripts: ProjectScript[]) => Promise<void>
   onOpenDiff: (paneId: string, sessionId: string, path: string) => void
+  onOpenBrowser: (paneId: string, sessionId: string, url: string) => void
+  onOpenFile: (paneId: string, sessionId: string, path: string) => void
+  onOpenBoard: (paneId: string, sessionId: string) => void
   onCreate: () => void
   onShowShortcuts: () => void
   onOpenInbox: () => void
@@ -312,6 +315,13 @@ function PaneView({
       onOpenDiff={(path) =>
         sessionId && actions.onOpenDiff(paneId, sessionId, path)
       }
+      onOpenBrowser={(url) =>
+        sessionId && actions.onOpenBrowser(paneId, sessionId, url)
+      }
+      onOpenFile={(path) =>
+        sessionId && actions.onOpenFile(paneId, sessionId, path)
+      }
+      onOpenBoard={() => sessionId && actions.onOpenBoard(paneId, sessionId)}
       dockOpen={dockOpen}
       onToggleDock={() => actions.onToggleDock(paneId)}
       inboxCount={inboxCount}

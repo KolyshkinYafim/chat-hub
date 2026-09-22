@@ -23,8 +23,6 @@ import {
 
 const DEFAULT_URL = "http://localhost:5173"
 
-const ACTIVITY_FADE_MS = 4000
-
 const PICK_POLL_MS = 300
 
 const PICK_LABEL_CHARS = 32
@@ -116,7 +114,7 @@ export function BrowserSurface({ sessionId }: Props) {
   const [canGoBack, setCanGoBack] = useState(false)
   const [canGoForward, setCanGoForward] = useState(false)
   const [attached, setAttached] = useState(false)
-  const [activity, setActivity] = useState<BrowserActivity | null>(null)
+  const [activityTrail, setActivityTrail] = useState<BrowserActivity[]>([])
   const [fallbackNonce, setFallbackNonce] = useState(0)
   const [picking, setPicking] = useState(false)
   const [pendingPick, setPendingPick] = useState<PickTarget | null>(null)
@@ -215,15 +213,14 @@ export function BrowserSurface({ sessionId }: Props) {
   useEffect(() => {
     return window.chatHub.onBrowserActivity((event) => {
       if (event.sessionId !== sessionId) return
-      setActivity(event)
+      setActivityTrail((current) => [
+        event,
+        ...current.filter(
+          (item) => item.at !== event.at || item.op !== event.op,
+        ),
+      ].slice(0, 3))
     })
   }, [sessionId])
-
-  useEffect(() => {
-    if (activity === null) return
-    const timer = window.setTimeout(() => setActivity(null), ACTIVITY_FADE_MS)
-    return () => window.clearTimeout(timer)
-  }, [activity])
 
   const visit = useCallback(
     (raw: string) => {
@@ -337,7 +334,7 @@ export function BrowserSurface({ sessionId }: Props) {
               : "Agent control attaches once the page is ready"
           }
         >
-          {attached ? "agent ready" : "agent off"}
+          {attached ? "agent controls tab" : "agent off"}
         </span>
       </div>
       {pendingPick !== null || picks.length > 0 ? (
@@ -388,13 +385,24 @@ export function BrowserSurface({ sessionId }: Props) {
           ) : null}
         </div>
       ) : null}
-      {activity ? (
-        <div
-          className={`surface-browser-activity ${activity.ok ? "" : "failed"}`}
-          role="status"
-        >
-          {activityLabel(activity)}
-        </div>
+      {activityTrail.length > 0 ? (
+        <section className="surface-browser-activity" aria-label="Agent browser activity">
+          <span className="surface-browser-activity-label">Agent activity</span>
+          <ol className="surface-browser-activity-list">
+            {activityTrail.map((activity) => (
+              <li
+                key={`${activity.at}:${activity.op}`}
+                className={activity.ok ? "" : "failed"}
+                title={`${activity.op} · ${activity.url}`}
+              >
+                <span className="surface-browser-activity-op">{activity.op}</span>
+                <span className="surface-browser-activity-summary">
+                  {activityLabel(activity)}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
       ) : null}
       <div className="surface-browser-view">
         {embedded ? (

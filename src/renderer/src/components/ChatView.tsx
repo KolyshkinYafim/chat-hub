@@ -25,7 +25,6 @@ import type {
   TurnUsage,
 } from "@shared/types"
 import type { PermissionMode } from "@shared/permission"
-import { PERMISSION_LABELS } from "@shared/permission"
 import type { ProjectScript } from "@shared/scripts"
 import type { Mode, ModelInfo } from "@shared/settings-types"
 import { formatClock, formatRelative } from "../lib/format"
@@ -163,6 +162,9 @@ type Props = {
   onSaveScripts: (scripts: ProjectScript[]) => Promise<void>
   /** A path from a turn's changed-files row — opens it in the Diff surface. */
   onOpenDiff: (path: string) => void
+  onOpenBrowser: (url: string) => void
+  onOpenFile: (path: string) => void
+  onOpenBoard: () => void
   dockOpen: boolean
   onToggleDock: () => void
   inboxCount: number
@@ -347,6 +349,30 @@ function ItemBody({ item }: { item: AgentTurnItem }) {
   }
 }
 
+function ProviderNotices({ messages }: { messages: ChatMessage[] }) {
+  const notices = new Map<string, Extract<AgentTurnItem, { kind: "notice" }>>()
+  for (const message of messages) {
+    for (const item of message.items ?? []) {
+      if (item.kind === "notice") notices.set(item.id, item)
+    }
+  }
+  if (notices.size === 0) return null
+  return (
+    <details className="provider-notices">
+      <summary>Integration notices <span>{notices.size}</span></summary>
+      <div className="provider-notices-list">
+        {[...notices.values()].map(item => (
+          <div key={item.id} className="provider-notice">
+            <strong>{item.title}</strong>
+            {item.detail ? <p>{item.detail}</p> : null}
+            {item.source ? <small>{item.source}</small> : null}
+          </div>
+        ))}
+      </div>
+    </details>
+  )
+}
+
 function TurnItems({
   items,
   content,
@@ -358,16 +384,19 @@ function TurnItems({
   streaming?: boolean
   onJumpToItem: (itemId: string) => void
 }) {
-  if (!items?.length && !streaming) return null
+  const workItems = items?.filter(item => item.kind !== "notice")
+  if (!workItems?.length && !streaming) return null
   const byId = new Map((items ?? []).map((item) => [item.id, item]))
-  const nodes = groupFeed(stepsFromItems(items))
+  const nodes = groupFeed(stepsFromItems(workItems))
   return (
-    <div className="turn-activity">
+    <details className="turn-activity" open={streaming}>
+      <summary className="turn-activity-toggle">{streaming ? "Working" : "Work details"} · {workItems?.filter(item => item.kind !== "reasoning").length ?? 0} steps</summary>
+      <div className="turn-activity-body">
       {/* The header is the whole sequence, at a height that does not move. The
           cards below it are the detail behind each of its rows, and none of
           them opens or closes on its own while the turn streams. */}
       <TurnTimeline
-        items={items}
+        items={workItems}
         content={content}
         streaming={streaming}
         onJump={onJumpToItem}
@@ -389,7 +418,8 @@ function TurnItems({
           </FeedRunRow>
         )
       })}
-    </div>
+      </div>
+    </details>
   )
 }
 
@@ -635,6 +665,9 @@ export function ChatView({
   onRunScript,
   onSaveScripts,
   onOpenDiff,
+  onOpenBrowser,
+  onOpenFile,
+  onOpenBoard,
   dockOpen,
   onToggleDock,
   inboxCount,
@@ -1278,10 +1311,6 @@ export function ChatView({
       ? `${git.branch}${git.dirty ? " *" : ""}`
       : "no-git"
 
-  const modelLabel =
-    models.find((m) => m.id === session.model)?.label ??
-    session.model ??
-    "CLI default"
   const supportsEffort = effortCapabilities.supports
   const availableEfforts = effortCapabilities.available
   const running = session.status === "running"
@@ -1300,7 +1329,6 @@ export function ChatView({
         dockOpen={dockOpen}
         scripts={scripts}
         inboxCount={inboxCount}
-        limits={limits}
         phase={headPhase}
         onOpenInbox={onOpenInbox}
         onRunScript={onRunScript}
@@ -1311,16 +1339,6 @@ export function ChatView({
         onCommit={onCommit}
         onRename={onRename}
       />
-
-      <div className="system-banner" title={session.cwd}>
-        <span className="mono-soft">
-          {session.provider}
-          {` · ${modelLabel}`}
-          {` · ${PERMISSION_LABELS[permissionMode]}`}
-          {supportsEffort ? ` · ${effort}` : ""}
-        </span>
-        <span className="mono-soft dim">{session.cwd}</span>
-      </div>
 
       {onboard ? (
         <div className="onboard-strip">
@@ -1352,12 +1370,7 @@ export function ChatView({
         </div>
       ) : null}
 
-      {permissionMode === "default" ? (
-        <div className="warn-banner">
-          Ask mode — risky Codex actions are denied until the approval card is
-          answered. YOLO keeps turns moving without prompts.
-        </div>
-      ) : null}
+      <ProviderNotices messages={messages} />
 
       <GrokTrustBanner cwd={session.cwd} provider={session.provider} />
 
@@ -1593,6 +1606,9 @@ export function ChatView({
                         streaming={m.streaming}
                         cwd={session.cwd}
                         onOpenDiff={onOpenDiff}
+                        onOpenBrowser={onOpenBrowser}
+                        onOpenFile={onOpenFile}
+                        onOpenBoard={onOpenBoard}
                       />
                     </section>
                   ) : null}
@@ -1715,8 +1731,13 @@ export function ChatView({
             onJump={jumpToLiveCard}
           />
         ) : null}
-        <ContextMeter usage={usage} model={session.model} />
-        <AllowanceMeter limits={limits} />
+        {usage || limits ? (
+          <details className="composer-usage">
+            <summary>Usage & context</summary>
+            <ContextMeter usage={usage} model={session.model} />
+            <AllowanceMeter limits={limits} />
+          </details>
+        ) : null}
         <div className="composer-shell">
           <textarea
             ref={taRef}
@@ -1724,7 +1745,7 @@ export function ChatView({
             placeholder={
               running
                 ? "Agent is working — Enter queues this for the next turn (Esc stops)"
-                : "Ask the agent… (Enter send · Shift+Enter newline)"
+                : "What would you like to work on?"
             }
             rows={2}
             onChange={(e) => {
@@ -1797,7 +1818,7 @@ export function ChatView({
                       : "Voice"}
                 </button>
               ) : null}
-              <div className="stash-anchor" ref={stashRef}>
+              <div className={`stash-anchor${stash.length === 0 && !stashOpen ? " is-empty" : ""}`} ref={stashRef}>
                 <button
                   type="button"
                   className="composer-action stash-btn"

@@ -94,7 +94,7 @@ export function ScriptsMenu({ scripts, onRun, onSave }: Props) {
         aria-expanded={menuOpen}
         onClick={() => setMenuOpen((o) => !o)}
       >
-        Actions ▾
+        Project scripts ▾
       </button>
       {menuOpen ? (
         <>
